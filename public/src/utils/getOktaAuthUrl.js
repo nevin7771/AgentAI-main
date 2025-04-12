@@ -1,7 +1,9 @@
+// In getOktaAuthUrl.js
 export const continueWithOktaOauth = () => {
   const oktaClientId = process.env.REACT_APP_OKTA_CLIENT_ID;
   const oktaIssuer = process.env.REACT_APP_OKTA_ISSUER;
-  const redirectUri = process.env.REACT_APP_OKTA_REDIRECT_URI;
+  // This should point to your backend callback, not frontend
+  const redirectUri = "http://localhost:3030/api/auth/okta/callback";
 
   const authUrl = new URL(`${oktaIssuer}/v1/authorize`);
   authUrl.searchParams.append("client_id", oktaClientId);

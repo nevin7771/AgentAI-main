@@ -1,4 +1,4 @@
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes, Navigate } from "react-router-dom";
 import Header from "../Header/Header";
 import InputSection from "../InputSection/InputSection";
 import NewChat from "../NewChat/NewChat";
@@ -15,12 +15,17 @@ const ChatSection = () => {
       <Header />
       <AdvanceGemini />
       {isLoader && <Loader />}
-      <Routes>
-        <Route path="/" element={<NewChat />}></Route>
-        <Route path="/app" element={<ScrollChat />}></Route>
-        <Route path="/app/:historyId" element={<ScrollChat />}></Route>
-      </Routes>
 
+      <Routes>
+        <Route path="/" element={<NewChat />} />
+        <Route path="/app" element={<ScrollChat />} />
+        <Route path="/app/:historyId" element={<ScrollChat />} />
+        {/* Add this redirect route */}
+        <Route
+          path="/api/auth/okta/callback"
+          element={<Navigate to="/" replace />}
+        />
+      </Routes>
       <InputSection />
       <div className={styles["warning-text"]}>
         <p>

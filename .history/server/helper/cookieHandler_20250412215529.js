@@ -1,13 +1,6 @@
-export const getCookieValue = (req, cookieName) => {
+// Fixed version
+export const getCookieValue = (cookieString, cookieName) => {
   try {
-    // Make it work with both string and request object
-    const cookieString =
-      typeof req === "string"
-        ? req
-        : req.headers && req.headers.cookie
-        ? req.headers.cookie
-        : "";
-
     if (!cookieString) return null;
 
     const cookies = cookieString.split(";").map((cookie) => cookie.trim());

@@ -25,9 +25,9 @@ app.use(requestIp.mw());
 const originUrl = process.env.CLIENT_REDIRECT_URL;
 
 const crosOption = {
-  origin: originUrl,
+  origin: "http://localhost:3000", // Frontend URL (no trailing slash)
   optionsSuccessStatus: 200,
-  credentials: true,
+  credentials: true, // Essential for cookies
 };
 
 app.use(cros(crosOption));

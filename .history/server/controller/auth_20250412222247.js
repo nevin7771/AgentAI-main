@@ -4,6 +4,7 @@ import "dotenv/config";
 import jwt from "jsonwebtoken";
 import { getCookieValue } from "../helper/cookieHandler.js";
 import { tokenVerify } from "../helper/tokenVerify.js";
+import { user } from "../model/user.js";
 
 const clientRedirectUrl = process.env.CLIENT_REDIRECT_URL;
 const accessTokenSecret = process.env.ACCESS_TOKEN_JWT_SECRET;
@@ -77,26 +78,13 @@ export const oktaAuthHandler = async (req, res, next) => {
 // ✅ 2. Provide user info from cookie
 export const getUserInfo = async (req, res) => {
   try {
-    console.log("Getting user info, cookies:", req.headers.cookie);
-    const token = getCookieValue(req.headers.cookie || "", "token");
-
-    if (!token) {
-      console.log("No token found in cookie");
-      return res.status(401).json({ message: "No authentication token found" });
-    }
-
-    console.log("Verifying token");
+    const token = getCookieValue(req, "token");
     const userData = jwt.verify(token, accessTokenSecret);
-    console.log("Token verified, user data:", userData);
-
+    console.log("Verified userData:", userData);
     const dbUser = await user.findOne({ email: userData.email });
 
-    if (!dbUser) {
-      console.log("User not found in database:", userData.email);
-      return res.status(404).json({ message: "User not found" });
-    }
+    if (!dbUser) return res.status(404).json({ message: "User not found" });
 
-    console.log("User found, returning info");
     res.json({
       name: dbUser.name,
       email: dbUser.email,

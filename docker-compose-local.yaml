@@ -18,8 +18,8 @@ services:
     ports:
       - "3031:3030" # Changed to 3031->3030 to avoid conflict
     environment:
-      - MONGODB_URL=mongodb://mongodb:27017/gemini # Internal Docker network connection stays the same
-      - CLIENT_REDIRECT_URL=http://localhost:3001 # Update to match new client port
+      - MONGODB_URL=mongodb://localhost:27017/gemini # Internal Docker network connection stays the same
+      - CLIENT_REDIRECT_URL=http://localhost:3000 # Update to match new client port
     env_file:
       - ./server/.env
     depends_on:
@@ -38,7 +38,7 @@ services:
     ports:
       - "3001:3000" # Changed to 3001->3000 to avoid conflict
     environment:
-      - REACT_APP_SERVER_ENDPOINT=http://localhost:3031 # Update to match new server port
+      - REACT_APP_SERVER_ENDPOINT=http://localhost:3030 # Update to match new server port
     env_file:
       - ./public/.env
     depends_on:

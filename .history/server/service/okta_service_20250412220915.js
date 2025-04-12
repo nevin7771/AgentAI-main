@@ -1,4 +1,3 @@
-// In okta_service.js
 import "dotenv/config";
 import jwt from "jsonwebtoken";
 import OktaJwtVerifier from "@okta/jwt-verifier";
@@ -19,6 +18,12 @@ const clientId = process.env.OKTA_CLIENT_ID;
 const clientSecret = process.env.OKTA_CLIENT_SECRET;
 const redirectUri = process.env.OKTA_REDIRECT_URI;
 
+if (!oktaDomain || !clientId || !clientSecret || !redirectUri) {
+  throw new Error(
+    "Missing required Okta configuration in environment variables"
+  );
+}
+
 // JWT Verifier for validating Okta tokens
 const oktaJwtVerifier = new OktaJwtVerifier({
   issuer: `https://${oktaDomain}/oauth2/default`,
@@ -32,17 +37,23 @@ export const getOktaClient = async () => {
     if (!oktaClient) {
       console.log("Initializing Okta client...");
 
-      // Use the discovery method from the documentation
-      const config = await client.discovery(
-        new URL(`https://${oktaDomain}/oauth2/default`),
-        clientId,
-        clientSecret
-      );
+      // Create issuer directly using the imported Issuer class
+      const issuer = new Issuer({
+        issuer: `https://${oktaDomain}/oauth2/default`,
+        authorization_endpoint: `https://${oktaDomain}/oauth2/default/v1/authorize`,
+        token_endpoint: `https://${oktaDomain}/oauth2/default/v1/token`,
+        userinfo_endpoint: `https://${oktaDomain}/oauth2/default/v1/userinfo`,
+        jwks_uri: `https://${oktaDomain}/oauth2/default/v1/keys`,
+      });
 
-      console.log("Okta configuration discovered");
+      console.log("Issuer created:", issuer);
 
-      // The library now handles client creation internally
-      oktaClient = config;
+      oktaClient = new issuer.Client({
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uris: [redirectUri],
+        response_types: ["code"],
+      });
 
       console.log("Okta client created successfully");
     }
@@ -62,18 +73,11 @@ export const getOktaClient = async () => {
 
 export const getOktaTokens = async (code) => {
   try {
-    const config = await getOktaClient();
+    const client = await getOktaClient();
     console.log("Getting tokens with code:", code);
-
-    // Use the authorizationCodeGrant function from the library
-    const tokens = await client.authorizationCodeGrant(
-      config,
-      new URL(`${redirectUri}?code=${code}`),
-      {}
-    );
-
-    console.log("Token set received");
-    return tokens;
+    const tokenSet = await client.callback(redirectUri, { code });
+    console.log("Token set received:", tokenSet);
+    return tokenSet;
   } catch (error) {
     console.error("Error getting Okta tokens:", error);
     throw error;
@@ -82,18 +86,10 @@ export const getOktaTokens = async (code) => {
 
 export const getOktaUserInfo = async (accessToken) => {
   try {
+    const client = await getOktaClient();
     console.log("Getting user info with token");
-
-    // Use fetchProtectedResource to get user info
-    const userInfoResponse = await client.fetchProtectedResource(
-      await getOktaClient(),
-      accessToken,
-      new URL(`https://${oktaDomain}/oauth2/default/v1/userinfo`),
-      "GET"
-    );
-
-    const userInfo = await userInfoResponse.json();
-    console.log("User info received");
+    const userInfo = await client.userinfo(accessToken);
+    console.log("User info received:", userInfo);
     return userInfo;
   } catch (error) {
     console.error("Error getting Okta user info:", error);

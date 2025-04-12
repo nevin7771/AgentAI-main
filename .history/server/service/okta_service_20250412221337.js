@@ -1,7 +1,7 @@
 import "dotenv/config";
 import jwt from "jsonwebtoken";
 import OktaJwtVerifier from "@okta/jwt-verifier";
-import { Issuer } from "openid-client";
+import * as client from "openid-client";
 
 // Debug logging for environment variables
 console.log("Environment Variables:");
@@ -37,17 +37,20 @@ export const getOktaClient = async () => {
     if (!oktaClient) {
       console.log("Initializing Okta client...");
 
-      // Create issuer directly instead of using discover
-      const issuer = new Issuer({
+      // Create issuer directly using the imported Issuer class
+      const issuerMetadata = {
         issuer: `https://${oktaDomain}/oauth2/default`,
         authorization_endpoint: `https://${oktaDomain}/oauth2/default/v1/authorize`,
         token_endpoint: `https://${oktaDomain}/oauth2/default/v1/token`,
         userinfo_endpoint: `https://${oktaDomain}/oauth2/default/v1/userinfo`,
         jwks_uri: `https://${oktaDomain}/oauth2/default/v1/keys`,
-      });
+      };
 
-      console.log("Issuer created:", issuer);
+      // Create the issuer with metadata
+      const issuer = new Issuer(issuerMetadata);
+      console.log("Issuer created manually:", issuer.metadata.issuer);
 
+      // Create client
       oktaClient = new issuer.Client({
         client_id: clientId,
         client_secret: clientSecret,

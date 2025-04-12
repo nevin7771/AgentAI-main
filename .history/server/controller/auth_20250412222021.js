@@ -25,25 +25,21 @@ export const oktaAuthHandler = async (req, res, next) => {
     const userData = await getOktaUserInfo(tokenData.access_token);
     console.log("User info retrieved:", userData.email);
 
-    // Create user info object
     const userInfo = {
       email: userData.email,
-      name: userData.name || userData.email.split("@")[0], // Fallback if name is missing
-      profileImg: userData.picture || "",
+      name: userData.name,
     };
-
-    console.log("Looking for user with email:", userInfo.email);
 
     // Find or create user
     let existingUser = await user.findOne({ email: userInfo.email });
 
     if (!existingUser) {
-      console.log("User not found, creating new user");
-      const newUser = new user(userInfo);
-      existingUser = await newUser.save();
-      console.log("New user created with ID:", existingUser._id);
+      // Create new user if not found
+      console.log("Creating new user with email:", userInfo.email);
+      existingUser = new user(userInfo);
+      await existingUser.save();
     } else {
-      console.log("Found existing user with ID:", existingUser._id);
+      console.log("Found existing user:", existingUser.email);
     }
 
     // Create JWT token
@@ -53,21 +49,20 @@ export const oktaAuthHandler = async (req, res, next) => {
       { expiresIn: accessTokenExpire }
     );
 
-    console.log("JWT token created");
-
     // Set cookie for cross-origin
     res.cookie("token", accessToken, {
       httpOnly: true,
       sameSite: "lax", // For dev environment
       secure: false, // For dev environment
+      domain: cookieDomain,
+      path: "/",
       maxAge: 1000 * 60 * 30,
     });
 
-    console.log("Cookie set, redirecting to:", clientRedirectUrl);
+    console.log("Auth cookie set, redirecting to:", clientRedirectUrl);
     res.redirect(clientRedirectUrl);
   } catch (err) {
     console.error("Okta Auth Error:", err);
-    console.error("Error stack:", err.stack);
     res
       .status(500)
       .json({ message: "Authentication failed", error: err.message });
@@ -77,26 +72,13 @@ export const oktaAuthHandler = async (req, res, next) => {
 // ✅ 2. Provide user info from cookie
 export const getUserInfo = async (req, res) => {
   try {
-    console.log("Getting user info, cookies:", req.headers.cookie);
-    const token = getCookieValue(req.headers.cookie || "", "token");
-
-    if (!token) {
-      console.log("No token found in cookie");
-      return res.status(401).json({ message: "No authentication token found" });
-    }
-
-    console.log("Verifying token");
+    const token = getCookieValue(req, "token");
     const userData = jwt.verify(token, accessTokenSecret);
-    console.log("Token verified, user data:", userData);
-
+    console.log("Verified userData:", userData);
     const dbUser = await user.findOne({ email: userData.email });
 
-    if (!dbUser) {
-      console.log("User not found in database:", userData.email);
-      return res.status(404).json({ message: "User not found" });
-    }
+    if (!dbUser) return res.status(404).json({ message: "User not found" });
 
-    console.log("User found, returning info");
     res.json({
       name: dbUser.name,
       email: dbUser.email,

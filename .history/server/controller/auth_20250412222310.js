@@ -4,6 +4,7 @@ import "dotenv/config";
 import jwt from "jsonwebtoken";
 import { getCookieValue } from "../helper/cookieHandler.js";
 import { tokenVerify } from "../helper/tokenVerify.js";
+import { user } from "../model/user.js";
 
 const clientRedirectUrl = process.env.CLIENT_REDIRECT_URL;
 const accessTokenSecret = process.env.ACCESS_TOKEN_JWT_SECRET;
