@@ -1,0 +1,54 @@
+version: "3.8"
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - gemini-network
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: gemini-server-container
+    ports:
+      - "3030:3030"
+    environment:
+      - MONGODB_URL=mongodb://mongodb:27017/gemini
+    env_file:
+      - ./server/.env
+    depends_on:
+      - mongodb
+    networks:
+      - gemini-network
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+
+  client:
+    build:
+      context: ./public
+      dockerfile: Dockerfile
+    container_name: gemini-client-container
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./public/.env
+    depends_on:
+      - server
+    networks:
+      - gemini-network
+    volumes:
+      - ./public:/app
+      - /app/node_modules
+
+networks:
+  gemini-network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
