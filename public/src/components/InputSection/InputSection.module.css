@@ -5,23 +5,23 @@
   max-width: 768px;
   margin: 0 auto;
   position: fixed;
-  bottom: 32px;
+  bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 10;
   padding: 0 16px;
+  z-index: 1000;
 }
 
 .input-main {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   background-color: #ffffff;
   border: 1px solid #e0e0e0;
   border-radius: 24px;
-  padding: 8px 8px 8px 16px;
+  padding: 12px 16px;
   width: 100%;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
   position: relative;
-  gap: 12px;
 }
 
 [data-theme="dark"] .input-main {
@@ -29,8 +29,25 @@
   border-color: #404040;
 }
 
+.controls-container {
+  display: flex;
+  align-items: center;
+  padding: 4px 0 0 0;
+}
+
+.left-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: relative;
+}
+
+.upload-container {
+  position: relative;
+}
+
 .input-form {
-  flex: 1;
+  width: 100%;
 }
 
 .input-field {
@@ -38,9 +55,9 @@
   border: none;
   background: none;
   font-size: 16px;
-  padding: 8px 0;
   color: #333333;
   outline: none;
+  padding: 8px 0;
 }
 
 [data-theme="dark"] .input-field {
@@ -49,16 +66,11 @@
 
 .input-field::placeholder {
   color: #757575;
+  font-size: 16px;
 }
 
 [data-theme="dark"] .input-field::placeholder {
   color: #a0a0a0;
-}
-
-.button-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .upload-button {
@@ -67,15 +79,16 @@
   justify-content: center;
   background: none;
   border: none;
-  padding: 8px;
+  padding: 6px;
   cursor: pointer;
-  color: #757575;
+  color: #5f6368;
   border-radius: 50%;
-  transition: background-color 0.2s;
+  transition: all 0.2s;
 }
 
 .upload-button:hover {
   background-color: #f5f5f5;
+  color: #1a73e8;
 }
 
 [data-theme="dark"] .upload-button {
@@ -84,21 +97,26 @@
 
 [data-theme="dark"] .upload-button:hover {
   background-color: #404040;
+  color: #8ab4f8;
 }
 
 .deep-search-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   background: none;
   border: none;
-  padding: 8px 16px;
+  padding: 6px 10px;
   border-radius: 16px;
-  font-size: 14px;
-  color: #757575;
+  font-size: 13px;
+  color: #5f6368;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .deep-search-btn:hover {
   background-color: #f5f5f5;
+  color: #1a73e8;
 }
 
 .deep-search-btn.active {
@@ -112,6 +130,7 @@
 
 [data-theme="dark"] .deep-search-btn:hover {
   background-color: #404040;
+  color: #8ab4f8;
 }
 
 [data-theme="dark"] .deep-search-btn.active {
@@ -119,42 +138,57 @@
   color: #ffffff;
 }
 
-.send-button {
+.upload-options {
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  transform: translateY(-100%);
+  background-color: #f8f9fc;
+  border-radius: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 4px 8px rgba(0, 0, 0, 0.05);
+  padding: 8px;
+  min-width: 200px;
+  z-index: 100;
+}
+
+[data-theme="dark"] .upload-options {
+  background-color: #2d2d2d;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2), 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.upload-options button {
   display: flex;
   align-items: center;
-  justify-content: center;
-  background: none;
+  gap: 12px;
+  width: 100%;
+  padding: 12px;
   border: none;
-  padding: 8px;
+  background: none;
+  color: #333333;
+  font-size: 14px;
   cursor: pointer;
-  color: #1a73e8;
-  border-radius: 50%;
+  border-radius: 8px;
   transition: background-color 0.2s;
 }
 
-.send-button:hover {
-  background-color: #e8f0fe;
+[data-theme="dark"] .upload-options button {
+  color: #ffffff;
 }
 
-.send-button:disabled {
-  color: #bdbdbd;
-  cursor: default;
+.upload-options button:hover {
+  background-color: #eef0f5;
 }
 
-.send-button:disabled:hover {
-  background: none;
-}
-
-[data-theme="dark"] .send-button {
-  color: #8ab4f8;
-}
-
-[data-theme="dark"] .send-button:hover {
+[data-theme="dark"] .upload-options button:hover {
   background-color: #404040;
 }
 
-[data-theme="dark"] .send-button:disabled {
+.upload-options button svg {
   color: #5f6368;
+}
+
+[data-theme="dark"] .upload-options button svg {
+  color: #a0a0a0;
 }
 
 @media (max-width: 768px) {
@@ -162,10 +196,19 @@
     bottom: 16px;
     padding: 0 8px;
   }
+  
+  .upload-options {
+    left: 0;
+    min-width: 160px;
+  }
 }
 
 @media (max-width: 480px) {
   .deep-search-btn {
-    padding: 8px 12px;
+    padding: 6px 8px;
+  }
+  
+  .upload-options {
+    left: -8px;
   }
 }
