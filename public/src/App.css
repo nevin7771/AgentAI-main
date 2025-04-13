@@ -20,3 +20,24 @@
     background-color: var(--bg-focus-mobile);
   }
 }
+/* Light theme variables */
+:root {
+  --bard-color-brand-text-gradient-stop-1: #4285f4;
+  --bard-color-brand-text-gradient-stop-1-rgb: rgb(66, 133, 244);
+  --bard-color-brand-text-gradient-stop-2: #9b72cb;
+  --bard-color-brand-text-gradient-stop-2-rgb: rgb(155, 114, 203);
+  --bard-color-brand-text-gradient-stop-3: #d96570;
+  --bard-color-brand-text-gradient-stop-3-rgb: rgb(217, 101, 112);
+  --bard-color-surface: #131314;
+}
+
+/* Dark theme variables */
+[data-theme="dark"] {
+  --bard-color-brand-text-gradient-stop-1: #4285f4;
+  --bard-color-brand-text-gradient-stop-1-rgb: rgb(66, 133, 244);
+  --bard-color-brand-text-gradient-stop-2: #9b72cb;
+  --bard-color-brand-text-gradient-stop-2-rgb: rgb(155, 114, 203);
+  --bard-color-brand-text-gradient-stop-3: #d96570;
+  --bard-color-brand-text-gradient-stop-3-rgb: rgb(217, 101, 112);
+  --bard-color-surface: #131314;
+}

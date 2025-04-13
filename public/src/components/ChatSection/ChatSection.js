@@ -27,17 +27,7 @@ const ChatSection = () => {
         />
       </Routes>
       <InputSection />
-      <div className={styles["warning-text"]}>
-        <p>
-          Gemini may display inaccurate info, including about people, so
-          double-check its responses.
-          <span>
-            <a href="https://support.google.com/gemini?p=privacy_notice">
-              Your privacy & Gemini Apps
-            </a>
-          </span>
-        </p>
-      </div>
+      <div className={styles["warning-text"]}></div>
     </div>
   );
 };

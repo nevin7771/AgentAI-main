@@ -1,4 +1,5 @@
 import "./App.css";
+import "./DeepSearch.css";
 import ChatSection from "./components/ChatSection/ChatSection";
 import SettingSection from "./components/SettingSection/SettingSecion";
 import Sidebar from "./components/Sidebar/Sidebar";
