@@ -1,5 +1,7 @@
+// public/src/App.js (Modified to include Agent Styles)
 import "./App.css";
 import "./DeepSearch.css";
+import "./AgentStyles.css"; // Add the agent styles
 import ChatSection from "./components/ChatSection/ChatSection";
 import SettingSection from "./components/SettingSection/SettingSecion";
 import Sidebar from "./components/Sidebar/Sidebar";
