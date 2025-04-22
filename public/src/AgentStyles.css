@@ -1,6 +1,169 @@
 /* public/src/AgentStyles.css */
 /* Improved styles for agent responses */
+/* Perplexity-style formatting */
+.perplexity-style {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  max-width: 800px;
+  margin: 0 auto;
+  line-height: 1.6;
+}
 
+.perplexity-style .query-header {
+  margin-bottom: 1.5rem;
+}
+
+.perplexity-style .query-header h3 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.perplexity-style .source-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.perplexity-style .source-label {
+  background-color: #f0f4f8;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  color: #4a5568;
+}
+
+.perplexity-style .structured-answer {
+  background-color: #f8fafc;
+  padding: 1.5rem;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+}
+
+.perplexity-style h4 {
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.perplexity-style h5 {
+  font-size: 1.1rem;
+  margin-top: 1.2rem;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+}
+
+.perplexity-style p {
+  margin-bottom: 1rem;
+}
+
+.perplexity-style strong {
+  font-weight: 600;
+}
+
+.perplexity-style ul, .perplexity-style ol {
+  margin-left: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.perplexity-style li {
+  margin-bottom: 0.5rem;
+}
+
+.perplexity-style .search-results-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.perplexity-style .search-result-item {
+  padding: 1rem;
+  background-color: #f3f4f6;
+  border-radius: 8px;
+  transition: background-color 0.2s;
+}
+
+.perplexity-style .search-result-item:hover {
+  background-color: #e5e7eb;
+}
+
+.perplexity-style .search-result-title {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.perplexity-style .search-result-url {
+  color: #4b5563;
+  font-size: 0.875rem;
+  margin-bottom: 0.5rem;
+}
+
+.perplexity-style .search-result-snippet {
+  font-size: 0.9375rem;
+  color: #4b5563;
+}
+
+.perplexity-style .related-questions-list {
+  list-style-type: none;
+  padding: 0;
+  margin: 1rem 0;
+}
+
+.perplexity-style .related-question-item {
+  padding: 0.75rem 1rem;
+  background-color: #f3f4f6;
+  margin-bottom: 0.5rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.perplexity-style .related-question-item:hover {
+  background-color: #e5e7eb;
+}
+
+.perplexity-style .deep-search-disclaimer {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e5e7eb;
+  font-style: italic;
+  color: #6b7280;
+}
+
+/* Dark mode styles */
+[data-theme="dark"] .perplexity-style .source-label {
+  background-color: #2d3748;
+  color: #cbd5e0;
+}
+
+[data-theme="dark"] .perplexity-style .structured-answer {
+  background-color: #1a202c;
+}
+
+[data-theme="dark"] .perplexity-style .search-result-item,
+[data-theme="dark"] .perplexity-style .related-question-item {
+  background-color: #2d3748;
+}
+
+[data-theme="dark"] .perplexity-style .search-result-item:hover,
+[data-theme="dark"] .perplexity-style .related-question-item:hover {
+  background-color: #4a5568;
+}
+
+[data-theme="dark"] .perplexity-style .search-result-url {
+  color: #a0aec0;
+}
+
+[data-theme="dark"] .perplexity-style .search-result-snippet {
+  color: #cbd5e0;
+}
+
+[data-theme="dark"] .perplexity-style .deep-search-disclaimer {
+  border-top-color: #4a5568;
+  color: #a0aec0;
+}
 /* Deep Search Results */
 .deep-search-results {
   font-family: 'Roboto', 'Arial', sans-serif;

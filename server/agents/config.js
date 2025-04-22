@@ -24,6 +24,19 @@ export const config = {
     searchApiKey: process.env.SEARCH_API_KEY,
   },
 
+  // RAG Search Agent configuration
+  ragSearch: {
+    defaultSources: process.env.RAG_DEFAULT_SOURCES
+      ? process.env.RAG_DEFAULT_SOURCES.split(",")
+      : ["support.zoom.us", "community.zoom.us", "zoom.us"],
+    maxResultsPerSource:
+      parseInt(process.env.RAG_MAX_RESULTS_PER_SOURCE, 10) || 3,
+    maxContentLength: parseInt(process.env.RAG_MAX_CONTENT_LENGTH, 10) || 10000,
+    searchTimeout: parseInt(process.env.RAG_SEARCH_TIMEOUT_MS, 10) || 30000,
+    chunkSize: parseInt(process.env.RAG_CHUNK_SIZE, 10) || 1000,
+    chunkOverlap: parseInt(process.env.RAG_CHUNK_OVERLAP, 10) || 200,
+  },
+
   // QA Agent configuration
   qa: {
     defaultProductName: process.env.DEFAULT_PRODUCT_NAME || "Zoom",
@@ -46,6 +59,12 @@ export const config = {
           ...this.agent,
           ...this.openai,
           ...this.deepSearch,
+        };
+      case "rag-search":
+        return {
+          ...this.agent,
+          ...this.openai,
+          ...this.ragSearch,
         };
       case "qa":
         return {

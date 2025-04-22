@@ -1,11 +1,12 @@
+// server/app.js - Updated version to include the enhanced agent router
 import "dotenv/config";
 import express from "express";
 import mongoose from "mongoose";
 import requestIp from "request-ip";
-import cros from "cors";
-import agentRouter from "./router/agent.js";
+import cors from "cors";
 import publicRoutes from "./router/public.js";
 import authRoutes from "./router/auth.js";
+import agentRouter from "./router/agent.js";
 
 // Verify environment variables are loaded
 console.log("Environment check:");
@@ -31,16 +32,18 @@ app.use(requestIp.mw());
 
 const originUrl = process.env.CLIENT_REDIRECT_URL;
 
-const crosOption = {
-  origin: "http://localhost:3000", // Frontend URL (no trailing slash)
+const corsOption = {
+  origin: originUrl || "http://localhost:3030", // Frontend URL (no trailing slash)
   optionsSuccessStatus: 200,
   credentials: true, // Essential for cookies
 };
 
-app.use(cros(crosOption));
+app.use(cors(corsOption));
 
+// Routes
 app.use("/gemini", publicRoutes);
 app.use(authRoutes);
+app.use(agentRouter); // Add the agent router which includes deep-research endpoint
 app.use(agentRouter);
 
 app.use((error, req, res, next) => {

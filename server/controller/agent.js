@@ -163,3 +163,58 @@ export const agentHandler = async (req, res, next) => {
     res.status(500).json(errorResponse);
   }
 };
+
+// server/controller/agent.js (addition to existing file)
+
+// Handler for search-with-ai agent requests
+export const searchWithAIHandler = async (req, res) => {
+  try {
+    const { query, sources, mode } = req.body;
+
+    if (!query) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Query is required" });
+    }
+
+    console.log(
+      `[SearchWithAI] Received request for query: "${query}" with mode: ${
+        mode || "simple"
+      }`
+    );
+    console.log(
+      `[SearchWithAI] Sources: ${sources ? sources.join(", ") : "default"}`
+    );
+
+    // Create the search-with-ai agent
+    const agent = createAgent("search-with-ai", {
+      sources: sources || ["support.zoom.us", "community.zoom.us", "zoom.us"],
+      searchMode: mode || "simple",
+    });
+
+    // Execute the agent
+    const result = await agent.execute(query);
+
+    // Format the response
+    const formattedHtml = agent.formatResponse(result);
+
+    // Send back both the raw result and the formatted HTML
+    res.status(200).json({
+      success: true,
+      rawResult: result,
+      formattedHtml,
+    });
+  } catch (error) {
+    console.error("[SearchWithAI] Error:", error);
+
+    const errorResponse = {
+      success: false,
+      error: error.message || "An unknown error occurred",
+      formattedHtml: `<div class="search-with-ai-results error"><h3>Error</h3><p>${
+        error.message || "An unknown error occurred"
+      }</p></div>`,
+    };
+
+    res.status(500).json(errorResponse);
+  }
+};

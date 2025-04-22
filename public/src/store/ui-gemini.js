@@ -8,6 +8,7 @@ const uiInitialState = {
   isAdvanceShow: false,
   isUserDetailsShow: false,
   showIntroUserPrompt: false,
+  isDeepResearchMode: false, // New state for Deep Research mode
 };
 
 const uiCreteSlice = createSlice({
@@ -38,6 +39,16 @@ const uiCreteSlice = createSlice({
     },
     userIntroPromptHandler(state, action) {
       state.showIntroUserPrompt = action.payload.introPrompt;
+    },
+    // Add new reducer for Deep Research mode
+    toggleDeepResearchMode(state) {
+      state.isDeepResearchMode = !state.isDeepResearchMode;
+
+      // When enabling deep research mode, hide other UI elements
+      if (state.isDeepResearchMode) {
+        state.isSettingsShow = false;
+        state.isAdvanceShow = false;
+      }
     },
   },
 });
