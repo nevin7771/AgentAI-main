@@ -74,7 +74,10 @@ const ScrollChat = () => {
             />
             {c?.isDeepSearch || c?.isSearch ? (
               // For search results, which already contain HTML
-              <div className="search-result" dangerouslySetInnerHTML={{ __html: c?.gemini }} />
+              <div className={`search-result ${c?.usedCache ? "cached-result" : ""}`}>
+                {c?.usedCache && <div className="cache-indicator">Cached Result</div>}
+                <div dangerouslySetInnerHTML={{ __html: c?.gemini }} />
+              </div>
             ) : c?.newChat &&
               !c?.gemini.includes("```") &&
               lastElemetId === c?.id &&

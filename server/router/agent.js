@@ -1,14 +1,36 @@
 // server/router/agent.js
-// Enhanced router to support deep research capabilities based on search_with_ai-main
+// Enhanced router to support RAG and vector database search capabilities
 
 import express from "express";
 import { createAgent } from "../agents/index.js";
 import { authMiddleware } from "../middleware/auth.js";
+import { performReActSearch } from "../rag/ragSearchService.js";
+import { createPineconeIndex } from "../rag/vector/pineconeClient.js";
 
 const router = express.Router();
 
 // Apply auth middleware to all routes in this router
 router.use(authMiddleware);
+
+// Initialize the vector database index
+let vectorDbInitialized = false;
+const initVectorDb = async () => {
+  if (vectorDbInitialized) return;
+  
+  try {
+    await createPineconeIndex('agent-ai-searches');
+    vectorDbInitialized = true;
+    console.log('Vector database initialized successfully');
+  } catch (error) {
+    console.error('Error initializing vector database:', error);
+    // Continue even if vector DB init fails - we'll fall back to standard search
+  }
+};
+
+// Initialize vector DB when router is loaded, but don't block if it fails
+initVectorDb().catch(err => {
+  console.warn("Vector DB initialization failed, will use fallback search methods:", err.message);
+});
 
 // Handler for deep research requests with streaming response
 router.post("/api/deep-research", async (req, res) => {
@@ -120,7 +142,7 @@ router.post("/api/deep-research", async (req, res) => {
   }
 });
 
-// Handler for simple search - faster with fewer tokens
+// Handler for RAG search with vector database integration
 router.post("/api/simplesearch", async (req, res) => {
   try {
     const {
@@ -138,69 +160,25 @@ router.post("/api/simplesearch", async (req, res) => {
       });
     }
 
-    console.log(`[SimpleSearch] Processing query: "${query}"`);
+    console.log(`[RAGSearch] Processing query: "${query}"`);
 
-    // Create a simple search response using OpenAI directly
-    // This is much faster as it doesn't involve the deep research process
-    const openaiApiKey = process.env.OPENAI_API_KEY;
-    if (!openaiApiKey) {
-      throw new Error("OpenAI API key is required for simple search");
-    }
-
-    const OpenAI = (await import("openai")).default;
-    const openai = new OpenAI({ apiKey: openaiApiKey });
-
-    // Create a prompt that will generate a very concise answer with related questions
-    const prompt = `
-      Please provide a brief, direct answer about: "${query}"
-      
-      STRICT REQUIREMENTS:
-      1. ABSOLUTE MAXIMUM 300 words total for everything (title, intro, bullets, related questions, etc.)
-      2. Be extremely concise and direct
-      3. Include only the most essential information
-      4. Use short, clear sentences
-      5. Focus exclusively on answering the specific question
-      
-      Format:
-      - Short H1 title (# Title) - Keep it brief
-      - 1-2 sentence introduction - Be direct and concise
-      - 3-4 bullet points with key information - Short and focused
-      - No conclusion
-      
-      THEN, add 3 related follow-up questions formatted as:
-      
-      ## Related Questions
-      - [first related question]
-      - [second related question] 
-      - [third related question]
-      
-      The total output including the related questions MUST be under 300 words. Prioritize quality of main answer over length of related questions if needed.
-    `;
-
-    // Get a response from OpenAI
-    const chatCompletion = await openai.chat.completions.create({
-      model: "gpt-4",
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.5,
-      max_tokens: 300, // Hard limit to 300 words
-    });
-
-    const answer = chatCompletion.choices[0].message.content;
+    // Perform RAG search with vector database and ReAct approach
+    const { answer, searchResults, usedCache } = await performReActSearch(query, sources);
 
     // Import the formatSearchResultHTML function
     const { formatSearchResultHTML } = await import("../agents/utils/agentUtils.js");
     
-    // Use our new formatter function to generate clean HTML without embedded CSS
+    // Use our formatter function to generate clean HTML
     const formattedHtml = formatSearchResultHTML(
-      { answer }, // Pass an object with the answer property
-      query,      // The original query
-      sources     // The sources array
+      { answer }, 
+      query,
+      sources
     );
 
     // Save to chat history if requested
     let savedChatHistoryId = chatHistoryId;
     
-    if (req.user) { // Always try to save if user exists, login or IP-based
+    if (req.user) { // Always try to save if user exists
       try {
         const { chat } = await import("../model/chat.js");
         const { chatHistory } = await import("../model/chatHistory.js");
@@ -270,9 +248,9 @@ router.post("/api/simplesearch", async (req, res) => {
             }
           }
         }
-        console.log(`[SimpleSearch] Saved search to MongoDB, chat ID: ${chatDoc._id}`);
+        console.log(`[RAGSearch] Saved search to MongoDB, chat ID: ${chatDoc._id}`);
       } catch (error) {
-        console.error("[SimpleSearch] Error saving to MongoDB:", error);
+        console.error("[RAGSearch] Error saving to MongoDB:", error);
         // Continue even if saving fails
       }
     }
@@ -282,13 +260,14 @@ router.post("/api/simplesearch", async (req, res) => {
       success: true,
       result: {
         query,
-        answer
+        answer,
+        usedCache
       },
       formattedHtml,
       chatHistoryId: savedChatHistoryId,
     });
   } catch (error) {
-    console.error("[SimpleSearch] Error:", error);
+    console.error("[RAGSearch] Error:", error);
     
     res.status(500).json({
       success: false,
@@ -310,7 +289,7 @@ router.post("/api/simplesearch", async (req, res) => {
   }
 });
 
-// Handler for standard deep search (non-streaming version)
+// Handler for standard deep search with RAG integration
 router.post("/api/deepsearch", async (req, res) => {
   try {
     const {
@@ -331,8 +310,7 @@ router.post("/api/deepsearch", async (req, res) => {
 
     console.log(`[DeepSearch] Processing query: "${query}"`);
 
-    // Execute the search immediately without sending a partial response first
-    // This will make the client wait but ensures they get the full result
+    // Execute the search
     const deepSearchAgent = createAgent("deep-research", {
       sources,
       depth, 
@@ -341,6 +319,32 @@ router.post("/api/deepsearch", async (req, res) => {
 
     // Execute the search
     const result = await deepSearchAgent.execute(query);
+
+    // Save search results to the vector database asynchronously (don't await)
+    try {
+      const { processResultEmbedding } = await import("../rag/vector/embeddingsService.js");
+      const { upsertEmbeddings } = await import("../rag/vector/pineconeClient.js");
+      
+      // Create embeddings for research sources
+      if (result.sources && result.sources.length > 0) {
+        const embeddingPromises = result.sources.map(source => 
+          processResultEmbedding(source.content || source.snippet || '', {
+            title: source.title || 'Deep Search Result',
+            url: source.url || source.link || '#',
+            source: source.domain || 'Deep Search',
+            queryText: query
+          })
+        );
+        
+        Promise.all(embeddingPromises)
+          .then(embeddings => upsertEmbeddings('agent-ai-searches', embeddings))
+          .then(() => console.log('Deep search results saved to vector database'))
+          .catch(err => console.error('Error saving to vector database:', err));
+      }
+    } catch (error) {
+      console.error('Error processing vector database:', error);
+      // Continue - vector DB operations are optional
+    }
 
     // Format the HTML response
     const formattedHtml = deepSearchAgent.formatResponse(result);

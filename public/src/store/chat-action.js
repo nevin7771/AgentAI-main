@@ -184,6 +184,9 @@ export const sendDeepSearchRequest = (searchRequest) => {
         dispatch(chatAction.popChat());
 
         if (data.success) {
+          // Check if the result came from cache
+          const usedCache = data.result && data.result.usedCache;
+          
           // Add the formatted HTML response to the chat
           dispatch(
             chatAction.chatStart({
@@ -193,7 +196,8 @@ export const sendDeepSearchRequest = (searchRequest) => {
                 isLoader: "no",
                 isDeepSearch: true,
                 isSearch: true,
-                searchType
+                searchType,
+                usedCache: usedCache, // Add cache indicator
               },
             })
           );
