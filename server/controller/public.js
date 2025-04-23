@@ -240,46 +240,62 @@ export const postChat = (req, res, next) => {
   const userId = req.user._id;
   const isNotAuthUser = req.auth === "noauth";
 
-  const findChatHistory = isNotAuthUser
-    ? chatHistory.find({ user: userId })
-    : chatHistory.findOne({ user: userId, _id: chatHistoryId });
+  console.log("Looking for chat history:", chatHistoryId, "for user:", userId);
 
-  findChatHistory
-    .sort({ _id: -1 })
-    .limit(isNotAuthUser ? 5 : 1)
-    .then((chatHistories) => {
-      if (isNotAuthUser) {
-        const recentChatHistoryIds = chatHistories.map((history) =>
-          history._id.toString()
-        );
-
-        if (!recentChatHistoryIds.includes(chatHistoryId)) {
-          const error = new Error("You are not a auth user");
-          error.statusCode = 403;
-          throw error;
+  // Simple find for authenticated users
+  let query;
+  if (isNotAuthUser) {
+    // For non-auth users, find from most recent chats
+    query = chatHistory.find({ user: userId })
+      .sort({ timestamp: -1 })
+      .limit(5)
+      .then(histories => {
+        // Check if the requested chat history is in the allowed list
+        if (chatHistoryId) {
+          const allowedIds = histories.map(h => h._id.toString());
+          if (!allowedIds.includes(chatHistoryId)) {
+            const error = new Error("Unauthorized access to chat history");
+            error.statusCode = 403;
+            throw error;
+          }
+          return chatHistory.findOne({ _id: chatHistoryId, user: userId }).populate('chat');
+        } else if (histories.length > 0) {
+          // If no specific ID, just return the most recent one
+          return chatHistory.findOne({ _id: histories[0]._id }).populate('chat');
+        } else {
+          return null;
         }
-      }
+      });
+  } else {
+    // For authenticated users, directly find by ID
+    query = chatHistory.findOne({ _id: chatHistoryId, user: userId }).populate('chat');
+  }
 
-      return chatHistory
-        .findOne({ user: userId, _id: chatHistoryId })
-        .populate({
-          path: "chat",
-        });
-    })
-    .then((chatData) => {
-      if (!chatData) {
-        const error = new Error("No Chat history found");
-        error.statusCode = 403;
-        throw error;
+  query.then((chatData) => {
+    if (!chatData) {
+      const error = new Error("No Chat history found");
+      error.statusCode = 403;
+      throw error;
       }
 
       a += 1;
       console.log("Old chats ", a);
 
-      res.status(200).json({
-        chatHistory: chatData._id,
-        chats: chatData.chat.messages,
-      });
+      // Check if chat exists and has messages
+      if (chatData.chat && chatData.chat.messages) {
+        console.log("Found chat with messages:", chatData.chat.messages.length);
+        res.status(200).json({
+          chatHistory: chatData._id,
+          chats: chatData.chat.messages,
+        });
+      } else {
+        // Handle case where chat or messages might not exist
+        console.log("No messages found for chat history:", chatData._id);
+        res.status(200).json({
+          chatHistory: chatData._id,
+          chats: [],
+        });
+      }
     })
     .catch((err) => {
       if (!err.statusCode) {

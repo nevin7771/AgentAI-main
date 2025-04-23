@@ -98,6 +98,133 @@ export const summarizeText = async (text, openai) => {
   }
 };
 
+/**
+ * Format search results into properly structured HTML with all UI components
+ * @param {Object} result - The search result object containing the answer
+ * @param {string} query - The search query
+ * @param {Array<string>} sources - Array of source domains
+ * @returns {string} - Formatted HTML string
+ */
+export const formatSearchResultHTML = (result, query, sources) => {
+  if (!result || !result.answer) {
+    return `<div class="search-error">
+      <h3>Search Error</h3>
+      <p>Unable to process search results</p>
+    </div>`;
+  }
+  
+  // Extract key points from the answer to display as highlights
+  const extractKeyPoints = (text) => {
+    // Look for bullet points in the markdown
+    const bulletPoints = text.match(/[*-]\s+([^\n]+)/g) || [];
+    // If we found bullet points, use them
+    if (bulletPoints.length > 0) {
+      return bulletPoints.map(point => point.replace(/[*-]\s+/, '')).slice(0, 5);
+    }
+    
+    // Otherwise try to extract sentences that seem important
+    const sentences = text.split(/[.!?][\s\n]+/).filter(s => s.trim().length > 10);
+    return sentences.slice(0, 3);
+  };
+  
+  // Extract related questions from the answer
+  const extractRelatedQuestions = (text) => {
+    // Split the content to find the related questions section
+    const relatedSection = text.split('## Related Questions')[1];
+    if (!relatedSection) return [];
+    
+    // Extract bullet points from the related questions section
+    const relatedQuestions = relatedSection.match(/[*-]\s+([^\n]+)/g) || [];
+    return relatedQuestions.map(q => q.replace(/[*-]\s+/, '').replace(/\[|\]/g, ''));
+  };
+  
+  // Separate main answer from related questions
+  const mainAnswer = result.answer.split('## Related Questions')[0];
+  const keyPoints = extractKeyPoints(mainAnswer);
+  const relatedQuestions = extractRelatedQuestions(result.answer);
+  
+  // Convert markdown to HTML
+  const markdownToHtml = (markdown) => {
+    if (!markdown) return "";
+    
+    return markdown
+      // Headers
+      .replace(/^# (.*)$/gm, '<h1>$1</h1>')
+      .replace(/^## (.*)$/gm, '<h2>$1</h2>')
+      .replace(/^### (.*)$/gm, '<h3>$1</h3>')
+      
+      // Bold
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      
+      // Italic
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      
+      // Lists
+      .replace(/^- (.*)$/gm, '<li>$1</li>')
+      .replace(/^\* (.*)$/gm, '<li>$1</li>')
+      .replace(/^(\d+)\. (.*)$/gm, '<li>$2</li>')
+      
+      // Paragraphs
+      .replace(/^(?!<[a-z]+>)(.+)$/gm, '<p>$1</p>')
+      
+      // Wrap lists
+      .replace(/(<li>.*<\/li>\s*)+/g, '<ul>$&</ul>');
+  };
+  
+  // Format the HTML output - no embedded CSS, use external stylesheet
+  return `
+    <div class="search-results-container">
+      <div class="search-content-wrapper">
+        <div class="search-main-content">
+          <div class="search-response">
+            <div class="search-content">
+              ${markdownToHtml(mainAnswer)}
+            </div>
+          </div>
+          
+          ${relatedQuestions.length > 0 ? `
+          <div class="search-related-questions">
+            <h4>Related Questions</h4>
+            <div class="gemini-chips">
+              ${relatedQuestions.map(q => `<button class="gemini-chip" onclick="(function() { var inputField = document.querySelector('.input-field'); if (inputField) { inputField.value = '${q.replace(/'/g, "\\'")}'; var submitButton = document.querySelector('button[type=submit]'); if(submitButton) { inputField.focus(); setTimeout(function() { submitButton.click(); }, 100); } } })();">
+                <span class="gemini-chip-icon">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M21 21L15 15M17 10C17 13.866 13.866 17 10 17C6.13401 17 3 13.866 3 10C3 6.13401 6.13401 3 10 3C13.866 3 17 6.13401 17 10Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </span>
+                <span class="gemini-chip-text">${q}</span>
+              </button>`).join('')}
+            </div>
+          </div>
+          ` : ''}
+          
+          <div class="search-note">
+            <small>For more detailed research, try using the Deep Search option.</small>
+          </div>
+        </div>
+        
+        <div class="search-sidebar">
+          <div class="search-key-points">
+            <h4>Key Highlights</h4>
+            <ul>
+              ${keyPoints.map(point => `<li>${point}</li>`).join('')}
+            </ul>
+          </div>
+          
+          <div class="search-sources">
+            <h4>Sources</h4>
+            <ul>
+              ${sources.map(source => 
+                `<li><a href="https://${source}" target="_blank" rel="noopener noreferrer">${source}</a></li>`
+              ).join('')}
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+};
+
 // Helper functions for simulation
 
 /**

@@ -7,6 +7,7 @@ function DeepResearchComponent() {
   const [progress, setProgress] = useState({ status: "", message: "" });
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+  // eslint-disable-next-line no-unused-vars
   const [visitedUrls, setVisitedUrls] = useState([]);
   const [depthLevel, setDepthLevel] = useState(2);
   const [breadthLevel, setBreadthLevel] = useState(3);
@@ -64,6 +65,7 @@ function DeepResearchComponent() {
     try {
       // Create EventSource for server-sent events
       const url = "/api/deep-research";
+      // eslint-disable-next-line no-unused-vars
       const response = await fetch(url, {
         method: "POST",
         headers: {

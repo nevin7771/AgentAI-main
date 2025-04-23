@@ -1,19 +1,17 @@
 import styles from "./InputSection.module.css";
-import { sendChatData, sendDeepSearchRequest } from "../../store/chat-action";
+import { sendDeepSearchRequest } from "../../store/chat-action";
 import { useEffect, useState, useRef } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate } from "react-router-dom";
-import { uiAction } from "../../store/ui-gemini";
 
 const InputSection = () => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const [userInput, setUserInput] = useState("");
-  const [searchMode, setSearchMode] = useState("normal"); // "normal", "simple", "deep"
+  const [searchMode, setSearchMode] = useState("simple"); // "simple" or "deep"
   const [showUploadOptions, setShowUploadOptions] = useState(false);
   const inputRef = useRef(null);
   const uploadMenuRef = useRef(null);
-  const previousChat = useSelector((state) => state.chat.previousChat);
   const chatHistoryId = useSelector((state) => state.chat.chatHistoryId);
   const suggestPrompt = useSelector((state) => state.chat.suggestPrompt);
 
@@ -21,15 +19,7 @@ const InputSection = () => {
     setUserInput(e.target.value);
   };
 
-  const setNormalSearch = () => {
-    setSearchMode("normal");
-    setShowUploadOptions(false);
-    setTimeout(() => {
-      if (inputRef.current) {
-        inputRef.current.focus();
-      }
-    }, 0);
-  };
+  // Normal search mode removed
 
   const setSimpleSearch = () => {
     setSearchMode("simple");
@@ -87,30 +77,23 @@ const InputSection = () => {
         sendDeepSearchRequest({
           query: userInput,
           sources: ["support.zoom.us", "community.zoom.us", "zoom.us"],
-          endpoint: "/api/deepsearch"
+          endpoint: "/api/deepsearch",
+          chatHistoryId
         })
       );
-    } else if (searchMode === "simple") {
-      // Simple search
+    } else {
+      // Simple search (default)
       dispatch(
         sendDeepSearchRequest({
           query: userInput,
           sources: ["support.zoom.us", "community.zoom.us", "zoom.us"],
-          endpoint: "/api/simplesearch"
-        })
-      );
-    } else {
-      // Normal chat
-      dispatch(
-        sendChatData({
-          user: userInput,
-          gemini: "",
-          isLoader: "yes",
-          previousChat,
-          chatHistoryId,
+          endpoint: "/api/simplesearch",
+          chatHistoryId
         })
       );
     }
+
+    console.log("Sent search request with chatHistoryId:", chatHistoryId);
 
     setUserInput("");
     navigate("/app");
@@ -132,10 +115,18 @@ const InputSection = () => {
             onChange={userInputHandler}
             autoComplete="off"
             type="text"
-            placeholder={searchMode === "normal" ? "Ask Gemini" : 
-              searchMode === "simple" ? "Simple Search..." : "Deep Search..."}
+            placeholder={searchMode === "simple" ? "Ask for a quick answer..." : "Ask for detailed research..."}
             className={styles["input-field"]}
           />
+          <button 
+            type="submit" 
+            className={`${styles["send-btn"]} ${!userInput.trim() ? styles["disabled"] : ""}`}
+            disabled={!userInput.trim()}
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" fill="currentColor"/>
+            </svg>
+          </button>
         </form>
 
         <div className={styles["controls-container"]}>
@@ -198,24 +189,6 @@ const InputSection = () => {
               )}
             </div>
 
-            <button
-              type="button"
-              className={`${styles["search-btn"]} ${
-                searchMode === "normal" ? styles["active"] : ""
-              }`}
-              onClick={setNormalSearch}
-              title="Normal Chat">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M8 12h8M12 8v8M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              Chat
-            </button>
 
             <button
               type="button"
@@ -223,7 +196,7 @@ const InputSection = () => {
                 searchMode === "simple" ? styles["active"] : ""
               }`}
               onClick={setSimpleSearch}
-              title="Simple Search">
+              title="Get a concise answer (300 words max)">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                 <path
                   d="M21 21L15 15M17 10C17 13.866 13.866 17 10 17C6.13401 17 3 13.866 3 10C3 6.13401 6.13401 3 10 3C13.866 3 17 6.13401 17 10Z"
@@ -242,7 +215,7 @@ const InputSection = () => {
                 searchMode === "deep" ? styles["active"] : ""
               }`}
               onClick={setDeepSearch}
-              title="Deep Search">
+              title="Get a comprehensive research report">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                 <path
                   d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"

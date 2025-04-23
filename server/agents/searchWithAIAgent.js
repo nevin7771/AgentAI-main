@@ -7,6 +7,52 @@ import {
   summarizeText,
 } from "./utils/agentUtils.js";
 
+// Helper function for basic Markdown to HTML (can be moved to utils)
+const markdownToHtmlSimple = (markdown) => {
+  if (!markdown) return "";
+  return markdown
+    .replace(/^###\s+(.*$)/gim, "<h3>$1</h3>")
+    .replace(/^##\s+(.*$)/gim, "<h2>$1</h2>")
+    .replace(/^#\s+(.*$)/gim, "<h1>$1</h1>")
+    .replace(/^\*\s+(.*$)/gim, "<li>$1</li>") // Unordered list items
+    .replace(/^\d+\.\s+(.*$)/gim, "<li>$1</li>") // Ordered list items
+    .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>") // Bold
+    .replace(/\*(.*?)\*/g, "<em>$1</em>") // Italic
+    .split("\n") // Split into lines to process lists and paragraphs
+    .reduce(
+      (acc, line) => {
+        line = line.trim();
+        if (line.startsWith("<li>")) {
+          if (!acc.inList) {
+            // Determine list type (simple check)
+            const listTag = line.match(/^<li>/) ? "ul" : "ol";
+            acc.html += `\n<${listTag}>\n${line}`;
+            acc.inList = true;
+            acc.listTag = listTag;
+          } else {
+            acc.html += `\n${line}`;
+          }
+        } else {
+          if (acc.inList) {
+            acc.html += `\n</${acc.listTag}>`;
+            acc.inList = false;
+          }
+          if (
+            line.length > 0 &&
+            !line.match(/^<(h[1-6]|p|div|blockquote|ul|ol)/)
+          ) {
+            acc.html += `\n<p>${line}</p>`; // Wrap non-list, non-header lines in <p>
+          } else if (line.length > 0) {
+            acc.html += `\n${line}`; // Keep existing block elements
+          }
+        }
+        return acc;
+      },
+      { html: "", inList: false, listTag: "ul" }
+    )
+    .html.trim(); // Get final HTML
+};
+
 export default class SearchWithAIAgent extends BaseAgent {
   constructor(options = {}) {
     super({
@@ -322,107 +368,123 @@ export default class SearchWithAIAgent extends BaseAgent {
 
   formatResponse(data) {
     if (!data.success) {
-      return `<div class="search-with-ai error">
+      // Use a generic error container or mode-specific later
+      return `<div class="search-error">
         <h3>Search Error</h3>
         <p>Sorry, there was an error processing your search request: ${data.error}</p>
       </div>`;
     }
 
-    const { query, result } = data;
-    const { answer, citations } = result;
+    const { query, result, sources } = data;
+    const { answer, citations, searchResults } = result;
 
-    // Process the answer to enhance citations and formatting
-    let processedAnswer = answer;
+    // --- Simple Search Formatting ---
+    if (this.searchMode === "simple") {
+      const formattedAnswer = markdownToHtmlSimple(answer);
 
-    // Make URLs in the answer clickable
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    processedAnswer = processedAnswer.replace(
-      urlRegex,
-      '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
-    );
-
-    // Format citation markers
-    const citationRegex = /\[\[citation:(\d+)\]\]/g;
-    processedAnswer = processedAnswer.replace(citationRegex, (match, p1) => {
-      return `<sup class="citation-marker" data-citation="${p1}">[${p1}]</sup>`;
-    });
-
-    // Format headings and lists
-    processedAnswer = processedAnswer
-      .replace(/^#+\s+(.*?)$/gm, (match, p1) => `<h4>${p1}</h4>`)
-      .replace(/^\*\s+(.*?)$/gm, (match, p1) => `<li>${p1}</li>`)
-      .replace(/^(\d+)\.\s+(.*?)$/gm, (match, p1, p2) => `<li>${p2}</li>`);
-
-    // Find sections with lists and wrap them
-    processedAnswer = processedAnswer.replace(
-      /<li>(.*?)<\/li>\n<li>/g,
-      "<li>$1</li>\n<ul><li>"
-    );
-    processedAnswer = processedAnswer.replace(
-      /<\/li>\n(?!<li>)/g,
-      "</li></ul>\n"
-    );
-
-    // Create the HTML output
-    let html = `
-      <div class="search-with-ai-results">
-        <h3>AI-Enhanced Search Results</h3>
-        <p><strong>Query:</strong> "${query}"</p>
-        <p><strong>Sources searched:</strong> ${data.sources.join(", ")}</p>
-        
-        <div class="search-with-ai-answer">
-          ${processedAnswer}
+      return `
+        <div class="simple-search-results">
+          <h3>Search Results</h3>
+          <p><strong>Query:</strong> "${query}"</p>
+          
+          <div class="simple-search-content">
+            ${formattedAnswer}
+          </div>
+          
+          <div class="simple-search-note">
+            <p><small>Note: This is a simple search result. For more comprehensive research, use the Deep Research option.</small></p>
+          </div>
         </div>
-    `;
-
-    // Add citations section
-    if (citations && citations.length > 0) {
-      html += `
-        <div class="search-with-ai-citations">
-          <h4>Sources</h4>
-          <ol>
       `;
-
-      citations.forEach((citation, index) => {
-        html += `
-          <li id="citation-${index + 1}">
-            <a href="${citation.url}" target="_blank" rel="noopener noreferrer">
-              ${citation.title}
-            </a>
-            <span class="citation-source">(${citation.source})</span>
-          </li>
-        `;
-      });
-
-      html += `</ol></div>`;
     }
 
-    // Add research mode info if applicable
-    if (this.searchMode === "research" && result.subQuestions) {
-      html += `
-        <div class="search-with-ai-research-info">
-          <h4>Research Approach</h4>
-          <p>To thoroughly answer your question, the following sub-questions were researched:</p>
-          <ol>
-      `;
+    // --- Deep/Research Search Formatting (Google Style from previous step) ---
+    else {
+      let processedAnswer = answer;
 
-      result.subQuestions.forEach((question) => {
-        html += `<li>${question}</li>`;
+      // Make URLs clickable
+      const urlRegex = /(https?:\/\/[^\s]+)/g;
+      processedAnswer = processedAnswer.replace(
+        urlRegex,
+        '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
+      );
+
+      // Format citation markers [[citation:X]] -> <a href="#citation-X" class="citation-link">🔗</a>
+      const citationRegex = /\[\[citation:(\d+)\]\]/g;
+      processedAnswer = processedAnswer.replace(citationRegex, (match, p1) => {
+        const citation = citations ? citations[parseInt(p1) - 1] : null;
+        const citationUrl = citation ? citation.url : "#";
+        return ` <a href="${citationUrl}" target="_blank" rel="noopener noreferrer" class="citation-link" title="Source ${p1}">🔗</a>`;
       });
 
-      html += `</ol></div>`;
+      // Basic Markdown to HTML for deep/research
+      processedAnswer = processedAnswer
+        .replace(/^###\s+(.*$)/gim, "<h3>$1</h3>")
+        .replace(/^##\s+(.*$)/gim, "<h2>$1</h2>")
+        .replace(/^#\s+(.*$)/gim, "<h1>$1</h1>")
+        .replace(/^\*\s+(.*$)/gim, "<li>$1</li>")
+        .replace(/^\d+\.\s+(.*$)/gim, "<li>$1</li>")
+        .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+        .replace(/\*(.*?)\*/g, "<em>$1</em>");
+
+      processedAnswer = processedAnswer.replace(
+        /^(<li>.*<\/li>\s*)+/gm,
+        (match) => {
+          const listTag = match.match(/^<li>/) ? "ul" : "ol";
+          return `<${listTag}>${match}</${listTag}>`;
+        }
+      );
+
+      processedAnswer = processedAnswer
+        .split("\n")
+        .map((line) => {
+          line = line.trim();
+          if (
+            line.length === 0 ||
+            line.match(/^<(ul|ol|li|h[1-6]|p|div|blockquote)/)
+          ) {
+            return line;
+          }
+          return `<p>${line}</p>`;
+        })
+        .join("\n");
+
+      const sourcesToDisplay = searchResults || citations || [];
+
+      return `
+        <div class="search-results-container google-style">
+          <div class="search-results-main">
+            <div class="search-answer">
+              ${processedAnswer}
+            </div>
+          </div>
+          
+          <div class="search-results-sidebar">
+            <div class="search-sources">
+              ${sourcesToDisplay.length > 0 ? "<h4>Sources</h4>" : ""}
+              <ul>
+                ${sourcesToDisplay
+                  .map(
+                    (source, index) => `
+                  <li id="citation-${index + 1}">
+                    <a href="${
+                      source.url
+                    }" target="_blank" rel="noopener noreferrer">
+                      <span class="source-favicon"></span>
+                      <span class="source-title">${source.title}</span>
+                      <span class="source-url">${
+                        new URL(source.url).hostname
+                      }</span>
+                    </a>
+                  </li>
+                `
+                  )
+                  .join("")}
+              </ul>
+            </div>
+          </div>
+        </div>
+      `;
     }
-
-    // Add disclaimer
-    html += `
-      <div class="search-with-ai-disclaimer">
-        <p><small>Note: This search was performed by an AI assistant and may not be comprehensive. Please verify important information.</small></p>
-      </div>
-    `;
-
-    // Close the main div
-    html += `</div>`;
-
-    return html;
   }
 }

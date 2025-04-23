@@ -12,6 +12,53 @@
   width: 100%;
 }
 
+.loading-icon {
+  animation: pulse 1.5s infinite alternate;
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.search-result {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  padding-left: 12px; /* Match the gemini-p padding */
+  margin-top: 0;
+}
+
+.search-result .search-content-wrapper {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  margin-top: 0;
+}
+
+.search-result .search-main-content {
+  padding-right: 16px;
+  flex: 1;
+}
+
+.search-result img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Dark theme support for search results */
+[data-theme="dark"] .search-result {
+  color: #e8eaed;
+}
+
+[data-theme="dark"] .search-result a {
+  color: #8ab4f8;
+}
+
 .email-div {
   background-color: var(--code-bg);
   max-width: 600px;

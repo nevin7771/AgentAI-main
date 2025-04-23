@@ -18,6 +18,15 @@ const chatSchema = new Schema({
         type: Object,
         required: true,
       },
+      isSearch: {
+        type: Boolean,
+        default: false
+      },
+      searchType: {
+        type: String,
+        enum: ['simple', 'deep', null],
+        default: null
+      },
       timestamp: {
         type: Date,
         default: Date.now,

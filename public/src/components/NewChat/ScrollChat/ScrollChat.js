@@ -66,16 +66,19 @@ const ScrollChat = () => {
             <p>{c.user}</p>
           </div>
           <div className={styles["gemini"]}>
-            {c?.isLoader === "yes" && (
-              <img src={commonIcon.geminiLaoder} alt="avater icon"></img>
-            )}
-            {c?.isLoader === "no" && (
-              <img src={commonIcon.chatGeminiIcon} alt="avater icon"></img>
-            )}
-            {c?.newChat &&
-            !c?.gemini.includes("```") &&
-            lastElemetId === c?.id &&
-            realTimeResponse === "no" ? (
+            {/* Show the Bard sparkle icon or loader */}
+            <img 
+              src={c?.isLoader === "yes" ? commonIcon.geminiLaoder : commonIcon.chatGeminiIcon} 
+              alt={c?.isLoader === "yes" ? "Loading..." : "Gemini"}
+              className={c?.isLoader === "yes" ? "loading-icon" : ""}
+            />
+            {c?.isDeepSearch || c?.isSearch ? (
+              // For search results, which already contain HTML
+              <div className="search-result" dangerouslySetInnerHTML={{ __html: c?.gemini }} />
+            ) : c?.newChat &&
+              !c?.gemini.includes("```") &&
+              lastElemetId === c?.id &&
+              realTimeResponse === "no" ? (
               <ReplyByGemini gemini={loadText(c?.gemini)} />
             ) : (
               <NewChatByGemini gemini={loadText(c?.gemini)} />

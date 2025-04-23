@@ -88,7 +88,10 @@ export const sendChatData = (useInput) => {
           })
         );
         if (useInput.chatHistoryId.length < 2) {
-          dispatch(getRecentChat());
+          // Use a delay to ensure server-side operations complete before fetching recent chats
+          setTimeout(() => {
+            dispatch(getRecentChat());
+          }, 800);
         }
         dispatch(chatAction.newChatHandler());
         dispatch(
@@ -141,6 +144,9 @@ export const sendDeepSearchRequest = (searchRequest) => {
         },
       })
     );
+    
+    // Determine search type (simple or deep)
+    const searchType = searchRequest.endpoint.includes("simplesearch") ? "simple" : "deep";
 
     const apiKey = process.env.REACT_APP_GEMINI_KEY;
     // Use the endpoint from the request, or default to deepsearch
@@ -160,6 +166,8 @@ export const sendDeepSearchRequest = (searchRequest) => {
           "community.zoom.us",
           "zoom.us",
         ],
+        // No need for saveToHistory flag anymore as we always try to save
+        chatHistoryId: searchRequest.chatHistoryId // Pass existing history ID if available
       }),
     })
       .then((response) => {
@@ -184,16 +192,30 @@ export const sendDeepSearchRequest = (searchRequest) => {
                 gemini: data.formattedHtml,
                 isLoader: "no",
                 isDeepSearch: true,
+                isSearch: true,
+                searchType
               },
             })
           );
+          
+          // If we received a chat history ID from server, save it
+          if (data.chatHistoryId) {
+            dispatch(
+              chatAction.chatHistoryIdHandler({ chatHistoryId: data.chatHistoryId })
+            );
+          }
+          
+          // Make sure to update recent chats with a longer delay to ensure server-side processing completes
+          setTimeout(() => {
+            dispatch(getRecentChat());
+          }, 800);
         } else {
           // Display error message
           dispatch(
             chatAction.chatStart({
               useInput: {
                 user: searchRequest.query,
-                gemini: `<div class="deep-search-results"><h3>Deep Research Error</h3><p>Sorry, there was an error: ${data.error}</p></div>`,
+                gemini: `<div class="deep-search-results"><h3>Search Error</h3><p>Sorry, there was an error: ${data.error}</p></div>`,
                 isLoader: "no",
               },
             })
@@ -204,7 +226,7 @@ export const sendDeepSearchRequest = (searchRequest) => {
         dispatch(chatAction.newChatHandler());
       })
       .catch((err) => {
-        console.error("Deep Search API error:", err);
+        console.error("Search API error:", err);
         dispatch(chatAction.popChat());
 
         dispatch(
@@ -212,7 +234,7 @@ export const sendDeepSearchRequest = (searchRequest) => {
             useInput: {
               user: searchRequest.query,
               gemini:
-                '<div class="deep-search-results"><h3>Deep Research Error</h3><p>Sorry, there was an error processing your deep search request. Please try again later.</p></div>',
+                '<div class="deep-search-results"><h3>Search Error</h3><p>Sorry, there was an error processing your search request. Please try again later.</p></div>',
               isLoader: "no",
             },
           })

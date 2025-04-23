@@ -3,8 +3,12 @@
 
 import express from "express";
 import { createAgent } from "../agents/index.js";
+import { authMiddleware } from "../middleware/auth.js";
 
 const router = express.Router();
+
+// Apply auth middleware to all routes in this router
+router.use(authMiddleware);
 
 // Handler for deep research requests with streaming response
 router.post("/api/deep-research", async (req, res) => {
@@ -122,6 +126,8 @@ router.post("/api/simplesearch", async (req, res) => {
     const {
       query,
       sources = ["support.zoom.us", "community.zoom.us", "zoom.us"],
+      saveToHistory = false,
+      chatHistoryId = "",
     } = req.body;
 
     if (!query) {
@@ -144,25 +150,31 @@ router.post("/api/simplesearch", async (req, res) => {
     const OpenAI = (await import("openai")).default;
     const openai = new OpenAI({ apiKey: openaiApiKey });
 
-    // Create a prompt that will generate a concise answer
+    // Create a prompt that will generate a very concise answer with related questions
     const prompt = `
-      Please provide a brief, accurate answer about: "${query}"
+      Please provide a brief, direct answer about: "${query}"
       
-      Your answer should:
-      1. Be concise and direct (under 500 words total)
-      2. Include only verified, factual information
-      3. Include 3-5 key points about the topic
-      4. Not exceed 500 words
-      5. Focus only on answering the specific question
-      6. Include a brief definition or explanation if it's a technical term
+      STRICT REQUIREMENTS:
+      1. ABSOLUTE MAXIMUM 300 words total for everything (title, intro, bullets, related questions, etc.)
+      2. Be extremely concise and direct
+      3. Include only the most essential information
+      4. Use short, clear sentences
+      5. Focus exclusively on answering the specific question
       
-      Format the answer in markdown with:
-      - A brief title
-      - A 1-2 sentence introduction/definition
-      - 3-5 bullet points with key information
-      - A very brief conclusion
-
-      If it's a technical term specifically related to Zoom, explain what it is.
+      Format:
+      - Short H1 title (# Title) - Keep it brief
+      - 1-2 sentence introduction - Be direct and concise
+      - 3-4 bullet points with key information - Short and focused
+      - No conclusion
+      
+      THEN, add 3 related follow-up questions formatted as:
+      
+      ## Related Questions
+      - [first related question]
+      - [second related question] 
+      - [third related question]
+      
+      The total output including the related questions MUST be under 300 words. Prioritize quality of main answer over length of related questions if needed.
     `;
 
     // Get a response from OpenAI
@@ -170,93 +182,101 @@ router.post("/api/simplesearch", async (req, res) => {
       model: "gpt-4",
       messages: [{ role: "user", content: prompt }],
       temperature: 0.5,
-      max_tokens: 700, // Limit to about 500 words
+      max_tokens: 300, // Hard limit to 300 words
     });
 
     const answer = chatCompletion.choices[0].message.content;
 
-    // Format to HTML
-    const markdownToHtml = (markdown) => {
-      if (!markdown) return "";
-      
-      return markdown
-        // Headers
-        .replace(/^# (.*)$/gm, '<h1>$1</h1>')
-        .replace(/^## (.*)$/gm, '<h2>$1</h2>')
-        .replace(/^### (.*)$/gm, '<h3>$1</h3>')
-        
-        // Bold
-        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-        
-        // Italic
-        .replace(/\*(.+?)\*/g, '<em>$1</em>')
-        
-        // Lists
-        .replace(/^- (.*)$/gm, '<li>$1</li>')
-        .replace(/^\* (.*)$/gm, '<li>$1</li>')
-        .replace(/^(\d+)\. (.*)$/gm, '<li>$2</li>')
-        
-        // Paragraphs
-        .replace(/^(?!<[a-z]+>)(.+)$/gm, '<p>$1</p>');
-    };
+    // Import the formatSearchResultHTML function
+    const { formatSearchResultHTML } = await import("../agents/utils/agentUtils.js");
+    
+    // Use our new formatter function to generate clean HTML without embedded CSS
+    const formattedHtml = formatSearchResultHTML(
+      { answer }, // Pass an object with the answer property
+      query,      // The original query
+      sources     // The sources array
+    );
 
-    const formattedHtml = `
-      <div class="simple-search-results">
-        <style>
-          .simple-search-results {
-            font-family: 'Google Sans', Arial, sans-serif;
-            max-width: 100%;
-            margin: 0;
-            padding: 16px;
-            color: #202124;
-          }
-          .simple-search-results h1 {
-            font-size: 20px;
-            margin: 0 0 16px 0;
-            color: #202124;
-            font-weight: 500;
-          }
-          .simple-search-results h2 {
-            font-size: 18px;
-            margin: 16px 0 8px 0;
-            color: #202124;
-            font-weight: 500;
-          }
-          .simple-search-results p {
-            font-size: 16px;
-            line-height: 1.5;
-            margin: 0 0 16px 0;
-          }
-          .simple-search-results ul {
-            margin: 0 0 16px 0;
-            padding: 0 0 0 20px;
-          }
-          .simple-search-results li {
-            margin-bottom: 8px;
-            line-height: 1.5;
-          }
-          .simple-search-note {
-            font-size: 12px;
-            color: #5f6368;
-            margin-top: 16px;
-            border-top: 1px solid #dadce0;
-            padding-top: 16px;
-          }
-        </style>
-
-        <h3>Search Results</h3>
-        <p><strong>Query:</strong> "${query}"</p>
+    // Save to chat history if requested
+    let savedChatHistoryId = chatHistoryId;
+    
+    if (req.user) { // Always try to save if user exists, login or IP-based
+      try {
+        const { chat } = await import("../model/chat.js");
+        const { chatHistory } = await import("../model/chatHistory.js");
         
-        <div class="simple-search-content">
-          ${markdownToHtml(answer)}
-        </div>
+        // Create or get chat history
+        let chatHistoryDoc;
         
-        <div class="simple-search-note">
-          <p><small>Note: This is a simple search result. For more comprehensive research, use the Deep Research option.</small></p>
-        </div>
-      </div>
-    `;
-
+        if (chatHistoryId && chatHistoryId.length > 2) {
+          // Use existing chat history
+          chatHistoryDoc = await chatHistory.findById(chatHistoryId);
+          if (!chatHistoryDoc) {
+            // If not found, create new
+            chatHistoryDoc = new chatHistory({
+              user: req.user._id,
+              title: query.substring(0, 30),
+            });
+            await chatHistoryDoc.save();
+          }
+        } else {
+          // Create new chat history
+          chatHistoryDoc = new chatHistory({
+            user: req.user._id,
+            title: query.substring(0, 30),
+          });
+          await chatHistoryDoc.save();
+        }
+        
+        savedChatHistoryId = chatHistoryDoc._id;
+        
+        // Create chat entry
+        const chatDoc = new chat({
+          chatHistory: chatHistoryDoc._id,
+          messages: [
+            {
+              sender: req.user._id,
+              message: {
+                user: query,
+                gemini: formattedHtml,
+              },
+              isSearch: true,
+              searchType: "simple",
+            },
+          ],
+        });
+        
+        await chatDoc.save();
+        
+        // Update the chatHistory document with the new chat reference
+        chatHistoryDoc.chat = chatDoc._id;
+        await chatHistoryDoc.save();
+        
+        // Update the user document to include this chat history if it's new
+        if (!chatHistoryId || chatHistoryId.length < 2) {
+          const { user } = await import("../model/user.js");
+          const userData = await user.findById(req.user._id);
+          if (userData) {
+            // Check if the chat history ID already exists in the user's chatHistory array
+            const historyExists = userData.chatHistory.some(
+              history => history.toString() === chatHistoryDoc._id.toString()
+            );
+            
+            // If it doesn't exist, add it
+            if (!historyExists) {
+              userData.chatHistory.push(chatHistoryDoc._id);
+              await userData.save();
+              console.log(`Added chat history ${chatHistoryDoc._id} to user ${userData._id}`);
+            }
+          }
+        }
+        console.log(`[SimpleSearch] Saved search to MongoDB, chat ID: ${chatDoc._id}`);
+      } catch (error) {
+        console.error("[SimpleSearch] Error saving to MongoDB:", error);
+        // Continue even if saving fails
+      }
+    }
+    
     // Send the response
     res.status(200).json({
       success: true,
@@ -265,6 +285,7 @@ router.post("/api/simplesearch", async (req, res) => {
         answer
       },
       formattedHtml,
+      chatHistoryId: savedChatHistoryId,
     });
   } catch (error) {
     console.error("[SimpleSearch] Error:", error);
@@ -273,11 +294,16 @@ router.post("/api/simplesearch", async (req, res) => {
       success: false,
       error: error.message || "An unknown error occurred",
       formattedHtml: `
-        <div class="simple-search-results error">
-          <h3>Search Error</h3>
-          <p>There was an error processing your request: ${
-            error.message || "Unknown error"
-          }</p>
+        <div class="search-results-container">
+          <div class="search-content-wrapper">
+            <div class="search-main-content">
+              <h2>Search Error</h2>
+              <p>There was an error processing your request: ${
+                error.message || "Unknown error"
+              }</p>
+              <p>Please try again or refine your search query.</p>
+            </div>
+          </div>
         </div>
       `,
     });
@@ -291,6 +317,8 @@ router.post("/api/deepsearch", async (req, res) => {
       query,
       sources = ["support.zoom.us", "community.zoom.us", "zoom.us"],
       depth = 1, // Simpler search with less depth
+      saveToHistory = false,
+      chatHistoryId = "",
     } = req.body;
 
     if (!query) {
@@ -317,11 +345,92 @@ router.post("/api/deepsearch", async (req, res) => {
     // Format the HTML response
     const formattedHtml = deepSearchAgent.formatResponse(result);
 
+    // Save to chat history if requested
+    let savedChatHistoryId = chatHistoryId;
+    
+    if (req.user) { // Always try to save if user exists, login or IP-based
+      try {
+        const { chat } = await import("../model/chat.js");
+        const { chatHistory } = await import("../model/chatHistory.js");
+        
+        // Create or get chat history
+        let chatHistoryDoc;
+        
+        if (chatHistoryId && chatHistoryId.length > 2) {
+          // Use existing chat history
+          chatHistoryDoc = await chatHistory.findById(chatHistoryId);
+          if (!chatHistoryDoc) {
+            // If not found, create new
+            chatHistoryDoc = new chatHistory({
+              user: req.user._id,
+              title: query.substring(0, 30),
+            });
+            await chatHistoryDoc.save();
+          }
+        } else {
+          // Create new chat history
+          chatHistoryDoc = new chatHistory({
+            user: req.user._id,
+            title: query.substring(0, 30),
+          });
+          await chatHistoryDoc.save();
+        }
+        
+        savedChatHistoryId = chatHistoryDoc._id;
+        
+        // Create chat entry
+        const chatDoc = new chat({
+          chatHistory: chatHistoryDoc._id,
+          messages: [
+            {
+              sender: req.user._id,
+              message: {
+                user: query,
+                gemini: formattedHtml,
+              },
+              isSearch: true,
+              searchType: "deep",
+            },
+          ],
+        });
+        
+        await chatDoc.save();
+        
+        // Update the chatHistory document with the new chat reference
+        chatHistoryDoc.chat = chatDoc._id;
+        await chatHistoryDoc.save();
+        
+        // Update the user document to include this chat history if it's new
+        if (!chatHistoryId || chatHistoryId.length < 2) {
+          const { user } = await import("../model/user.js");
+          const userData = await user.findById(req.user._id);
+          if (userData) {
+            // Check if the chat history ID already exists in the user's chatHistory array
+            const historyExists = userData.chatHistory.some(
+              history => history.toString() === chatHistoryDoc._id.toString()
+            );
+            
+            // If it doesn't exist, add it
+            if (!historyExists) {
+              userData.chatHistory.push(chatHistoryDoc._id);
+              await userData.save();
+              console.log(`Added chat history ${chatHistoryDoc._id} to user ${userData._id}`);
+            }
+          }
+        }
+        console.log(`[DeepSearch] Saved search to MongoDB, chat ID: ${chatDoc._id}`);
+      } catch (error) {
+        console.error("[DeepSearch] Error saving to MongoDB:", error);
+        // Continue even if saving fails
+      }
+    }
+    
     // Send the complete response
     res.status(200).json({
       success: true,
       result,
       formattedHtml,
+      chatHistoryId: savedChatHistoryId,
     });
   } catch (error) {
     console.error("[DeepSearch] Error:", error);
@@ -330,11 +439,16 @@ router.post("/api/deepsearch", async (req, res) => {
       success: false,
       error: error.message || "An unknown error occurred",
       formattedHtml: `
-        <div class="deep-search-results error">
-          <h3>Search Error</h3>
-          <p>There was an error processing your request: ${
-            error.message || "Unknown error"
-          }</p>
+        <div class="search-results-container">
+          <div class="search-content-wrapper">
+            <div class="search-main-content">
+              <h2>Deep Search Error</h2>
+              <p>There was an error processing your deep search request: ${
+                error.message || "Unknown error"
+              }</p>
+              <p>Please try again or try using Simple Search instead.</p>
+            </div>
+          </div>
         </div>
       `,
     });

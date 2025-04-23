@@ -14,6 +14,7 @@ const ChatSection = () => {
   const isDeepResearchMode = useSelector(
     (state) => state.ui.isDeepResearchMode
   );
+  // eslint-disable-next-line no-unused-vars
   const isAdvanceGeminiPrompt = useSelector((state) => state.ui.isAdvanceShow);
 
   return (

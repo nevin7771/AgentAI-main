@@ -375,3 +375,402 @@
 [data-theme="dark"] .deep-search-results.error h3 {
   color: #f28b82;
 }
+
+/* Search Results Layout */
+.search-results-container {
+  display: flex;
+  gap: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+.search-results-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.search-results-sidebar {
+  width: 300px;
+  flex-shrink: 0;
+}
+
+.search-query {
+  font-size: 1.1rem;
+  color: #666;
+  margin-bottom: 24px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #eee;
+}
+
+.search-highlights {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 24px;
+}
+
+.search-highlights h4 {
+  color: #1a73e8;
+  margin-bottom: 12px;
+  font-size: 1rem;
+}
+
+.search-highlights ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.search-highlights li {
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.search-answer {
+  line-height: 1.6;
+  color: #333;
+}
+
+.search-sources {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.search-sources h4 {
+  color: #1a73e8;
+  margin-bottom: 12px;
+  font-size: 1rem;
+}
+
+.search-sources ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.search-sources li {
+  margin-bottom: 12px;
+  padding: 8px;
+  background: white;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.search-sources a {
+  color: #1a73e8;
+  text-decoration: none;
+}
+
+.search-sources a:hover {
+  text-decoration: underline;
+}
+
+/* Dark mode */
+[data-theme="dark"] .search-highlights,
+[data-theme="dark"] .search-sources {
+  background: #2d333b;
+}
+
+[data-theme="dark"] .search-sources li {
+  background: #22272e;
+}
+
+[data-theme="dark"] .search-query {
+  color: #adbac7;
+  border-bottom-color: #373e47;
+}
+
+[data-theme="dark"] .search-answer {
+  color: #adbac7;
+}
+
+[data-theme="dark"] .search-highlights h4,
+[data-theme="dark"] .search-sources h4 {
+  color: #539bf5;
+}
+
+[data-theme="dark"] .search-sources a {
+  color: #539bf5;
+}
+
+/* Search Results Layout - Google Style */
+.search-results-container.google-style {
+  display: flex;
+  gap: 30px; /* Increased gap */
+  max-width: 1000px; /* Slightly narrower */
+  margin: 20px auto; /* Add vertical margin */
+  padding: 0 15px; /* Horizontal padding */
+  font-family: 'Roboto', 'Arial', sans-serif; /* Google font stack */
+}
+
+.search-results-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.search-results-sidebar {
+  width: 320px; /* Slightly wider sidebar */
+  flex-shrink: 0;
+}
+
+/* Remove previous query and highlights styling */
+.search-query,
+.search-highlights {
+  display: none; 
+}
+
+/* Answer styling */
+.search-answer {
+  line-height: 1.58; /* Google search line-height */
+  color: #3c4043; /* Google text color */
+  font-size: 16px;
+}
+
+.search-answer h1, .search-answer h2, .search-answer h3 {
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  font-weight: normal;
+}
+
+.search-answer p {
+  margin-bottom: 1em;
+}
+
+.search-answer ul, .search-answer ol {
+  margin-bottom: 1em;
+  padding-left: 1.8em;
+}
+
+.search-answer li {
+  margin-bottom: 0.5em;
+}
+
+.search-answer strong {
+  font-weight: bold;
+}
+
+/* Inline Citation Link Styling */
+.citation-link {
+  display: inline-block; /* Prevent line breaks */
+  text-decoration: none;
+  color: #1a0dab; /* Google link color */
+  font-size: 0.8em; /* Smaller icon */
+  margin-left: 4px; 
+  vertical-align: middle;
+}
+
+.citation-link:hover {
+  text-decoration: underline;
+}
+
+/* Sources Sidebar Styling */
+.search-sources {
+  background: none; /* Remove background */
+  border-radius: 0;
+  padding: 0;
+}
+
+.search-sources h4 {
+  font-size: 18px; /* Larger heading */
+  color: #202124; /* Google heading color */
+  margin-bottom: 15px;
+  font-weight: normal;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #ebebeb;
+}
+
+.search-sources ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.search-sources li {
+  margin-bottom: 18px; /* More spacing */
+  padding: 0;
+  background: none; /* Remove background */
+  box-shadow: none;
+  border-radius: 0;
+}
+
+.search-sources li a {
+  display: block; /* Make entire area clickable */
+  text-decoration: none;
+}
+
+.search-sources .source-favicon {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  background-color: #eee; /* Placeholder color */
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: middle;
+  /* In a real app, set background-image: url(...) */
+}
+
+.search-sources .source-title {
+  display: block; /* Title on its own line */
+  color: #1a0dab; /* Google link color */
+  font-size: 16px;
+  margin-bottom: 3px;
+}
+
+.search-sources .source-url {
+  display: block; /* URL on its own line */
+  color: #006621; /* Google URL color */
+  font-size: 14px;
+}
+
+.search-sources li a:hover .source-title {
+  text-decoration: underline;
+}
+
+/* Dark mode adjustments for Google Style */
+[data-theme="dark"] .search-results-container.google-style {
+  /* No major changes needed for container */
+}
+
+[data-theme="dark"] .search-answer {
+  color: #bdc1c6; /* Dark mode text */
+}
+
+[data-theme="dark"] .citation-link {
+  color: #8ab4f8; /* Dark mode link */
+}
+
+[data-theme="dark"] .search-sources h4 {
+  color: #e8eaed;
+  border-bottom-color: #3c4043;
+}
+
+[data-theme="dark"] .search-sources .source-title {
+  color: #8ab4f8; /* Dark mode link */
+}
+
+[data-theme="dark"] .search-sources .source-url {
+  color: #81c995; /* Dark mode URL */
+}
+
+[data-theme="dark"] .search-sources .source-favicon {
+  background-color: #3c4043; /* Dark mode placeholder */
+}
+
+/* --- Simple Search Results Styling --- */
+/* Ensure this matches the first image provided */
+.simple-search-results {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  max-width: 800px; /* Or adjust as needed */
+  margin: 20px auto; /* Centering and vertical space */
+  padding: 20px;
+  line-height: 1.6;
+  color: #333; /* Default text color */
+  background-color: #fff; /* White background */
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1); /* Subtle shadow */
+}
+
+.simple-search-results h3 {
+  font-size: 1.4rem; /* Slightly larger than default h3 */
+  font-weight: 600;
+  margin-top: 0;
+  margin-bottom: 1rem;
+  color: #1a1a1a;
+}
+
+.simple-search-results p {
+  margin-bottom: 1em;
+}
+
+.simple-search-results p strong { /* Query style */
+  font-weight: 500;
+  color: #555;
+}
+
+.simple-search-content {
+  margin-top: 1.5rem;
+}
+
+.simple-search-content h1,
+.simple-search-content h2, 
+.simple-search-content h3 {
+  font-weight: 600;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+}
+
+.simple-search-content ul, 
+.simple-search-content ol {
+  margin-left: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.simple-search-content li {
+  margin-bottom: 0.5rem;
+}
+
+.simple-search-content strong {
+  font-weight: 600;
+}
+
+.simple-search-note {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid #eee;
+  font-size: 0.85rem;
+  color: #666;
+  font-style: italic;
+}
+
+/* Dark mode for Simple Search */
+[data-theme="dark"] .simple-search-results {
+  color: #c9d1d9;
+  background-color: #1c2128; /* Dark background */
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+[data-theme="dark"] .simple-search-results h3 {
+  color: #e8eaed;
+}
+
+[data-theme="dark"] .simple-search-results p strong {
+  color: #a0aec0;
+}
+
+[data-theme="dark"] .simple-search-note {
+  border-top-color: #373e47;
+  color: #a0aec0;
+}
+
+/* --- Error Styling --- */
+/* (Ensure .search-error is defined if used) */
+.search-error {
+  border-left: 4px solid #ea4335;
+  padding: 15px;
+  margin: 20px auto;
+  max-width: 800px;
+  background-color: #fce8e6;
+  color: #a50e0e;
+  border-radius: 4px;
+}
+
+.search-error h3 {
+  margin-top: 0;
+  color: #b71c1c;
+}
+
+[data-theme="dark"] .search-error {
+  border-left-color: #f28b82;
+  background-color: rgba(242, 139, 130, 0.1);
+  color: #f6aea9;
+}
+
+[data-theme="dark"] .search-error h3 {
+  color: #f4c7c3;
+}
+
+
+/* Ensure Google Style specificity doesn't override Simple Search */
+/* (The .google-style class on the container handles this) */
