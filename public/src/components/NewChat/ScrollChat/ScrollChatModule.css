@@ -31,6 +31,13 @@
   overflow-x: auto;
   padding-left: 12px; /* Match the gemini-p padding */
   margin-top: 0;
+  display: flex;
+  align-items: flex-start;
+}
+
+.search-result .search-results-container {
+  padding: 0;
+  width: 100%;
 }
 
 .search-result .search-content-wrapper {
@@ -38,11 +45,21 @@
   flex-direction: row;
   width: 100%;
   margin-top: 0;
+  align-items: flex-start;
 }
 
 .search-result .search-main-content {
   padding-right: 16px;
   flex: 1;
+}
+
+.search-result strong {
+  font-weight: 600;
+  color: #1a73e8;
+}
+
+[data-theme="dark"] .search-result strong {
+  color: #8ab4f8;
 }
 
 .search-result img {

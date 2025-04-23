@@ -171,6 +171,22 @@ export const formatSearchResultHTML = (result, query, sources) => {
       .replace(/(<li>.*<\/li>\s*)+/g, '<ul>$&</ul>');
   };
   
+  // Enhance main answer with more bolded keywords
+  const enhanceKeywords = (html) => {
+    // Find common important keywords based on the query
+    const queryWords = query.toLowerCase().split(/\s+/).filter(word => word.length > 3);
+    
+    // Replace important terms with bold
+    let enhancedHtml = html;
+    queryWords.forEach(word => {
+      // Create regex that matches the word but not if it's already inside a tag
+      const regex = new RegExp(`(?<![<>\\w])${word}\\b(?![^<]*>)`, 'gi');
+      enhancedHtml = enhancedHtml.replace(regex, '<strong>$&</strong>');
+    });
+    
+    return enhancedHtml;
+  };
+
   // Format the HTML output - no embedded CSS, use external stylesheet
   return `
     <div class="search-results-container">
@@ -178,14 +194,14 @@ export const formatSearchResultHTML = (result, query, sources) => {
         <div class="search-main-content">
           <div class="search-response">
             <div class="search-content">
-              ${markdownToHtml(mainAnswer)}
+              ${enhanceKeywords(markdownToHtml(mainAnswer))}
             </div>
           </div>
           
           ${relatedQuestions.length > 0 ? `
           <div class="search-related-questions">
             <h4>Related Questions</h4>
-            <div class="gemini-chips">
+            <div class="gemini-chips-container">
               ${relatedQuestions.map(q => `<button class="gemini-chip" onclick="(function() { var inputField = document.querySelector('.input-field'); if (inputField) { inputField.value = '${q.replace(/'/g, "\\'")}'; var submitButton = document.querySelector('button[type=submit]'); if(submitButton) { inputField.focus(); setTimeout(function() { submitButton.click(); }, 100); } } })();">
                 <span class="gemini-chip-icon">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -204,13 +220,6 @@ export const formatSearchResultHTML = (result, query, sources) => {
         </div>
         
         <div class="search-sidebar">
-          <div class="search-key-points">
-            <h4>Key Highlights</h4>
-            <ul>
-              ${keyPoints.map(point => `<li>${point}</li>`).join('')}
-            </ul>
-          </div>
-          
           <div class="search-sources">
             <h4>Sources</h4>
             <ul>
