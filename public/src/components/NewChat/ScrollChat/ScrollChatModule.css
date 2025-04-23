@@ -46,6 +46,7 @@
   width: 100%;
   margin-top: 0;
   align-items: flex-start;
+  margin-bottom: 0; /* Override the default margin */
 }
 
 .search-result .search-main-content {
@@ -58,8 +59,18 @@
   color: #1a73e8;
 }
 
-[data-theme="dark"] .search-result strong {
+.search-result .source-snippet strong {
+  color: #1a73e8;
+  font-weight: bold;
+}
+
+[data-theme="dark"] .search-result strong,
+[data-theme="dark"] .search-result .source-snippet strong {
   color: #8ab4f8;
+}
+
+.search-result .search-related-section {
+  padding-top: 8px;
 }
 
 .search-result img {

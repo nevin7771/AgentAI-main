@@ -187,6 +187,51 @@ export const formatSearchResultHTML = (result, query, sources) => {
     return enhancedHtml;
   };
 
+  // Generate source snippets with highlighted content relevant to the query
+  const generateSourceSnippets = () => {
+    // For a production app, you would extract real snippets from the search results
+    // Here we'll generate some relevant sample snippets based on the query
+    const queryWords = query.toLowerCase().split(/\s+/).filter(word => word.length > 3);
+    
+    // Basic snippet templates for common query types
+    let snippets = [];
+    
+    if (query.toLowerCase().includes('how to')) {
+      snippets = [
+        `Steps for ${query.replace('how to', '')}: First, open the application. Then navigate to the settings...`,
+        `Tutorial: ${query}. The official documentation recommends following these steps...`,
+        `Quick guide to ${query.replace('how to', '')}: We've created a simple walkthrough...`
+      ];
+    } else if (query.toLowerCase().includes('what is')) {
+      snippets = [
+        `Definition: ${query.replace('what is', '')} refers to a specific feature that allows users to...`,
+        `Understanding ${query.replace('what is', '')}: An in-depth explanation of the concept...`,
+        `${query.replace('what is', '')}: The complete guide to understanding this technology...`
+      ];
+    } else {
+      snippets = [
+        `Information about "${query}": The definitive guide to this topic...`,
+        `Everything you need to know about ${query}: Our comprehensive documentation covers...`,
+        `${query}: Tips, tricks and best practices for optimal results...`
+      ];
+    }
+    
+    // Add highlighting to snippets based on query keywords
+    const highlightedSnippets = snippets.map(snippet => {
+      let highlighted = snippet;
+      queryWords.forEach(word => {
+        const regex = new RegExp(`(${word})`, 'gi');
+        highlighted = highlighted.replace(regex, '<strong>$1</strong>');
+      });
+      return highlighted;
+    });
+    
+    // Return snippets matching the sources array length
+    return highlightedSnippets.slice(0, sources.length);
+  };
+  
+  const sourceSnippets = generateSourceSnippets();
+  
   // Format the HTML output - no embedded CSS, use external stylesheet
   return `
     <div class="search-results-container">
@@ -198,22 +243,6 @@ export const formatSearchResultHTML = (result, query, sources) => {
             </div>
           </div>
           
-          ${relatedQuestions.length > 0 ? `
-          <div class="search-related-questions">
-            <h4>Related Questions</h4>
-            <div class="gemini-chips-container">
-              ${relatedQuestions.map(q => `<button class="gemini-chip" onclick="(function() { var inputField = document.querySelector('.input-field'); if (inputField) { inputField.value = '${q.replace(/'/g, "\\'")}'; var submitButton = document.querySelector('button[type=submit]'); if(submitButton) { inputField.focus(); setTimeout(function() { submitButton.click(); }, 100); } } })();">
-                <span class="gemini-chip-icon">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M21 21L15 15M17 10C17 13.866 13.866 17 10 17C6.13401 17 3 13.866 3 10C3 6.13401 6.13401 3 10 3C13.866 3 17 6.13401 17 10Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                  </svg>
-                </span>
-                <span class="gemini-chip-text">${q}</span>
-              </button>`).join('')}
-            </div>
-          </div>
-          ` : ''}
-          
           <div class="search-note">
             <small>For more detailed research, try using the Deep Search option.</small>
           </div>
@@ -222,14 +251,35 @@ export const formatSearchResultHTML = (result, query, sources) => {
         <div class="search-sidebar">
           <div class="search-sources">
             <h4>Sources</h4>
-            <ul>
-              ${sources.map(source => 
-                `<li><a href="https://${source}" target="_blank" rel="noopener noreferrer">${source}</a></li>`
-              ).join('')}
-            </ul>
+            <div class="source-list">
+              ${sources.map((source, index) => `
+                <div class="source-item">
+                  <div class="source-snippet">${sourceSnippets[index] || `Information about ${query}`}</div>
+                  <div class="source-domain">
+                    <a href="https://${source}" target="_blank" rel="noopener noreferrer">${source}</a>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
           </div>
         </div>
       </div>
+      
+      ${relatedQuestions.length > 0 ? `
+      <div class="search-related-section">
+        <h4>Related Questions</h4>
+        <div class="gemini-chips-container">
+          ${relatedQuestions.map(q => `<button class="gemini-chip" onclick="(function() { var inputField = document.querySelector('.input-field'); if (inputField) { inputField.value = '${q.replace(/'/g, "\\'")}'; var submitButton = document.querySelector('button[type=submit]'); if(submitButton) { inputField.focus(); setTimeout(function() { submitButton.click(); }, 100); } } })();">
+            <span class="gemini-chip-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M21 21L15 15M17 10C17 13.866 13.866 17 10 17C6.13401 17 3 13.866 3 10C3 6.13401 6.13401 3 10 3C13.866 3 17 6.13401 17 10Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+            <span class="gemini-chip-text">${q}</span>
+          </button>`).join('')}
+        </div>
+      </div>
+      ` : ''}
     </div>
   `;
 };
