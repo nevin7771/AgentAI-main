@@ -100,7 +100,7 @@
   color: #8ab4f8;
 }
 
-.deep-search-btn {
+.search-btn {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -114,26 +114,26 @@
   transition: all 0.2s;
 }
 
-.deep-search-btn:hover {
+.search-btn:hover {
   background-color: #f5f5f5;
   color: #1a73e8;
 }
 
-.deep-search-btn.active {
+.search-btn.active {
   background-color: #e8f0fe;
   color: #1a73e8;
 }
 
-[data-theme="dark"] .deep-search-btn {
+[data-theme="dark"] .search-btn {
   color: #a0a0a0;
 }
 
-[data-theme="dark"] .deep-search-btn:hover {
+[data-theme="dark"] .search-btn:hover {
   background-color: #404040;
   color: #8ab4f8;
 }
 
-[data-theme="dark"] .deep-search-btn.active {
+[data-theme="dark"] .search-btn.active {
   background-color: #1a73e8;
   color: #ffffff;
 }

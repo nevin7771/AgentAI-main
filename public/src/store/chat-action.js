@@ -143,7 +143,8 @@ export const sendDeepSearchRequest = (searchRequest) => {
     );
 
     const apiKey = process.env.REACT_APP_GEMINI_KEY;
-    const url = `${SERVER_ENDPOINT}/api/deepsearch`;
+    // Use the endpoint from the request, or default to deepsearch
+    const url = `${SERVER_ENDPOINT}${searchRequest.endpoint || "/api/deepsearch"}`;
 
     fetch(url, {
       method: "POST",
