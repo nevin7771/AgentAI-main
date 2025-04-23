@@ -1,14 +1,11 @@
 // server/agents/index.js
-import DeepSearchAgent from "./deepSearchAgent.js";
-import SearchWithAIAgent from "./searchWithAIAgent.js";
+import DeepResearchAgent from "./deepResearchAgent.js";
 
 // Agent factory - allows for easy addition of new agents
 export const createAgent = (type, options = {}) => {
   switch (type) {
-    case "deep-search":
-      return new DeepSearchAgent(options);
-    case "search-with-ai":
-      return new SearchWithAIAgent(options);
+    case "deep-research":
+      return new DeepResearchAgent(options);
     // Add more agent types here as needed
     default:
       throw new Error(`Unknown agent type: ${type}`);
@@ -16,4 +13,4 @@ export const createAgent = (type, options = {}) => {
 };
 
 // Export individual agents for direct use
-export { DeepSearchAgent, SearchWithAIAgent };
+export { DeepResearchAgent };

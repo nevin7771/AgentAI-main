@@ -1,15 +1,12 @@
 // server/router/agent.js
-// Enhanced router to support deep research capabilities
+// Enhanced router to support deep research capabilities based on search_with_ai-main
 
 import express from "express";
-import axios from "axios";
-import { load } from "cheerio";
 import { createAgent } from "../agents/index.js";
 
 const router = express.Router();
 
-// Handler for deep research requests
-// Simplified router for deep-research
+// Handler for deep research requests with streaming response
 router.post("/api/deep-research", async (req, res) => {
   try {
     const {
@@ -28,7 +25,7 @@ router.post("/api/deep-research", async (req, res) => {
 
     console.log(`[DeepResearch] Starting research for: "${query}"`);
 
-    // Setup SSE
+    // Setup SSE for streaming updates
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
@@ -44,50 +41,70 @@ router.post("/api/deep-research", async (req, res) => {
       })}\n\n`
     );
 
-    // Create a basic mock response for now
-    setTimeout(() => {
-      res.write(
-        `data: ${JSON.stringify({
-          type: "progress",
-          status: "searching",
-          message: "Searching for relevant information...",
-        })}\n\n`
-      );
-
-      setTimeout(() => {
+    // Create the deep research agent with progress callback
+    const deepResearchAgent = createAgent("deep-research", {
+      sources,
+      depth,
+      breadth,
+      onProgress: (progress) => {
+        // Send progress updates as SSE events
+        const status = progress.status || "researching";
+        let message = "Researching...";
+        
+        switch (status) {
+          case "analyzing":
+            message = "Analyzing query and planning research approach...";
+            break;
+          case "searching":
+            message = `Searching for information on: ${progress.currentQuery?.substring(0, 30)}...`;
+            break;
+          case "researching":
+            message = `Researching at depth ${progress.currentDepth}...`;
+            break;
+          case "summarizing":
+            message = "Synthesizing findings and generating report...";
+            break;
+          case "done":
+            message = "Research complete!";
+            break;
+        }
+        
         res.write(
           `data: ${JSON.stringify({
-            type: "complete",
-            result: {
-              success: true,
-              query,
-              report: `# Research Results for: ${query}\n\nZoom meetings can be scheduled through various methods:\n\n1. **Web Portal**: Log in to zoom.us and use the Schedule button\n2. **Desktop App**: Open Zoom client and click Schedule\n3. **Mobile App**: Tap the Schedule button in the Zoom mobile app\n\nWhen scheduling, you can set options such as date/time, meeting ID, password, and participant settings.`,
-              visitedUrls: [
-                "https://support.zoom.us/hc/en-us/articles/201362413-Scheduling-meetings",
-                "https://zoom.us/meetings",
-              ],
-              enhancedQueries: [
-                "How to schedule recurring Zoom meetings",
-                "Zoom meeting scheduling options and settings",
-                "Scheduling Zoom meetings via calendar integrations",
-              ],
-              executionTimeMs: 3500,
-            },
+            type: "progress",
+            status,
+            message,
+            progress,
           })}\n\n`
         );
+      },
+    });
 
-        res.end();
-      }, 2000);
-    }, 2000);
+    // Execute the deep research
+    const result = await deepResearchAgent.execute(query);
+
+    // Send the final result
+    res.write(
+      `data: ${JSON.stringify({
+        type: "complete",
+        result,
+      })}\n\n`
+    );
+
+    res.end();
   } catch (error) {
     console.error("[DeepResearch] Error:", error);
 
-    res.writeHead(200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    });
+    // If headers haven't been sent yet, set them up
+    if (!res.headersSent) {
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      });
+    }
 
+    // Send error message
     res.write(
       `data: ${JSON.stringify({
         type: "error",
@@ -105,6 +122,7 @@ router.post("/api/deepsearch", async (req, res) => {
     const {
       query,
       sources = ["support.zoom.us", "community.zoom.us", "zoom.us"],
+      depth = 1, // Simpler search with less depth
     } = req.body;
 
     if (!query) {
@@ -117,11 +135,12 @@ router.post("/api/deepsearch", async (req, res) => {
 
     console.log(`[DeepSearch] Processing query: "${query}"`);
 
-    // Create the deep search agent with simpler configuration
-    const deepSearchAgent = createAgent("deep-search", {
+    // Execute the search immediately without sending a partial response first
+    // This will make the client wait but ensures they get the full result
+    const deepSearchAgent = createAgent("deep-research", {
       sources,
-      depth: 1, // Basic depth for regular search
-      breadth: 2, // Limited breadth for regular search
+      depth, 
+      breadth: 2,
     });
 
     // Execute the search
@@ -130,7 +149,7 @@ router.post("/api/deepsearch", async (req, res) => {
     // Format the HTML response
     const formattedHtml = deepSearchAgent.formatResponse(result);
 
-    // Send the response
+    // Send the complete response
     res.status(200).json({
       success: true,
       result,
@@ -138,6 +157,7 @@ router.post("/api/deepsearch", async (req, res) => {
     });
   } catch (error) {
     console.error("[DeepSearch] Error:", error);
+    
     res.status(500).json({
       success: false,
       error: error.message || "An unknown error occurred",
