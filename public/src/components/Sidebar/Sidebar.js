@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { chatAction } from "../../store/chat";
 import { Link, useNavigate } from "react-router-dom";
 import { userUpdateLocation } from "../../store/user-action";
+import { deleteChatHistory } from "../../store/chat-action";
 
 const Sidebar = () => {
   const dispatch = useDispatch();
@@ -59,6 +60,15 @@ const Sidebar = () => {
     }
   };
 
+  const deleteChatHandler = (e, chatId) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (window.confirm("Are you sure you want to delete this chat history?")) {
+      dispatch(deleteChatHistory(chatId));
+    }
+  };
+
   return (
     <div className={`${styles["sidebar-main"]} ${styles[sideBarWidthClass]}`}>
       <div className={styles["menu-icon"]} onClick={sideBarWidthHandler}>
@@ -69,8 +79,7 @@ const Sidebar = () => {
         {isNewChat ? (
           <div
             onClick={newChatHandler}
-            className={`${styles["pluc-icon"]} ${styles["new-plus-icon"]}`}
-          >
+            className={`${styles["pluc-icon"]} ${styles["new-plus-icon"]}`}>
             <img src={icon.plusIcon} alt="plus icon"></img>
             {isSidebarLong && <p>New chat</p>}
           </div>
@@ -94,10 +103,15 @@ const Sidebar = () => {
                   }`}
                   onClick={() => {
                     setIsActiveChat(chat._id);
-                  }}
-                >
+                  }}>
                   <img src={icon.messageIcon} alt="message"></img>
                   <p>{chat.title.slice(0, 20)}</p>
+                  <div
+                    className={styles["delete-icon"]}
+                    onClick={(e) => deleteChatHandler(e, chat._id)}
+                    title="Delete chat">
+                    <img src={icon.crossIcon} alt="delete"></img>
+                  </div>
                 </div>
               </Link>
             ))}
@@ -120,10 +134,15 @@ const Sidebar = () => {
                     onClick={() => {
                       setIsActiveChat(chat._id);
                     }}
-                    key={chat._id}
-                  >
+                    key={chat._id}>
                     <img src={icon.messageIcon} alt="message"></img>
                     <p>{chat.title.slice(0, 20)}</p>
+                    <div
+                      className={styles["delete-icon"]}
+                      onClick={(e) => deleteChatHandler(e, chat._id)}
+                      title="Delete chat">
+                      <img src={icon.crossIcon} alt="delete"></img>
+                    </div>
                   </div>
                 </Link>
               ))}

@@ -144,13 +144,17 @@ export const sendDeepSearchRequest = (searchRequest) => {
         },
       })
     );
-    
+
     // Determine search type (simple or deep)
-    const searchType = searchRequest.endpoint.includes("simplesearch") ? "simple" : "deep";
+    const searchType = searchRequest.endpoint.includes("simplesearch")
+      ? "simple"
+      : "deep";
 
     const apiKey = process.env.REACT_APP_GEMINI_KEY;
     // Use the endpoint from the request, or default to deepsearch
-    const url = `${SERVER_ENDPOINT}${searchRequest.endpoint || "/api/deepsearch"}`;
+    const url = `${SERVER_ENDPOINT}${
+      searchRequest.endpoint || "/api/deepsearch"
+    }`;
 
     fetch(url, {
       method: "POST",
@@ -167,7 +171,7 @@ export const sendDeepSearchRequest = (searchRequest) => {
           "zoom.us",
         ],
         // No need for saveToHistory flag anymore as we always try to save
-        chatHistoryId: searchRequest.chatHistoryId // Pass existing history ID if available
+        chatHistoryId: searchRequest.chatHistoryId, // Pass existing history ID if available
       }),
     })
       .then((response) => {
@@ -186,7 +190,7 @@ export const sendDeepSearchRequest = (searchRequest) => {
         if (data.success) {
           // Check if the result came from cache
           const usedCache = data.result && data.result.usedCache;
-          
+
           // Add the formatted HTML response to the chat
           dispatch(
             chatAction.chatStart({
@@ -201,14 +205,16 @@ export const sendDeepSearchRequest = (searchRequest) => {
               },
             })
           );
-          
+
           // If we received a chat history ID from server, save it
           if (data.chatHistoryId) {
             dispatch(
-              chatAction.chatHistoryIdHandler({ chatHistoryId: data.chatHistoryId })
+              chatAction.chatHistoryIdHandler({
+                chatHistoryId: data.chatHistoryId,
+              })
             );
           }
-          
+
           // Make sure to update recent chats with a longer delay to ensure server-side processing completes
           setTimeout(() => {
             dispatch(getRecentChat());
@@ -311,6 +317,39 @@ export const getChat = (chatHistoryId) => {
         );
         dispatch(chatAction.loaderHandler());
         dispatch(chatAction.chatHistoryIdHandler({ chatHistoryId }));
+      });
+  };
+};
+
+export const deleteChatHistory = (chatHistoryId) => {
+  return (dispatch) => {
+    const url = `${SERVER_ENDPOINT}/api/chat-history/${chatHistoryId}`;
+
+    fetch(url, {
+      method: "DELETE",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error("Failed to delete chat history");
+        }
+        return response.json();
+      })
+      .then(() => {
+        // After successful deletion, update the recent chats
+        dispatch(getRecentChat());
+        // Navigate to home if we're currently viewing this chat
+        const currentChatHistoryId = window.location.pathname.split("/").pop();
+        if (currentChatHistoryId === chatHistoryId) {
+          window.location.href = "/";
+        }
+      })
+      .catch((error) => {
+        console.error("Error deleting chat history:", error);
+        alert("Failed to delete chat history. Please try again.");
       });
   };
 };

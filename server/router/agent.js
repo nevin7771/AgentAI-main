@@ -289,6 +289,85 @@ router.post("/api/simplesearch", async (req, res) => {
   }
 });
 
+// Handler for deleting chat history
+router.delete("/api/chat-history/:chatHistoryId", async (req, res) => {
+  try {
+    const { chatHistoryId } = req.params;
+    
+    if (!chatHistoryId) {
+      return res.status(400).json({
+        success: false,
+        error: "Chat history ID is required"
+      });
+    }
+
+    console.log(`[DeleteChatHistory] Deleting chat history: ${chatHistoryId}`);
+
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        error: "User not authenticated"
+      });
+    }
+
+    // Import models
+    const { chat } = await import("../model/chat.js");
+    const { chatHistory } = await import("../model/chatHistory.js");
+    const { user } = await import("../model/user.js");
+
+    // Find the chat history
+    const chatHistoryDoc = await chatHistory.findById(chatHistoryId);
+    
+    if (!chatHistoryDoc) {
+      return res.status(404).json({
+        success: false,
+        error: "Chat history not found"
+      });
+    }
+
+    // Verify that the user owns this chat history
+    if (chatHistoryDoc.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        error: "Not authorized to delete this chat history"
+      });
+    }
+
+    // Find the associated chat
+    if (chatHistoryDoc.chat) {
+      // Delete the chat
+      await chat.findByIdAndDelete(chatHistoryDoc.chat);
+      console.log(`Deleted chat: ${chatHistoryDoc.chat}`);
+    }
+
+    // Remove the chat history from user's chatHistory array
+    const userData = await user.findById(req.user._id);
+    if (userData) {
+      userData.chatHistory = userData.chatHistory.filter(
+        history => history.toString() !== chatHistoryId
+      );
+      await userData.save();
+      console.log(`Removed chat history ${chatHistoryId} from user ${userData._id}`);
+    }
+
+    // Delete the chat history
+    await chatHistory.findByIdAndDelete(chatHistoryId);
+    console.log(`Deleted chat history: ${chatHistoryId}`);
+
+    res.status(200).json({
+      success: true,
+      message: "Chat history deleted successfully"
+    });
+  } catch (error) {
+    console.error("[DeleteChatHistory] Error:", error);
+    
+    res.status(500).json({
+      success: false,
+      error: error.message || "An unknown error occurred"
+    });
+  }
+});
+
 // Handler for standard deep search with RAG integration
 router.post("/api/deepsearch", async (req, res) => {
   try {
