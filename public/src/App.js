@@ -1,19 +1,20 @@
-// public/src/App.js (Modified to include Agent Styles)
+// public/src/App.js
 import "./App.css";
 import "./DeepSearch.css";
 import "./DeepResearch.css";
-import "./AgentStyles.css"; // Add the agent styles
+import "./AgentStyles.css"; // For our Agent components styling
 import ChatSection from "./components/ChatSection/ChatSection";
 import SettingSection from "./components/SettingSection/SettingSecion";
 import Sidebar from "./components/Sidebar/Sidebar";
 import { useSelector, useDispatch } from "react-redux";
 import { uiAction } from "./store/ui-gemini";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { getRecentChat } from "./store/chat-action";
 import UserDetails from "./components/UserDetails/UserDetails";
 import { refreshToken } from "./store/auth-action";
 import { loginHandler } from "./store/auth-action";
 import UserIntroPrompt from "./components/UserIntroPrompt/UserIntroPrompt";
+import AgentProvider from "./components/AgentChat/AgentProvider"; // Import our new component
 
 function App() {
   const dispatch = useDispatch();
@@ -79,20 +80,23 @@ function App() {
 
   return (
     <div className="App">
-      <Sidebar />
-      <ChatSection />
-      <SettingSection />
-      {isUserDetails && isLogin && <UserDetails />}
-      {!isLogin && isIntroPrompt && <UserIntroPrompt />}
-      {settingsShow && (
-        <div onClick={settingHandler} className="bg-focus-dark"></div>
-      )}
-      {isAdvanceGeminiPrompt && (
-        <div onClick={settingHandler} className="bg-focus-dark"></div>
-      )}
-      {isUserDetails && isLogin && (
-        <div onClick={settingHandler} className="bg-focus-dark"></div>
-      )}
+      {/* Wrap the entire app with AgentProvider to manage agent state */}
+      <AgentProvider>
+        <Sidebar />
+        <ChatSection />
+        <SettingSection />
+        {isUserDetails && isLogin && <UserDetails />}
+        {!isLogin && isIntroPrompt && <UserIntroPrompt />}
+        {settingsShow && (
+          <div onClick={settingHandler} className="bg-focus-dark"></div>
+        )}
+        {isAdvanceGeminiPrompt && (
+          <div onClick={settingHandler} className="bg-focus-dark"></div>
+        )}
+        {isUserDetails && isLogin && (
+          <div onClick={settingHandler} className="bg-focus-dark"></div>
+        )}
+      </AgentProvider>
     </div>
   );
 }

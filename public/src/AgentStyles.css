@@ -771,6 +771,150 @@
   color: #f4c7c3;
 }
 
+/* Add to public/src/AgentStyles.css */
 
-/* Ensure Google Style specificity doesn't override Simple Search */
-/* (The .google-style class on the container handles this) */
+/* Agent results matching simple search format */
+.simple-search-results .agent-result {
+  margin-top: 24px;
+  padding: 16px;
+  background-color: rgba(255, 255, 255, 0.5);
+  border-radius: 8px;
+  position: relative;
+  border-left: 4px solid #1a73e8;
+}
+
+[data-theme="dark"] .simple-search-results .agent-result {
+  background-color: rgba(255, 255, 255, 0.05);
+  border-left: 4px solid #8ab4f8;
+}
+
+.simple-search-results .agent-result h4 {
+  margin-top: 0 !important;
+  color: #1a73e8 !important;
+  font-weight: 500;
+  font-size: 16px;
+}
+
+[data-theme="dark"] .simple-search-results .agent-result h4 {
+  color: #8ab4f8 !important;
+}
+
+.simple-search-results .agent-answer {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #202124;
+}
+
+[data-theme="dark"] .simple-search-results .agent-answer {
+  color: #e8eaed;
+}
+
+/* Error styling */
+.simple-search-results.error {
+  border-left: 4px solid #ea4335;
+}
+
+[data-theme="dark"] .simple-search-results.error {
+  border-left: 4px solid #f28b82;
+}
+
+.simple-search-results.error h3 {
+  color: #ea4335;
+}
+
+[data-theme="dark"] .simple-search-results.error h3 {
+  color: #f28b82;
+}
+
+/* Loading animation for the agent response */
+.agent-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.agent-loading-dots {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.agent-loading-dot {
+  width: 8px;
+  height: 8px;
+  background-color: #1a73e8;
+  border-radius: 50%;
+  animation: agent-loading-dot 1.4s infinite ease-in-out;
+}
+
+[data-theme="dark"] .agent-loading-dot {
+  background-color: #8ab4f8;
+}
+
+.agent-loading-dot:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.agent-loading-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.agent-loading-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes agent-loading-dot {
+  0%, 80%, 100% { 
+    transform: scale(0.6);
+    opacity: 0.6;
+  }
+  40% { 
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Status indicators */
+.agent-status {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  font-size: 12px;
+  border-radius: 4px;
+  margin-top: 8px;
+}
+
+.agent-status-processing {
+  background-color: #fef7e0;
+  color: #ea8600;
+}
+
+.agent-status-success {
+  background-color: #e6f4ea;
+  color: #137333;
+}
+
+.agent-status-error {
+  background-color: #fce8e6;
+  color: #c5221f;
+}
+
+.agent-status-icon {
+  margin-right: 8px;
+}
+
+[data-theme="dark"] .agent-status-processing {
+  background-color: rgba(249, 171, 0, 0.2);
+  color: #fdd663;
+}
+
+[data-theme="dark"] .agent-status-success {
+  background-color: rgba(52, 168, 83, 0.2);
+  color: #81c995;
+}
+
+[data-theme="dark"] .agent-status-error {
+  background-color: rgba(217, 48, 37, 0.2);
+  color: #f28b82;
+}
