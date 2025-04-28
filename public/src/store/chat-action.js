@@ -237,13 +237,44 @@ export const sendDeepSearchRequest = (searchRequest) => {
 
         // Check if we have formattedHtml, if not create a fallback
         if (!data.formattedHtml && data.result) {
-          // Create a fallback HTML if server didn't provide formatted HTML
-          const answer = data.result.answer || JSON.stringify(data.result);
+          // Create a fallback HTML that matches the expected format from the server
+          let answer = "";
+          if (data.result) {
+            answer = typeof data.result === 'object' 
+              ? (data.result.answer || JSON.stringify(data.result, null, 2))
+              : String(data.result);
+          }
+          
+          // Format the answer text
+          answer = answer.replace(/\n/g, "<br>");
+          
+          // Create a well-formatted search result that matches the expected styling
           data.formattedHtml = `
-            <div class="${searchType}-search-results">
+            <div class="simple-search-results">
               <h3>${searchType === 'simple' ? 'Quick Answer' : 'Research Results'}</h3>
-              <div class="${searchType}-search-content">
-                <p>${answer}</p>
+              
+              <div class="search-content-wrapper">
+                <div class="search-main-content">
+                  <p>${answer}</p>
+                </div>
+              </div>
+              
+              <div class="search-key-points">
+                <h4>Key Points</h4>
+                <ul>
+                  <li>This is a ${searchType} search result</li>
+                  <li>For more detailed information, try using the Deep Search option</li>
+                </ul>
+              </div>
+              
+              <div class="search-related-section">
+                <h4>Next Steps</h4>
+                <p>You can try:</p>
+                <ul>
+                  <li>Asking a more specific question</li>
+                  <li>Using Deep Search for comprehensive results</li>
+                  <li>Trying Agent search for specialized knowledge</li>
+                </ul>
               </div>
             </div>
           `;
@@ -264,37 +295,162 @@ export const sendDeepSearchRequest = (searchRequest) => {
           })
         );
 
-        // If we received a chat history ID from server, save it
-        if (data.chatHistoryId) {
-          dispatch(
-            chatAction.chatHistoryIdHandler({
-              chatHistoryId: data.chatHistoryId,
-            })
-          );
+        // Generate a chat history ID if not provided by server
+        const chatHistoryId = data.chatHistoryId || 
+          `search_${searchType}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        
+        // Save the chat history ID
+        dispatch(
+          chatAction.chatHistoryIdHandler({
+            chatHistoryId: chatHistoryId,
+          })
+        );
+        
+        // Store in localStorage for sidebar history (matches agent behavior)
+        try {
+          // Get existing history from localStorage or initialize empty array
+          const existingHistory = JSON.parse(localStorage.getItem('searchHistory') || '[]');
           
-          // Store in localStorage for sidebar history (matches agent behavior)
+          // Add new item to history
+          const historyItem = {
+            id: chatHistoryId,
+            title: searchRequest.query || `${searchType.charAt(0).toUpperCase() + searchType.slice(1)} Search`,
+            timestamp: new Date().toISOString(),
+            type: searchType
+          };
+          
+          // Add to beginning of array (most recent first)
+          existingHistory.unshift(historyItem);
+          
+          // Limit history to 50 items
+          const limitedHistory = existingHistory.slice(0, 50);
+          
+          // Save back to localStorage
+          localStorage.setItem('searchHistory', JSON.stringify(limitedHistory));
+          console.log(`Added search "${searchRequest.query}" to history with ID: ${chatHistoryId}`);
+          
+          // Trigger a storage event to update sidebar
+          window.dispatchEvent(new Event('storage'));
+        } catch (err) {
+          console.error('Error saving search history to localStorage:', err);
+        }
+        
+        // If we don't have a server-provided ID, create the chat history on server
+        if (!data.chatHistoryId) {
+          console.log("Creating new search history on server");
+          
           try {
-            // Get existing history from localStorage or initialize empty array
-            const existingHistory = JSON.parse(localStorage.getItem('searchHistory') || '[]');
+            // First try with proxy approach
+            let url = `/api/create-chat-history`; 
+            let historyResponse;
             
-            // Add new item to history
-            const historyItem = {
-              id: data.chatHistoryId,
-              title: searchRequest.query || `${searchType.charAt(0).toUpperCase() + searchType.slice(1)} Search`,
-              timestamp: new Date().toISOString(),
-              type: searchType
-            };
+            try {
+              console.log(`Attempting to create search history via proxy: ${url}`);
+              // Create the chat history on the server
+              historyResponse = await fetch(url, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Accept": "application/json",
+                },
+                credentials: "include",
+                body: JSON.stringify({
+                  title: searchRequest.query || `${searchType} search`,
+                  message: {
+                    user: searchRequest.query,
+                    gemini: data.formattedHtml,
+                  },
+                  isSearch: true,
+                  searchType: searchType,
+                }),
+              });
+              
+              // If fetch worked but returned an error, try the direct URL
+              if (!historyResponse.ok) {
+                const statusCode = historyResponse.status;
+                console.warn(`Proxy create search history failed with status ${statusCode}, trying direct URL...`);
+                throw new Error(`Server Error: ${statusCode}`);
+              }
+            } catch (proxyError) {
+              console.error("Proxy create search history failed:", proxyError);
+              
+              // Try direct URL as a fallback
+              url = `${SERVER_ENDPOINT}/api/create-chat-history`;
+              console.log(`Trying direct URL for create search history: ${url}`);
+              
+              historyResponse = await fetch(url, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Accept": "application/json",
+                },
+                credentials: "include",
+                body: JSON.stringify({
+                  title: searchRequest.query || `${searchType} search`,
+                  message: {
+                    user: searchRequest.query,
+                    gemini: data.formattedHtml,
+                  },
+                  isSearch: true,
+                  searchType: searchType,
+                }),
+              });
+            }
             
-            // Add to beginning of array (most recent first)
-            existingHistory.unshift(historyItem);
-            
-            // Limit history to 50 items
-            const limitedHistory = existingHistory.slice(0, 50);
-            
-            // Save back to localStorage
-            localStorage.setItem('searchHistory', JSON.stringify(limitedHistory));
-          } catch (err) {
-            console.error('Error saving search history to localStorage:', err);
+            if (historyResponse.ok) {
+              const historyData = await historyResponse.json();
+              if (historyData.success && historyData.chatHistoryId) {
+                console.log(
+                  "Search history created on server with ID:",
+                  historyData.chatHistoryId
+                );
+                
+                // Update chat history ID with the one from the server
+                dispatch(
+                  chatAction.chatHistoryIdHandler({
+                    chatHistoryId: historyData.chatHistoryId,
+                  })
+                );
+                
+                // Update the localStorage entry with the server ID
+                try {
+                  const existingHistory = JSON.parse(localStorage.getItem('searchHistory') || '[]');
+                  
+                  // Find and update the temporary ID
+                  const updatedHistory = existingHistory.map(item => {
+                    if (item.id === chatHistoryId) {
+                      return { ...item, id: historyData.chatHistoryId };
+                    }
+                    return item;
+                  });
+                  
+                  localStorage.setItem('searchHistory', JSON.stringify(updatedHistory));
+                  console.log("Updated localStorage with server search history ID");
+                  
+                  // Update the URL if we're on a dedicated chat page
+                  if (window.location.pathname.includes('/app/')) {
+                    window.history.replaceState(
+                      null, 
+                      '', 
+                      `/app/${historyData.chatHistoryId}`
+                    );
+                  }
+                } catch (err) {
+                  console.error('Error updating localStorage history ID:', err);
+                }
+              }
+            }
+          } catch (error) {
+            console.error("Error creating search history:", error);
+          }
+        } else {
+          // If we already have a server ID, update the URL if we're on a dedicated chat page
+          if (window.location.pathname.includes('/app/')) {
+            window.history.replaceState(
+              null, 
+              '', 
+              `/app/${data.chatHistoryId}`
+            );
           }
         }
 

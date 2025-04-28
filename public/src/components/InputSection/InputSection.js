@@ -1,11 +1,13 @@
 // public/src/components/InputSection/InputSection.js
 import styles from "./InputSection.module.css";
 import { sendDeepSearchRequest } from "../../store/chat-action";
-import { sendAgentQuestion } from "../../store/agent-actions"; 
+import { sendAgentQuestion } from "../../store/agent-actions";
 import pollAgentTask from "../../utils/agentTaskPoller"; // Import the poller
 import { useEffect, useState, useRef } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate } from "react-router-dom";
+import { chatAction } from "../../store/chat";
+import { uiAction } from "../../store/ui-gemini";
 import AgentPollingManager from "../AgentPolling";
 
 const InputSection = () => {
@@ -21,8 +23,8 @@ const InputSection = () => {
 
   // Get selectedAgents from Redux store
   const selectedAgents = useSelector((state) => state.agent.selectedAgents);
-  
-  // State for direct agent polling 
+
+  // State for direct agent polling
   const [directPollingConfig, setDirectPollingConfig] = useState(null);
 
   const userInputHandler = (e) => {
@@ -75,6 +77,151 @@ const InputSection = () => {
     };
   }, []);
 
+  // Function to handle agent response directly
+  const handleAgentResponse = (data) => {
+    // Format the result text from the agent
+    let resultText = "";
+    if (data.result) {
+      resultText =
+        typeof data.result === "object"
+          ? JSON.stringify(data.result, null, 2)
+          : String(data.result);
+    } else {
+      resultText = "Agent returned no result data";
+    }
+
+    // Check for error codes or messages in the result
+    const isErrorResult =
+      resultText.includes("error code") ||
+      resultText.includes("not explicitly");
+
+    // Format the text
+    try {
+      // Replace Markdown headers with HTML headers
+      resultText = resultText.replace(/##\s+([^\n]+)/g, "<h2>$1</h2>");
+
+      // Replace Markdown list items with HTML list items
+      resultText = resultText.replace(/^\s*-\s+([^\n]+)/gm, "<li>$1</li>");
+
+      // Wrap list items in unordered lists
+      if (resultText.includes("<li>")) {
+        resultText = resultText.replace(
+          /(<li>.*?<\/li>)\s*\n\s*(?!<li>)/gs,
+          "$1</ul>\n"
+        );
+        resultText = resultText.replace(
+          /(?<!<\/ul>)\s*\n\s*(<li>)/gs,
+          "\n<ul>$1"
+        );
+
+        // Close any remaining unclosed lists
+        if (
+          (resultText.match(/<ul>/g) || []).length >
+          (resultText.match(/<\/ul>/g) || []).length
+        ) {
+          resultText += "</ul>";
+        }
+      }
+
+      // Convert line breaks
+      resultText = resultText.replace(/\n\n/g, "<br><br>");
+      resultText = resultText.replace(/\n/g, "<br>");
+    } catch (e) {
+      console.error("Error formatting Markdown:", e);
+      // Fall back to simple string with line breaks
+      resultText = resultText.replace(/\n/g, "<br>");
+    }
+
+    // Build the HTML for display
+    const formattedResult = `
+      <div class="simple-search-results ${
+        isErrorResult ? "error-content" : ""
+      }">
+        <h3>Agent Response (${data.agentId})</h3>
+        
+        <div class="simple-search-content">
+          <div class="agent-result">
+            <h4>${isErrorResult ? "Error Response" : "Answer"}</h4>
+            <div class="agent-answer">
+              ${resultText}
+            </div>
+          </div>
+        </div>
+        
+        <div class="search-key-points">
+          <h4>Key Points</h4>
+          <ul>
+            <li>This response came directly from the ${data.agentId} agent</li>
+            <li>For more perspectives, try selecting multiple agents</li>
+          </ul>
+        </div>
+        
+        <div class="search-related-section">
+          <h4>Next Steps</h4>
+          <p>You can try:</p>
+          <ul>
+            <li>Asking a more specific question</li>
+            <li>Including more details in your query</li>
+            <li>Selecting different agents for other perspectives</li>
+          </ul>
+        </div>
+      </div>
+    `;
+
+    // Remove any loading message
+    dispatch(chatAction.popChat());
+
+    // Add the result to chat
+    dispatch(
+      chatAction.chatStart({
+        useInput: {
+          user: data.question || "Agent query",
+          gemini: formattedResult,
+          isLoader: "no",
+          isSearch: true,
+          searchType: "agent", // Use agent format for clarity
+        },
+      })
+    );
+
+    // Generate a random ID for the chat if needed
+    const chatId = `agent_${Date.now()}_${Math.random()
+      .toString(36)
+      .substring(2, 9)}`;
+
+    // Set chat history ID
+    dispatch(
+      chatAction.chatHistoryIdHandler({
+        chatHistoryId: chatId,
+      })
+    );
+
+    // Update UI state
+    dispatch(uiAction.setLoading(false));
+
+    // Navigate to the chat page
+    navigate(`/app/${chatId}`);
+
+    // Add to localStorage agent history
+    try {
+      const existingHistory = JSON.parse(
+        localStorage.getItem("agentHistory") || "[]"
+      );
+      const newHistoryItem = {
+        id: chatId,
+        title: data.question || "Agent query",
+        type: "agent",
+      };
+
+      localStorage.setItem(
+        "agentHistory",
+        JSON.stringify([newHistoryItem, ...existingHistory])
+      );
+    } catch (err) {
+      console.error("Error updating agent history in localStorage:", err);
+    }
+  };
+
   const onSubmitHandler = async (e) => {
     e.preventDefault();
     if (!userInput.trim()) return;
@@ -82,6 +229,21 @@ const InputSection = () => {
     // If agents are selected, route to agent API instead of simple/deep search
     if (selectedAgents.length > 0) {
       try {
+        dispatch(uiAction.setLoading(true));
+
+        // Add loading indicator to chat
+        dispatch(
+          chatAction.chatStart({
+            useInput: {
+              user: userInput,
+              gemini: "",
+              isLoader: "yes",
+              isSearch: true,
+              searchType: "agent",
+            },
+          })
+        );
+
         // Send the question and get the task ID
         const agentResponse = await dispatch(
           sendAgentQuestion({
@@ -90,44 +252,94 @@ const InputSection = () => {
             chatHistoryId,
           })
         );
-        
+
         console.log("Agent response task ID:", agentResponse.taskId);
-        // Save token to localStorage for direct polling
-        if (agentResponse.token) {
-          localStorage.setItem('agent_token', agentResponse.token);
-        }
-        
+
         // Start polling for agent response
-        if (selectedAgents.length === 1) {
-          // For single agent, try direct polling to the agent API
-          const agentId = selectedAgents[0];
-          if (agentResponse.agentTasks && agentResponse.agentTasks[agentId]) {
-            const agentTask = agentResponse.agentTasks[agentId];
-            console.log(`Setting up direct polling for agent ${agentId} with task:`, agentTask);
-            
-            // Configure direct polling
-            setDirectPollingConfig({
-              agentId,
-              taskId: agentTask.taskId,
-              endpoint: agentTask.endpoint,
-              token: agentResponse.token,
-            });
-          } else {
-            // Fallback to regular polling through our server
-            pollAgentTask(agentResponse.taskId, dispatch, {
-              interval: 2000,
-              maxAttempts: 30,
-              onComplete: (data) => {
-                console.log("Agent task complete:", data);
-              },
-              onPending: (data) => {
-                console.log("Agent task still pending:", data);
-              },
-              onError: (error) => {
-                console.error("Agent task polling error:", error);
+        const selectedAgentId = selectedAgents[0];
+
+        if (
+          selectedAgents.length === 1 &&
+          agentResponse.agentTasks &&
+          agentResponse.agentTasks[selectedAgentId]
+        ) {
+          // For single agent, try direct polling
+          const agentTask = agentResponse.agentTasks[selectedAgentId];
+          console.log(
+            `Setting up direct polling for agent ${selectedAgentId}:`,
+            agentTask
+          );
+
+          // Start immediate manual polling
+          let attempts = 0;
+          const maxAttempts = 30;
+          const pollInterval = 2000;
+
+          const poll = async () => {
+            attempts++;
+            console.log(`Manual poll attempt ${attempts}/${maxAttempts}`);
+
+            try {
+              const response = await fetch("/api/proxy-agent-poll", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                credentials: "include",
+                body: JSON.stringify({
+                  agentId: selectedAgentId,
+                  taskId: agentTask.taskId,
+                }),
+              });
+
+              if (!response.ok) {
+                throw new Error(`Polling error: ${response.status}`);
               }
-            });
-          }
+
+              const data = await response.json();
+              console.log(`Manual poll response:`, data);
+
+              if (data.status === "complete" || data.status === "success") {
+                // Process the result
+                handleAgentResponse({
+                  ...data,
+                  agentId: selectedAgentId,
+                  taskId: agentTask.taskId,
+                  question: userInput,
+                });
+                return;
+              } else if (attempts >= maxAttempts) {
+                // Timeout
+                console.log("Polling timed out");
+                handleAgentResponse({
+                  agentId: selectedAgentId,
+                  taskId: agentTask.taskId,
+                  question: userInput,
+                  result: "The agent took too long to respond",
+                });
+                return;
+              } else {
+                // Continue polling
+                setTimeout(poll, pollInterval);
+              }
+            } catch (error) {
+              console.error("Polling error:", error);
+
+              if (attempts >= maxAttempts) {
+                handleAgentResponse({
+                  agentId: selectedAgentId,
+                  taskId: agentTask.taskId,
+                  question: userInput,
+                  result: `Error polling agent: ${error.message}`,
+                });
+              } else {
+                setTimeout(poll, pollInterval);
+              }
+            }
+          };
+
+          // Start polling
+          poll();
         } else {
           // For multiple agents, use regular polling through our server
           pollAgentTask(agentResponse.taskId, dispatch, {
@@ -135,17 +347,55 @@ const InputSection = () => {
             maxAttempts: 30,
             onComplete: (data) => {
               console.log("Agent task complete:", data);
+              navigate("/app");
             },
             onPending: (data) => {
               console.log("Agent task still pending:", data);
             },
             onError: (error) => {
               console.error("Agent task polling error:", error);
-            }
+
+              // Show error in chat
+              dispatch(chatAction.popChat());
+              dispatch(
+                chatAction.chatStart({
+                  useInput: {
+                    user: userInput,
+                    gemini: `<div class="simple-search-results error">
+                      <h3>Agent Error</h3>
+                      <p>Sorry, there was an error retrieving the agent response: ${error.message}</p>
+                    </div>`,
+                    isLoader: "no",
+                    isSearch: true,
+                  },
+                })
+              );
+
+              dispatch(uiAction.setLoading(false));
+              navigate("/app");
+            },
           });
         }
       } catch (error) {
         console.error("Error submitting agent question:", error);
+
+        // Show error in chat
+        dispatch(chatAction.popChat());
+        dispatch(
+          chatAction.chatStart({
+            useInput: {
+              user: userInput,
+              gemini: `<div class="simple-search-results error">
+                <h3>Agent Error</h3>
+                <p>Sorry, there was an error sending your question to the agent: ${error.message}</p>
+              </div>`,
+              isLoader: "no",
+              isSearch: true,
+            },
+          })
+        );
+
+        dispatch(uiAction.setLoading(false));
       }
     } else {
       // No agents selected, use the normal search paths
@@ -198,7 +448,7 @@ const InputSection = () => {
     <div className={styles["input-container"]}>
       {/* Render the AgentPollingManager if we have direct polling config */}
       {directPollingConfig && (
-        <AgentPollingManager 
+        <AgentPollingManager
           agentId={directPollingConfig.agentId}
           taskId={directPollingConfig.taskId}
           endpoint={directPollingConfig.endpoint}
@@ -206,7 +456,7 @@ const InputSection = () => {
           onComplete={handlePollingComplete}
         />
       )}
-      
+
       <div className={styles["input-main"]}>
         <form onSubmit={onSubmitHandler} className={styles["input-form"]}>
           <input

@@ -6,6 +6,7 @@ import AgentSelector from "./AgentSelector";
 import {
   sendAgentQuestion,
   pollAgentResponse,
+  fetchAvailableAgents,
 } from "../../store/agent-actions";
 import { useAgent } from "./AgentProvider";
 import { useNavigate } from "react-router-dom";
@@ -86,12 +87,13 @@ const AgentChat = () => {
   const pollForResponse = async (taskId) => {
     let attempts = 0;
     const maxAttempts = 30; // Maximum 30 attempts (5 minutes total)
-    const pollInterval = 10000; // Poll every 10 seconds
+    const pollInterval = 5000; // Poll every 5 seconds
 
     const poll = async () => {
       try {
+        attempts++;
         setProcessingStatus(
-          `Waiting for agent responses... (${attempts + 1}/${maxAttempts})`
+          `Waiting for agent responses... (${attempts}/${maxAttempts})`
         );
 
         const data = await dispatch(pollAgentResponse(taskId));
@@ -101,13 +103,17 @@ const AgentChat = () => {
           setProcessingStatus("Response received!");
           setIsProcessing(false);
           setUserInput("");
-          navigate("/app");
+
+          // Navigate to the appropriate chat page
+          if (data.chatHistoryId) {
+            navigate(`/app/${data.chatHistoryId}`);
+          } else {
+            navigate("/app");
+          }
           return;
         }
 
         // Still pending
-        attempts++;
-
         if (attempts >= maxAttempts) {
           // Timeout
           setIsProcessing(false);
@@ -139,11 +145,6 @@ const AgentChat = () => {
     poll();
   };
 
-  // Helper function to get server status from the environment or default
-  const getServerEndpoint = () => {
-    return process.env.REACT_APP_SERVER_ENDPOINT || "https://vista.nklab.ltd/";
-  };
-
   return (
     <div className={styles["agent-chat-container"]}>
       {/* Agent selector component */}
@@ -154,7 +155,7 @@ const AgentChat = () => {
         <div className={styles["error-message"]}>
           <p>{error}</p>
           <p className={styles["error-hint"]}>
-            Make sure your server is running at: {getServerEndpoint()}
+            Make sure your server is running and accessible
           </p>
         </div>
       )}

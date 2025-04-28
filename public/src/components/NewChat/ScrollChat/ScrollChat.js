@@ -1,9 +1,10 @@
 import styles from "./ScrollChat.module.css";
 import { commonIcon } from "../../../asset";
 import { useSelector, useDispatch } from "react-redux";
-import React, { useRef, useEffect, Fragment } from "react";
+import React, { useRef, useEffect, Fragment, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { getChat } from "../../../store/chat-action";
+import { getChat, deleteChatHistory } from "../../../store/chat-action";
+import { deleteAgentChatHistory } from "../../../store/agent-actions";
 import ReplyByGemini from "./ReplyByGemini";
 import NewChatByGemini from "./NewChatGemini";
 import CopyBtn from "../../Ui/CopyBtn";
@@ -18,6 +19,7 @@ const ScrollChat = () => {
   const chatHistoryId = useSelector((state) => state.chat.chatHistoryId);
   const realTimeResponse = localStorage.getItem("realtime") || "no";
   const userImage = useSelector((state) => state.user.user.profileImg);
+  const [chatType, setChatType] = useState(null); // "regular", "agent", or "search"
 
   const userLogo = userImage || commonIcon.avatarIcon;
 
@@ -31,8 +33,23 @@ const ScrollChat = () => {
     }
   }, [dispatch, historyId, chatHistoryId, navigate, chat]);
 
+  // Detect the chat type based on the chat history ID or chat content
   useEffect(() => {
-    chatRef.current.scrollTop = chatRef.current.scrollHeight;
+    if (chatHistoryId) {
+      if (chatHistoryId.startsWith("agent_")) {
+        setChatType("agent");
+      } else if (chat.length > 0 && chat[0]?.searchType) {
+        setChatType(chat[0].searchType);
+      } else {
+        setChatType("regular");
+      }
+    }
+  }, [chatHistoryId, chat]);
+
+  useEffect(() => {
+    if (chatRef.current) {
+      chatRef.current.scrollTop = chatRef.current.scrollHeight;
+    }
   }, [chat]);
 
   const loadText = (text) => {
@@ -53,38 +70,122 @@ const ScrollChat = () => {
 
   const lastElemetId = chat[chat.length - 1]?.id;
 
+  // Handle chat deletion
+  const handleDeleteChat = () => {
+    if (
+      window.confirm(
+        "Are you sure you want to delete this entire chat history?"
+      )
+    ) {
+      const deleteFunction =
+        chatType === "agent" ? deleteAgentChatHistory : deleteChatHistory;
+
+      dispatch(deleteFunction(chatHistoryId))
+        .then(() => {
+          // Update localStorage for agent or search history if needed
+          if (chatType === "agent") {
+            try {
+              const existingHistory = JSON.parse(
+                localStorage.getItem("agentHistory") || "[]"
+              );
+              const updatedHistory = existingHistory.filter(
+                (item) => item.id !== chatHistoryId
+              );
+              localStorage.setItem(
+                "agentHistory",
+                JSON.stringify(updatedHistory)
+              );
+            } catch (err) {
+              console.error(
+                "Error updating agent history in localStorage:",
+                err
+              );
+            }
+          } else if (chatType === "simple" || chatType === "deep") {
+            try {
+              const existingHistory = JSON.parse(
+                localStorage.getItem("searchHistory") || "[]"
+              );
+              const updatedHistory = existingHistory.filter(
+                (item) => item.id !== chatHistoryId
+              );
+              localStorage.setItem(
+                "searchHistory",
+                JSON.stringify(updatedHistory)
+              );
+            } catch (err) {
+              console.error(
+                "Error updating search history in localStorage:",
+                err
+              );
+            }
+          }
+
+          navigate("/");
+        })
+        .catch((error) => {
+          console.error("Failed to delete chat history:", error);
+          alert("Failed to delete chat history. Please try again.");
+        });
+    }
+  };
+
+  // Get the chat type label
+  const getChatTypeLabel = () => {
+    switch (chatType) {
+      case "agent":
+        return "Agent Chat";
+      case "simple":
+        return "Simple Search";
+      case "deep":
+        return "Deep Search";
+      default:
+        return "Chat";
+    }
+  };
+
   const chatSection = chat.map((c, index) => (
     <Fragment key={c?.id}>
       {!c.error ? (
         <div
           className={`${styles["single-chat"]} ${
             index === chat.length - 1 ? styles["last-single-chat"] : ""
-          }`}
-        >
+          }`}>
           <div className={styles["user"]}>
-            <img src={userLogo} alt="avater icon"></img>
+            <img src={userLogo} alt="avatar icon"></img>
             <p>{c.user}</p>
           </div>
           <div className={styles["gemini"]}>
             {/* Show the Bard sparkle icon or loader */}
-            <img 
-              src={c?.isLoader === "yes" ? commonIcon.geminiLaoder : commonIcon.chatGeminiIcon} 
-              alt={c?.isLoader === "yes" ? "Loading..." : "Gemini"}
+            <img
+              src={
+                c?.isLoader === "yes"
+                  ? commonIcon.geminiLaoder
+                  : c?.searchType === "agent"
+                  ? commonIcon.advanceGeminiIcon
+                  : commonIcon.chatGeminiIcon
+              }
+              alt={
+                c?.isLoader === "yes"
+                  ? "Loading..."
+                  : c?.searchType === "agent"
+                  ? "Agent"
+                  : "Gemini"
+              }
               className={c?.isLoader === "yes" ? "loading-icon" : ""}
             />
             {c?.isDeepSearch || c?.isSearch ? (
               // For search results, which already contain HTML
-              <div 
-                className={`search-result ${c?.usedCache ? "cached-result" : ""}`} 
-                data-search-type={c?.searchType || "simple"}
-              >
-                {c?.usedCache && <div className="cache-indicator">Cached Result</div>}
-                
-                {/* Display the appropriate type indicator */}
-                {c?.searchType === "agent" && <div className="agent-indicator">Agent Response</div>}
-                {c?.searchType === "simple" && <div className="simple-search-indicator">Quick Search</div>}
-                {c?.searchType === "deep" && <div className="deep-search-indicator">Deep Research</div>}
-                
+              <div
+                className={`search-result ${
+                  c?.searchType === "agent" ? "agent-result" : ""
+                } ${c?.usedCache ? "cached-result" : ""}`}>
+                {c?.usedCache && (
+                  <div className="cache-indicator">Cached Result</div>
+                )}
+                {c?.searchType === "agent" && (
+                  <div className="agent-indicator">Agent Response</div>
+                )}
                 <div dangerouslySetInnerHTML={{ __html: c?.gemini }} />
               </div>
             ) : c?.newChat &&
@@ -104,8 +205,57 @@ const ScrollChat = () => {
     </Fragment>
   ));
 
+  // Only show delete button if we have a valid chat history
+  const showDeleteButton =
+    chatHistoryId && chatHistoryId.length > 0 && chat.length > 0;
+
   return (
     <div className={styles["scroll-chat-main"]} ref={chatRef}>
+      {showDeleteButton && (
+        <div className={styles["chat-actions"]}>
+          <div className={styles["chat-type-indicator"]}>
+            {chatType === "agent" ? (
+              <div className={styles["agent-indicator"]}>
+                <img src={commonIcon.advanceGeminiIcon} alt="Agent icon" />
+                <span>Agent Chat</span>
+              </div>
+            ) : chatType === "simple" || chatType === "deep" ? (
+              <div className={styles["search-indicator"]}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M21 21L15 15M17 10C17 13.866 13.866 17 10 17C6.13401 17 3 13.866 3 10C3 6.13401 6.13401 3 10 3C13.866 3 17 6.13401 17 10Z"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                <span>
+                  {chatType === "simple" ? "Simple Search" : "Deep Search"}
+                </span>
+              </div>
+            ) : null}
+          </div>
+
+          <button
+            className={styles["delete-chat-btn"]}
+            onClick={handleDeleteChat}
+            title="Delete entire chat history">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg">
+              <path
+                d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
+                fill="currentColor"
+              />
+            </svg>
+            <span>Delete Chat</span>
+          </button>
+        </div>
+      )}
       {chatSection}
     </div>
   );

@@ -19,30 +19,34 @@ const pollAgentTask = async (taskId, dispatch, options = {}) => {
 
   console.log(`Starting to poll agent task: ${taskId}`);
   let attempts = 0;
-  let lastError = null;
-  const maxConsecutiveErrors = 3;
-  let consecutiveErrors = 0;
 
   // Function to attempt a single poll
   const attemptPoll = async () => {
     attempts++;
-    console.log(`Polling attempt ${attempts}/${maxAttempts} for task: ${taskId}`);
+    console.log(
+      `Polling attempt ${attempts}/${maxAttempts} for task: ${taskId}`
+    );
 
     try {
       const response = await dispatch(pollAgentResponse(taskId));
-      
-      // Reset consecutive errors on successful response
-      consecutiveErrors = 0;
+      console.log("Poll response:", response);
 
-      if (response.status === "complete") {
+      if (response && response.status === "complete") {
         console.log(`Task complete after ${attempts} attempts`);
         onComplete(response);
         return response;
-      } else if (response.status === "pending") {
+      } else if (
+        response &&
+        (response.status === "pending" || response.status === "in_progress")
+      ) {
         onPending(response);
-        
+
         if (attempts >= maxAttempts) {
-          throw new Error(`Exceeded maximum polling attempts (${maxAttempts})`);
+          const timeoutError = new Error(
+            `Exceeded maximum polling attempts (${maxAttempts})`
+          );
+          onError(timeoutError);
+          throw timeoutError;
         }
 
         // Schedule next poll
@@ -52,37 +56,34 @@ const pollAgentTask = async (taskId, dispatch, options = {}) => {
           }, interval);
         });
       } else {
-        throw new Error(`Unexpected status: ${response.status}`);
+        const statusError = new Error(
+          `Unexpected status: ${response ? response.status : "unknown"}`
+        );
+        onError(statusError);
+        throw statusError;
       }
     } catch (error) {
-      console.error(`Error polling task ${taskId} (attempt ${attempts}/${maxAttempts}):`, error);
-      
-      // Track consecutive errors
-      consecutiveErrors++;
-      lastError = error;
+      console.error(`Error polling task ${taskId}:`, error);
 
-      if (consecutiveErrors >= maxConsecutiveErrors) {
-        // Too many consecutive errors, abort polling
-        console.error(`Aborting agent task polling after ${consecutiveErrors} consecutive errors`);
+      // Only call onError if we haven't reached max attempts yet
+      // This avoids calling onError twice for timeout errors
+      if (
+        attempts < maxAttempts &&
+        error.message !== `Exceeded maximum polling attempts (${maxAttempts})`
+      ) {
         onError(error);
-        throw error;
       }
-      
+
+      // If we've reached max attempts, stop polling
       if (attempts >= maxAttempts) {
-        // Maximum attempts reached
-        console.error(`Exceeded maximum polling attempts (${maxAttempts})`);
-        onError(error);
         throw error;
       }
 
-      // Schedule next poll with exponential backoff
-      const backoff = Math.min(interval * Math.pow(1.5, consecutiveErrors - 1), 10000);
-      console.log(`Retrying in ${backoff}ms after error...`);
-      
+      // Otherwise, retry after a delay
       return new Promise((resolve) => {
         setTimeout(() => {
           resolve(attemptPoll());
-        }, backoff);
+        }, interval);
       });
     }
   };
