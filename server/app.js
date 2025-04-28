@@ -32,8 +32,30 @@ const PORT_NO = 3030;
 
 const app = express();
 
-app.use(express.json({ limit: "10mb" })); // Increase JSON payload limit for large agent responses
+// JSON body parser configuration
+app.use(express.json({ 
+  limit: "10mb", // Increase JSON payload limit for large agent responses
+  verify: (req, res, buf) => {
+    req.rawBody = buf.toString();
+  }
+}));
+
+// Add the URL-encoded parser for form submissions
+app.use(express.urlencoded({ 
+  extended: true,
+  limit: "10mb"
+}));
+
 app.use(requestIp.mw());
+
+// Log all incoming requests for debugging
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  if (req.method === 'POST' && req.body) {
+    console.log('Request body:', JSON.stringify(req.body).substring(0, 200) + (JSON.stringify(req.body).length > 200 ? '...' : ''));
+  }
+  next();
+});
 
 const originUrl = process.env.CLIENT_REDIRECT_URL;
 const hostname = process.env.HOSTNAME || "vista.nklab.ltd";

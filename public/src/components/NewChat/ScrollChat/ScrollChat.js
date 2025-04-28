@@ -74,9 +74,17 @@ const ScrollChat = () => {
             />
             {c?.isDeepSearch || c?.isSearch ? (
               // For search results, which already contain HTML
-              <div className={`search-result ${c?.searchType === "agent" ? "agent-result" : ""} ${c?.usedCache ? "cached-result" : ""}`}>
+              <div 
+                className={`search-result ${c?.usedCache ? "cached-result" : ""}`} 
+                data-search-type={c?.searchType || "simple"}
+              >
                 {c?.usedCache && <div className="cache-indicator">Cached Result</div>}
+                
+                {/* Display the appropriate type indicator */}
                 {c?.searchType === "agent" && <div className="agent-indicator">Agent Response</div>}
+                {c?.searchType === "simple" && <div className="simple-search-indicator">Quick Search</div>}
+                {c?.searchType === "deep" && <div className="deep-search-indicator">Deep Research</div>}
+                
                 <div dangerouslySetInnerHTML={{ __html: c?.gemini }} />
               </div>
             ) : c?.newChat &&

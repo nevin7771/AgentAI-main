@@ -196,6 +196,49 @@ resent chat section  */
   overflow-x: hidden;
 }
 
+.agent-history-section,
+.search-history-section {
+  margin-top: 15px;
+  width: 100%;
+  display: flex;
+  flex-flow: column nowrap;
+  gap: 2px;
+}
+
+.agent-section-title,
+.search-section-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--icon-p-color);
+  margin-bottom: 5px;
+  padding-left: 8px;
+}
+
+.agent-chat {
+  background-color: var(--agent-chat-bg, rgba(232, 240, 254, 0.1));
+  border-left: 3px solid #34A853;
+}
+
+.agent-chat:hover {
+  background-color: var(--agent-chat-hover-bg, rgba(232, 240, 254, 0.15));
+}
+
+.search-chat {
+  background-color: var(--search-chat-bg, rgba(232, 240, 254, 0.1));
+}
+
+.simple-search-chat {
+  border-left: 3px solid #4285F4;
+}
+
+.deep-search-chat {
+  border-left: 3px solid #EA4335;
+}
+
+.search-chat:hover {
+  background-color: var(--search-chat-hover-bg, rgba(232, 240, 254, 0.15));
+}
+
 .recent-chat-main a {
   width: 95%;
   text-decoration: none;

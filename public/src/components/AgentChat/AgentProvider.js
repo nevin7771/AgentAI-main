@@ -32,31 +32,74 @@ const AgentProvider = ({ children }) => {
     const fetchAgents = async () => {
       try {
         dispatch(agentAction.setLoading(true));
+        console.log("Fetching available agents...");
 
-        const response = await fetch("/api/available-agents", {
-          credentials: "include",
-        });
-
-        if (!response.ok) {
-          throw new Error("Failed to fetch available agents");
+        // First try with proxy path
+        try {
+          const proxyResponse = await fetch("/api/available-agents", {
+            credentials: "include",
+            headers: {
+              'Accept': 'application/json',
+            },
+          });
+          
+          if (proxyResponse.ok) {
+            const data = await proxyResponse.json();
+            
+            if (data.success && data.agents && data.agents.length > 0) {
+              console.log("Successfully fetched agents via proxy:", data.agents);
+              dispatch(agentAction.setAgents(data.agents));
+              dispatch(agentAction.setLoading(false));
+              return;
+            }
+          } else {
+            console.warn(`Proxy response not OK: ${proxyResponse.status} ${proxyResponse.statusText}`);
+          }
+        } catch (proxyError) {
+          console.error("Error fetching agents via proxy:", proxyError);
         }
 
-        const data = await response.json();
+        // If proxy fails, try direct URL
+        console.log("Proxy fetch failed, trying direct URL...");
+        const SERVER_ENDPOINT = process.env.REACT_APP_SERVER_ENDPOINT || "http://localhost:3030";
+        
+        try {
+          const directResponse = await fetch(`${SERVER_ENDPOINT}/api/available-agents`, {
+            credentials: "include",
+            headers: {
+              'Accept': 'application/json',
+            },
+          });
 
-        if (data.success && data.agents) {
-          dispatch(agentAction.setAgents(data.agents));
-        } else {
-          throw new Error(data.error || "Failed to get agent list");
+          if (directResponse.ok) {
+            const data = await directResponse.json();
+            
+            if (data.success && data.agents) {
+              console.log("Successfully fetched agents via direct URL:", data.agents);
+              dispatch(agentAction.setAgents(data.agents));
+              dispatch(agentAction.setLoading(false));
+              return;
+            }
+          } else {
+            console.warn(`Direct response not OK: ${directResponse.status} ${directResponse.statusText}`);
+          }
+        } catch (directError) {
+          console.error("Error fetching agents via direct URL:", directError);
         }
+
+        // If both attempts fail, use fallback agents
+        throw new Error("Failed to fetch agents from server");
+        
       } catch (error) {
-        console.error("Error fetching agents:", error);
+        console.error("Error fetching agents (all methods failed):", error);
         dispatch(agentAction.setError(error.message));
 
         // Set fallback agents for development/testing
+        console.log("Using fallback agent list");
         dispatch(
           agentAction.setAgents([
             {
-              id: "z_oGA",
+              id: "client_agent",
               name: "Client Agent",
               description: "Client-related questions",
             },
@@ -76,7 +119,7 @@ const AgentProvider = ({ children }) => {
               description: "Knowledge base search",
             },
             {
-              id: "zp_ag",
+              id: "zp_ag", 
               name: "ZP Agent",
               description: "Zoom Phone support",
             },
@@ -103,37 +146,99 @@ const AgentProvider = ({ children }) => {
           agentState.jwtExpiry - now < 300; // Less than 5 minutes remaining
 
         if (needsRefresh) {
-          const response = await fetch("/api/generate-jwt", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            credentials: "include",
-          });
+          console.log("Attempting to refresh JWT token...");
+          
+          // Try proxy first
+          try {
+            const proxyResponse = await fetch("/api/generate-jwt", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+              },
+              credentials: "include",
+            });
 
-          if (!response.ok) {
-            throw new Error("Failed to generate JWT token");
+            if (proxyResponse.ok) {
+              const data = await proxyResponse.json();
+
+              if (data.success && data.token) {
+                dispatch(
+                  agentAction.setJwtToken({
+                    token: data.token,
+                    expiry: data.expiresAt,
+                  })
+                );
+                console.log(
+                  "JWT token refreshed via proxy, expires:",
+                  new Date(data.expiresAt * 1000).toLocaleTimeString()
+                );
+                return;
+              }
+            } else {
+              console.warn(`Proxy token response not OK: ${proxyResponse.status}`);
+            }
+          } catch (proxyError) {
+            console.error("Error refreshing JWT token via proxy:", proxyError);
           }
+          
+          // If proxy fails, try direct URL
+          console.log("Proxy token refresh failed, trying direct URL...");
+          const SERVER_ENDPOINT = process.env.REACT_APP_SERVER_ENDPOINT || "http://localhost:3030";
+          
+          try {
+            const directResponse = await fetch(`${SERVER_ENDPOINT}/api/generate-jwt`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+              },
+              credentials: "include",
+            });
 
-          const data = await response.json();
+            if (directResponse.ok) {
+              const data = await directResponse.json();
 
-          if (data.success && data.token) {
-            dispatch(
-              agentAction.setJwtToken({
-                token: data.token,
-                expiry: data.expiresAt,
-              })
-            );
-            console.log(
-              "JWT token refreshed, expires:",
-              new Date(data.expiresAt * 1000).toLocaleTimeString()
-            );
-          } else {
-            throw new Error(data.error || "Invalid token response");
+              if (data.success && data.token) {
+                dispatch(
+                  agentAction.setJwtToken({
+                    token: data.token,
+                    expiry: data.expiresAt,
+                  })
+                );
+                console.log(
+                  "JWT token refreshed via direct URL, expires:",
+                  new Date(data.expiresAt * 1000).toLocaleTimeString()
+                );
+                return;
+              }
+            } else {
+              console.warn(`Direct token response not OK: ${directResponse.status}`);
+            }
+          } catch (directError) {
+            console.error("Error refreshing JWT token via direct URL:", directError);
           }
+          
+          // Generate a fake token for local development if server is not running
+          console.log("Using development fallback token");
+          const fakeToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkRldiBVc2VyIiwiaWF0IjoxNTE2MjM5MDIyfQ.L8i6g3PfcHlioHCCPURC9pmXT7gdJpx3kOoyAfNUwCc";
+          const fakeExpiry = Math.floor(Date.now() / 1000) + 3600; // 1 hour
+          
+          dispatch(
+            agentAction.setJwtToken({
+              token: fakeToken,
+              expiry: fakeExpiry,
+            })
+          );
+          
+          localStorage.setItem("agent_token", fakeToken);
+          console.log(
+            "Using development fallback token, expires:",
+            new Date(fakeExpiry * 1000).toLocaleTimeString()
+          );
         }
       } catch (error) {
-        console.error("Error refreshing JWT token:", error);
+        console.error("Error refreshing JWT token (all methods):", error);
         dispatch(agentAction.setError("Failed to get authentication token"));
       }
     };
