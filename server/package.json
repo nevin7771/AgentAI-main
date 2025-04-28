@@ -3,6 +3,7 @@
     "@google/generative-ai": "^0.2.1",
     "@okta/jwt-verifier": "^4.0.1",
     "@okta/okta-sdk-nodejs": "^7.1.1",
+    "@pinecone-database/pinecone": "^5.1.2",
     "axios": "^1.8.4",
     "bcryptjs": "^2.4.3",
     "cheerio": "^1.0.0",

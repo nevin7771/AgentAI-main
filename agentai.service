@@ -1,0 +1,19 @@
+[Unit]
+Description=AgentAI Node.js Server
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/Users/naveenkumar/Downloads/AgentAI-main/server
+ExecStart=/usr/bin/node /Users/naveenkumar/Downloads/AgentAI-main/server/app.js
+Restart=on-failure
+Environment=NODE_ENV=production
+Environment=PORT=3030
+Environment=HTTPS_PORT=3443
+Environment=HOSTNAME=vista.nklab.ltd
+Environment=SSL_CERT_PATH=/etc/letsencrypt/live/vista.nklab.ltd/fullchain.pem
+Environment=SSL_KEY_PATH=/etc/letsencrypt/live/vista.nklab.ltd/privkey.pem
+
+[Install]
+WantedBy=multi-user.target

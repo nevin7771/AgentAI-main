@@ -9,6 +9,7 @@ const agentInitialState = {
   activeTask: null,
   jwtToken: null,
   jwtExpiry: null,
+  agentTasks: {}, // Stores taskId, endpoint, and token for each agent
 };
 
 const agentSlice = createSlice({
@@ -47,6 +48,13 @@ const agentSlice = createSlice({
     },
     clearActiveTask(state) {
       state.activeTask = null;
+    },
+    addAgentTask(state, action) {
+      const { agentId, taskId, endpoint, token } = action.payload;
+      state.agentTasks[agentId] = { taskId, endpoint, token };
+    },
+    clearAgentTasks(state) {
+      state.agentTasks = {};
     },
     setLoading(state, action) {
       state.isLoading = action.payload;

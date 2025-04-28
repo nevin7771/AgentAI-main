@@ -1,20 +1,14 @@
 import { authAction } from "./auth";
 import { userAction } from "./user";
 import { chatAction } from "./chat";
-
-const SERVER_ENDPOINT = process.env.REACT_APP_SERVER_ENDPOINT;
+import { apiFetch } from '../utils/apiHelper';
 
 export const loginHandler = () => {
   return (dispatch) => {
-    const url = `${SERVER_ENDPOINT}/api/auth/me`;
-    console.log("Checking auth status at URL:", url);
+    console.log("Checking auth status");
 
-    fetch(url, {
+    apiFetch('/auth/me', {
       method: "GET",
-      credentials: "include", // Must be 'include' for cross-origin cookies
-      headers: {
-        Accept: "application/json",
-      },
     })
       .then((response) => {
         console.log("Auth response status:", response.status);
@@ -48,11 +42,8 @@ export const loginHandler = () => {
 
 export const logoutHandler = () => {
   return (dispatch) => {
-    const url = `${SERVER_ENDPOINT}/api/auth/logout`;
-
-    fetch(url, {
+    apiFetch('/auth/logout', {
       method: "GET",
-      credentials: "include",
     })
       .then((response) => {
         if (!response.ok) {
@@ -84,11 +75,8 @@ export const logoutHandler = () => {
 
 export const refreshToken = () => {
   return (dispatch) => {
-    const url = `${SERVER_ENDPOINT}/api/auth/resetToken`;
-
-    fetch(url, {
+    apiFetch('/auth/resetToken', {
       method: "GET",
-      credentials: "include",
     })
       .then((response) => {
         if (!response.ok) {

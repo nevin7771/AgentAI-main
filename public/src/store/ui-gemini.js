@@ -1,3 +1,4 @@
+// public/src/store/ui-gemini.js
 import { createSlice } from "@reduxjs/toolkit";
 
 const uiInitialState = {
@@ -9,6 +10,7 @@ const uiInitialState = {
   isUserDetailsShow: false,
   showIntroUserPrompt: false,
   isDeepResearchMode: false, // New state for Deep Research mode
+  isLoading: false, // Add loading state for agents
 };
 
 const uiCreteSlice = createSlice({
@@ -49,6 +51,10 @@ const uiCreteSlice = createSlice({
         state.isSettingsShow = false;
         state.isAdvanceShow = false;
       }
+    },
+    // Add new reducer for loading state
+    setLoading(state, action) {
+      state.isLoading = action.payload;
     },
   },
 });

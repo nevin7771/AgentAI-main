@@ -18,19 +18,28 @@ const initVectorDb = async () => {
   if (vectorDbInitialized) return;
   
   try {
+    if (!process.env.PINECONE_API_KEY) {
+      console.log('PINECONE_API_KEY not found - skipping vector DB initialization');
+      return;
+    }
+    
     await createPineconeIndex('agent-ai-searches');
     vectorDbInitialized = true;
     console.log('Vector database initialized successfully');
   } catch (error) {
     console.error('Error initializing vector database:', error);
+    console.log('Will fall back to standard search methods');
     // Continue even if vector DB init fails - we'll fall back to standard search
   }
 };
 
 // Initialize vector DB when router is loaded, but don't block if it fails
-initVectorDb().catch(err => {
-  console.warn("Vector DB initialization failed, will use fallback search methods:", err.message);
-});
+// Wrap in setTimeout to avoid blocking server startup
+setTimeout(() => {
+  initVectorDb().catch(err => {
+    console.warn("Vector DB initialization failed, will use fallback search methods:", err.message);
+  });
+}, 5000);
 
 // Handler for deep research requests with streaming response
 router.post("/api/deep-research", async (req, res) => {

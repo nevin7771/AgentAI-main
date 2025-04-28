@@ -1,9 +1,25 @@
 {
+  "name": "agentai",
+  "version": "1.0.0",
+  "description": "Agent AI with SSL support",
+  "main": "index.js",
+  "scripts": {
+    "start-server": "cd server && node app.js",
+    "start-client": "cd public && npm start",
+    "start-proxy": "node proxy-setup.js",
+    "dev": "concurrently \"npm run start-server\" \"npm run start-client\"",
+    "dev-ssl": "concurrently \"npm run start-server\" \"npm run start-client\" \"npm run start-proxy\""
+  },
+  "keywords": [
+    "agent",
+    "ai",
+    "ssl"
+  ],
+  "author": "",
+  "license": "ISC",
   "dependencies": {
-    "@pinecone-database/pinecone": "^5.1.1",
-    "axios": "^1.8.4",
-    "langchain": "^0.3.23",
-    "openai": "^4.95.1",
-    "pinecone-client": "^2.0.0"
+    "concurrently": "^8.2.2",
+    "express": "^4.18.2",
+    "http-proxy-middleware": "^2.0.6"
   }
 }

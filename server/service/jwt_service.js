@@ -1,34 +1,89 @@
 // server/service/jwt_service.js
-// server/service/jwt_service.js
 import jwt from "jsonwebtoken";
 
 /**
+ * Generates an agent-specific JWT token
+ * @param {string} agentId - ID of the agent
+ * @param {string} secretKey - Secret key for the agent
+ * @returns {string} JWT token for the specific agent
+ */
+export const generateAgentToken = (agentId, secretKey) => {
+  try {
+    // Get current time in seconds (UTC)
+    const now = Math.floor(Date.now() / 1000);
+    
+    // Expiry time (30 minutes from now)
+    const exp = now + 30 * 60;
+    
+    // Get agent-specific configuration from environment variables
+    const issuer = process.env[`${agentId.toUpperCase()}_JWT_ISSUER`] || 
+                  process.env.JWT_ISSUER || 
+                  "yana.bao+AIStudio+DG01@test.zoom.us";
+    
+    const audience = process.env[`${agentId.toUpperCase()}_JWT_AUDIENCE`] || 
+                     process.env.JWT_AUDIENCE || 
+                     "zoom_caic";
+    
+    const aid = process.env[`${agentId.toUpperCase()}_JWT_AID`] || 
+               process.env.JWT_AID || 
+               "3v8eT3vkQ1-PBQnN61MJog";
+    
+    const uid = process.env[`${agentId.toUpperCase()}_JWT_UID`] || 
+               process.env.JWT_UID || 
+               "NhiGO2feQEORV5Loghzx_Q";
+    
+    // Payload with agent-specific values
+    const payload = {
+      iss: issuer,
+      aud: audience,
+      aid: aid,
+      uid: uid,
+      iat: now,
+      exp: exp,
+    };
+    
+    console.log(`Generating token for agent ${agentId} with payload:`, payload);
+    console.log(`Using secret key: ${secretKey.substring(0, 5)}...`);
+    
+    // Generate the token using HS256 algorithm
+    const token = jwt.sign(payload, secretKey, { algorithm: "HS256" });
+    console.log(`Generated token: ${token.substring(0, 20)}...`);
+    
+    return token;
+  } catch (error) {
+    console.error(`Error generating JWT token for agent ${agentId}:`, error);
+    throw error;
+  }
+};
+
+/**
  * Generates a JWT token for AI agent API authentication
+ * Uses the standard format expected by agent APIs
  * @returns {Object} Object containing the token and expiry timestamp
  */
 export const generateJwtToken = () => {
   try {
     // Get current time in seconds (UTC)
-    const now = new Date();
-    const iat = Math.floor(now.getTime() / 1000);
+    const now = Math.floor(Date.now() / 1000);
 
     // Expiry time (30 minutes from now)
-    const exp = iat + 30 * 60;
+    const exp = now + 30 * 60;
 
-    // JWT payload as specified - matching the Python script
+    // Standard JWT payload format expected by the agent API
     const payload = {
-      iss: "yana.bao+AIStudio+DG01@test.zoom.us",
-      aud: "zoom_caic",
-      aid: "3v8eT3vkQ1-PBQnN61MJog",
-      uid: "NhiGO2feQEORV5Loghzx_Q",
-      iat: iat,
+      // These values should be configured via environment variables
+      iss: process.env.JWT_ISSUER || "yana.bao+AIStudio+DG01@test.zoom.us",
+      aud: process.env.JWT_AUDIENCE || "zoom_caic",
+      aid: process.env.JWT_AID || "3v8eT3vkQ1-PBQnN61MJog",
+      uid: process.env.JWT_UID || "NhiGO2feQEORV5Loghzx_Q",
+      iat: now,
       exp: exp,
     };
 
-    // Secret key - matching the Python script
-    const SECRET_KEY = "gzazjvdts768lelcbcyy5ecpkiguthmq";
+    // The secret key used for signing the token
+    const SECRET_KEY = process.env.JWT_SECRET_KEY || "gzazjvdts768lelcbcyy5ecpkiguthmq";
 
-    // Generate the token with HS256 algorithm
+    // Generate the token using HS256 algorithm
     const token = jwt.sign(payload, SECRET_KEY, { algorithm: "HS256" });
 
     return {
@@ -50,8 +105,8 @@ export const verifyToken = (token) => {
   try {
     if (!token) return false;
 
-    // Secret key - matching the Python script
-    const SECRET_KEY = "gzazjvdts768lelcbcyy5ecpkiguthmq";
+    // Secret key for verification
+    const SECRET_KEY = process.env.JWT_SECRET_KEY || "gzazjvdts768lelcbcyy5ecpkiguthmq";
 
     // Verify the token
     const decoded = jwt.verify(token, SECRET_KEY, { algorithms: ["HS256"] });
@@ -66,27 +121,5 @@ export const verifyToken = (token) => {
   } catch (error) {
     console.error("Error verifying token:", error);
     return false;
-  }
-};
-
-/**
- * Gets token expiration time in seconds
- * @param {string} token - JWT token
- * @returns {number|null} Expiration timestamp or null if invalid
- */
-export const getTokenExpiry = (token) => {
-  try {
-    if (!token) return null;
-
-    // Secret key - matching the Python script
-    const SECRET_KEY = "gzazjvdts768lelcbcyy5ecpkiguthmq";
-
-    // Decode the token
-    const decoded = jwt.verify(token, SECRET_KEY, { algorithms: ["HS256"] });
-
-    return decoded.exp;
-  } catch (error) {
-    console.error("Error getting token expiry:", error);
-    return null;
   }
 };

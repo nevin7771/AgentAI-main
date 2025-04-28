@@ -307,6 +307,66 @@ export const postChat = (req, res, next) => {
 
 let d = 0;
 
+// API endpoint to create a new chat history entry
+export const createChatHistory = async (req, res, next) => {
+  try {
+    const { title, message, isSearch, searchType } = req.body;
+    
+    // Create a new chat history document
+    const chatHistoryDoc = new chatHistory({
+      user: req.user ? req.user._id : null,
+      title: title || 'Agent Response',
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
+    
+    await chatHistoryDoc.save();
+    
+    // Create a new chat entry
+    const chatDoc = new chat({
+      chatHistory: chatHistoryDoc._id,
+      messages: [
+        {
+          sender: req.user ? req.user._id : null,
+          message: {
+            user: message.user || 'Agent query',
+            gemini: message.gemini || 'No response',
+          },
+          isSearch: isSearch || true,
+          searchType: searchType || 'agent',
+        },
+      ],
+    });
+    
+    await chatDoc.save();
+    
+    // Update chat history reference
+    chatHistoryDoc.chat = chatDoc._id;
+    await chatHistoryDoc.save();
+    
+    // Add to user's chat history if user exists
+    if (req.user && req.user.chatHistory) {
+      if (req.user.chatHistory.indexOf(chatHistoryDoc._id) === -1) {
+        req.user.chatHistory.push(chatHistoryDoc._id);
+        await req.user.save();
+      }
+    }
+    
+    // Return success with chat history ID
+    res.status(200).json({
+      success: true,
+      chatHistoryId: chatHistoryDoc._id,
+      message: 'Chat history created successfully'
+    });
+  } catch (error) {
+    console.error('Error creating chat history:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to create chat history'
+    });
+  }
+};
+
 export const updateLocation = (req, res, next) => {
   const { lat, long } = req.body.location;
 

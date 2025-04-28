@@ -1,10 +1,12 @@
 // public/src/components/InputSection/InputSection.js
 import styles from "./InputSection.module.css";
 import { sendDeepSearchRequest } from "../../store/chat-action";
-import { sendAgentQuestion } from "../../store/agent-actions";
+import { sendAgentQuestion } from "../../store/agent-actions"; 
+import pollAgentTask from "../../utils/agentTaskPoller"; // Import the poller
 import { useEffect, useState, useRef } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate } from "react-router-dom";
+import AgentPollingManager from "../AgentPolling";
 
 const InputSection = () => {
   const navigate = useNavigate();
@@ -19,6 +21,9 @@ const InputSection = () => {
 
   // Get selectedAgents from Redux store
   const selectedAgents = useSelector((state) => state.agent.selectedAgents);
+  
+  // State for direct agent polling 
+  const [directPollingConfig, setDirectPollingConfig] = useState(null);
 
   const userInputHandler = (e) => {
     setUserInput(e.target.value);
@@ -70,19 +75,78 @@ const InputSection = () => {
     };
   }, []);
 
-  const onSubmitHandler = (e) => {
+  const onSubmitHandler = async (e) => {
     e.preventDefault();
     if (!userInput.trim()) return;
 
     // If agents are selected, route to agent API instead of simple/deep search
     if (selectedAgents.length > 0) {
-      dispatch(
-        sendAgentQuestion({
-          question: userInput,
-          agents: selectedAgents,
-          chatHistoryId,
-        })
-      );
+      try {
+        // Send the question and get the task ID
+        const agentResponse = await dispatch(
+          sendAgentQuestion({
+            question: userInput,
+            agents: selectedAgents,
+            chatHistoryId,
+          })
+        );
+        
+        console.log("Agent response task ID:", agentResponse.taskId);
+        // Save token to localStorage for direct polling
+        if (agentResponse.token) {
+          localStorage.setItem('agent_token', agentResponse.token);
+        }
+        
+        // Start polling for agent response
+        if (selectedAgents.length === 1) {
+          // For single agent, try direct polling to the agent API
+          const agentId = selectedAgents[0];
+          if (agentResponse.agentTasks && agentResponse.agentTasks[agentId]) {
+            const agentTask = agentResponse.agentTasks[agentId];
+            console.log(`Setting up direct polling for agent ${agentId} with task:`, agentTask);
+            
+            // Configure direct polling
+            setDirectPollingConfig({
+              agentId,
+              taskId: agentTask.taskId,
+              endpoint: agentTask.endpoint,
+              token: agentResponse.token,
+            });
+          } else {
+            // Fallback to regular polling through our server
+            pollAgentTask(agentResponse.taskId, dispatch, {
+              interval: 2000,
+              maxAttempts: 30,
+              onComplete: (data) => {
+                console.log("Agent task complete:", data);
+              },
+              onPending: (data) => {
+                console.log("Agent task still pending:", data);
+              },
+              onError: (error) => {
+                console.error("Agent task polling error:", error);
+              }
+            });
+          }
+        } else {
+          // For multiple agents, use regular polling through our server
+          pollAgentTask(agentResponse.taskId, dispatch, {
+            interval: 2000,
+            maxAttempts: 30,
+            onComplete: (data) => {
+              console.log("Agent task complete:", data);
+            },
+            onPending: (data) => {
+              console.log("Agent task still pending:", data);
+            },
+            onError: (error) => {
+              console.error("Agent task polling error:", error);
+            }
+          });
+        }
+      } catch (error) {
+        console.error("Error submitting agent question:", error);
+      }
     } else {
       // No agents selected, use the normal search paths
       if (searchMode === "deep") {
@@ -124,8 +188,25 @@ const InputSection = () => {
     }
   }, [suggestPrompt]);
 
+  // Reset polling config when direct polling completes
+  const handlePollingComplete = () => {
+    console.log("Direct polling complete, resetting config");
+    setDirectPollingConfig(null);
+  };
+
   return (
     <div className={styles["input-container"]}>
+      {/* Render the AgentPollingManager if we have direct polling config */}
+      {directPollingConfig && (
+        <AgentPollingManager 
+          agentId={directPollingConfig.agentId}
+          taskId={directPollingConfig.taskId}
+          endpoint={directPollingConfig.endpoint}
+          token={directPollingConfig.token}
+          onComplete={handlePollingComplete}
+        />
+      )}
+      
       <div className={styles["input-main"]}>
         <form onSubmit={onSubmitHandler} className={styles["input-form"]}>
           <input

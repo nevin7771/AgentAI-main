@@ -90,6 +90,24 @@
   z-index: 10;
 }
 
+.agent-result {
+  position: relative;
+  border-left: 3px solid #34A853;
+}
+
+.agent-indicator {
+  position: absolute;
+  top: 0;
+  right: 10px;
+  background-color: #34A853;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  z-index: 10;
+}
+
 [data-theme="dark"] .cache-indicator {
   background-color: #8ab4f8;
   color: #202124;

@@ -7,6 +7,8 @@ import {
   getAgentResponse,
   getAllAgents,
 } from "../controller/agent_api.js";
+import { proxyAgentPoll } from "../controller/agent_api_proxy.js";
+import { testAgentConfig } from "../controller/agent_api_test.js";
 
 const router = express.Router();
 
@@ -24,5 +26,11 @@ router.get("/api/agent-response/:taskId", getAgentResponse);
 
 // Route to get all available agents
 router.get("/api/available-agents", getAllAgents);
+
+// Proxy endpoint to avoid CORS issues with direct agent API access
+router.post("/api/proxy-agent-poll", proxyAgentPoll);
+
+// Test agent configuration
+router.post("/api/test-agent-config", testAgentConfig);
 
 export default router;

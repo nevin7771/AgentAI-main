@@ -21,6 +21,8 @@
   },
   "scripts": {
     "start": "react-scripts start",
+    "start-nossl": "HTTPS=false SSL_CRT_FILE='' SSL_KEY_FILE='' react-scripts start",
+    "dev": "HTTPS=false REACT_APP_USE_PROXY=true cross-env PORT=3000 react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
