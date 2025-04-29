@@ -40,7 +40,7 @@ const AdvanceGemini = () => {
       {/* Gemini is still the default */}
       <div className={styles["gemini"]} onClick={newChatHandler}>
         <img src={commonIcon.geminiIcon} alt="gemini icon"></img>
-        <p>Gemini</p>
+        <p>Vista</p>
         <img src={icon.okIcon} alt="ok icon"></img>
       </div>
 

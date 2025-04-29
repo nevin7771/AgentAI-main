@@ -505,95 +505,210 @@ export const sendDeepSearchRequest = (searchRequest) => {
 export const getChat = (chatHistoryId) => {
   return (dispatch) => {
     dispatch(chatAction.loaderHandler());
+    
+    // Check if the ID starts with "agent_" - if so, we should look in localStorage first
+    const isAgentChat = chatHistoryId.startsWith("agent_");
+    
+    // Always check localStorage first for agent chats
+    if (isAgentChat) {
+      console.log(`This appears to be an agent chat (${chatHistoryId}), checking localStorage first`);
+      try {
+        const savedChats = JSON.parse(localStorage.getItem("savedChats") || "[]");
+        const localChat = savedChats.find(chat => chat.id === chatHistoryId);
+        
+        if (localChat) {
+          console.log("Found agent chat in localStorage, restoring:", localChat);
+          
+          // Create a normalized version of the chat
+          const chats = [{
+            user: localChat.user,
+            gemini: localChat.gemini,
+            id: Date.now(),
+            isLoader: "no",
+            isSearch: true,
+            searchType: "agent"
+          }];
+          
+          // Update the store
+          dispatch(chatAction.replaceChat({ chats }));
+          dispatch(chatAction.chatHistoryIdHandler({ chatHistoryId }));
+          dispatch(chatAction.loaderHandler()); // Turn off loader
+          
+          return Promise.resolve({ fromLocalStorage: true });
+        }
+      } catch (err) {
+        console.error("Error checking localStorage for agent chat:", err);
+      }
+    }
+    
+    // If not found in localStorage or not an agent chat, try the server
     const url = `${BASE_URL}/gemini/api/chatdata`;
 
-    fetch(url, {
-      method: "POST",
-      body: JSON.stringify({ chatHistoryId }),
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error("server error");
-        }
-        return response.json();
+    return new Promise((resolve, reject) => {
+      fetch(url, {
+        method: "POST",
+        body: JSON.stringify({ chatHistoryId }),
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
       })
-      .then((data) => {
-        dispatch(chatAction.loaderHandler());
-        const previousChat = data.chats.flatMap((c) => [
-          { role: "user", parts: c.message.user },
-          { role: "model", parts: c.message.gemini },
-        ]);
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`Server error: ${response.status}`);
+          }
+          return response.json();
+        })
+        .then((data) => {
+          dispatch(chatAction.loaderHandler());
+          
+          // Don't continue if we don't have chat data
+          if (!data.chats || data.chats.length === 0) {
+            throw new Error("No chat data returned");
+          }
+          
+          const previousChat = data.chats.flatMap((c) => [
+            { role: "user", parts: c.message.user },
+            { role: "model", parts: c.message.gemini },
+          ]);
 
-        const chats = data.chats.map((c) => {
-          return {
-            user: c.message.user,
-            gemini: c.message.gemini,
-            id: c._id,
-            isLoader: "no",
-          };
+          const chats = data.chats.map((c) => {
+            return {
+              user: c.message.user,
+              gemini: c.message.gemini,
+              id: c._id,
+              isLoader: "no",
+              // Add these properties to preserve chat type
+              isSearch: c.isSearch || c.searchType ? true : false,
+              searchType: c.searchType,
+            };
+          });
+
+          const historyId = data.chatHistory;
+
+          dispatch(chatAction.replacePreviousChat({ previousChat }));
+          dispatch(chatAction.replaceChat({ chats }));
+          dispatch(chatAction.chatHistoryIdHandler({ chatHistoryId: historyId }));
+          dispatch(chatAction.newChatHandler());
+          
+          resolve(data);
+        })
+        .catch((err) => {
+          console.error("Error fetching chat:", err);
+          dispatch(chatAction.loaderHandler());
+          
+          // Also check localStorage before giving up
+          try {
+            const savedChats = JSON.parse(localStorage.getItem("savedChats") || "[]");
+            const localChat = savedChats.find(chat => chat.id === chatHistoryId);
+            
+            if (localChat) {
+              console.log("Found chat in localStorage, will be restored by component");
+              resolve({ fromLocalStorage: true });
+              return;
+            }
+          } catch (localErr) {
+            console.error("Error checking localStorage:", localErr);
+          }
+          
+          // Show error message
+          dispatch(
+            chatAction.replaceChat({
+              chats: [
+                {
+                  error: true,
+                  user: "Hi, is there any issue ? ",
+                  gemini: "",
+                  id: 34356556565,
+                  isLoader: "Oops! I couldn't find your chat history",
+                },
+              ],
+            })
+          );
+          dispatch(chatAction.chatHistoryIdHandler({ chatHistoryId }));
+          reject(err);
         });
-
-        const chatHistoryId = data.chatHistory;
-
-        dispatch(chatAction.replacePreviousChat({ previousChat }));
-        dispatch(chatAction.replaceChat({ chats }));
-        dispatch(chatAction.chatHistoryIdHandler({ chatHistoryId }));
-        dispatch(chatAction.newChatHandler());
-      })
-      .catch((err) => {
-        console.log(err);
-        dispatch(
-          chatAction.replaceChat({
-            chats: [
-              {
-                error: true,
-                user: "Hi, is there any issue ? ",
-                gemini: "",
-                id: 34356556565,
-                isLoader: "Oops! I couldn't find your chat history",
-              },
-            ],
-          })
-        );
-        dispatch(chatAction.loaderHandler());
-        dispatch(chatAction.chatHistoryIdHandler({ chatHistoryId }));
-      });
+    });
   };
 };
 
 export const deleteChatHistory = (chatHistoryId) => {
   return (dispatch) => {
-    const url = `${BASE_URL}/api/chat-history/${chatHistoryId}`;
-
-    fetch(url, {
-      method: "DELETE",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error("Failed to delete chat history");
-        }
-        return response.json();
-      })
-      .then(() => {
-        // After successful deletion, update the recent chats
+    // Handle agent chats (which might only exist in localStorage)
+    const isAgentChat = chatHistoryId.startsWith("agent_");
+    
+    // For agent chats, always remove from localStorage
+    if (isAgentChat) {
+      try {
+        const savedChats = JSON.parse(localStorage.getItem("savedChats") || "[]");
+        const filteredChats = savedChats.filter(chat => chat.id !== chatHistoryId);
+        localStorage.setItem("savedChats", JSON.stringify(filteredChats));
+        console.log(`Removed agent chat ${chatHistoryId} from localStorage`);
+        
+        // For agent chats, we might not have a server record, so we can consider this successful
+        // even if the server delete fails
+        const promise = new Promise((resolve) => {
+          // Always resolve after a timeout even if server call fails
+          setTimeout(() => resolve({ success: true, fromLocalStorage: true }), 2000);
+          
+          // Try server delete in parallel, but don't wait for it
+          const url = `${BASE_URL}/api/chat-history/${chatHistoryId}`;
+          fetch(url, {
+            method: "DELETE",
+            credentials: "include",
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }).then(response => {
+            if (response.ok) {
+              console.log(`Successfully deleted agent chat ${chatHistoryId} from server too`);
+            }
+          }).catch(err => {
+            console.warn(`Server delete failed for agent chat, but removed from localStorage: ${err.message}`);
+          });
+        });
+        
+        // After deletion, make sure to update the UI
         dispatch(getRecentChat());
-        // Navigate to home if we're currently viewing this chat
-        const currentChatHistoryId = window.location.pathname.split("/").pop();
-        if (currentChatHistoryId === chatHistoryId) {
-          window.location.href = "/";
-        }
+        
+        return promise;
+      } catch (err) {
+        console.error("Error removing from localStorage:", err);
+        // Still try server delete as fallback
+      }
+    }
+    
+    // Standard server deletion
+    const url = `${BASE_URL}/api/chat-history/${chatHistoryId}`;
+    
+    return new Promise((resolve, reject) => {
+      fetch(url, {
+        method: "DELETE",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
       })
-      .catch((error) => {
-        console.error("Error deleting chat history:", error);
-        alert("Failed to delete chat history. Please try again.");
-      });
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error("Failed to delete chat history");
+          }
+          return response.json();
+        })
+        .then((data) => {
+          // After successful deletion, update the recent chats
+          dispatch(getRecentChat());
+          // Navigate to home if we're currently viewing this chat
+          const currentChatHistoryId = window.location.pathname.split("/").pop();
+          if (currentChatHistoryId === chatHistoryId) {
+            window.location.href = "/";
+          }
+          resolve(data);
+        })
+        .catch((error) => {
+          console.error("Error deleting chat history:", error);
+          reject(error);
+        });
+    });
   };
 };

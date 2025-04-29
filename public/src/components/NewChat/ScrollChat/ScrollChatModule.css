@@ -1,3 +1,5 @@
+/* public/src/components/NewChat/ScrollChat/ScrollChatModule.css */
+
 .h1-bold {
   font-size: 16px;
   font-weight: 500;
@@ -57,6 +59,8 @@
 .search-result strong {
   font-weight: 600;
   color: #1a73e8;
+  background-color: rgba(26, 115, 232, 0.1);
+  padding: 0 2px;
 }
 
 .search-result .source-snippet strong {
@@ -67,6 +71,7 @@
 [data-theme="dark"] .search-result strong,
 [data-theme="dark"] .search-result .source-snippet strong {
   color: #8ab4f8;
+  background-color: rgba(138, 180, 248, 0.1);
 }
 
 .search-result .search-related-section {
@@ -228,39 +233,64 @@ pre code.hljs {
 }
 
 /* Agent-specific styles */
-.simple-search-results .agent-result {
-  margin-top: 16px;
-  padding: 16px;
-  background-color: rgba(52, 168, 83, 0.05);
-  border-radius: 8px;
-  position: relative;
-  border-left: 4px solid #34A853;
-}
-
-[data-theme="dark"] .simple-search-results .agent-result {
-  background-color: rgba(52, 168, 83, 0.1);
-  border-left: 4px solid #34A853;
-}
-
-.simple-search-results .agent-result h4 {
-  margin-top: 0 !important;
-  color: #34A853 !important;
-  font-weight: 500;
-  font-size: 16px;
-}
-
-[data-theme="dark"] .simple-search-results .agent-result h4 {
-  color: #81C995 !important;
-}
-
 .simple-search-results .agent-answer {
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: 15px;
+  line-height: 1.5;
   color: #202124;
+  margin-top: 10px;
 }
 
 [data-theme="dark"] .simple-search-results .agent-answer {
   color: #e8eaed;
+}
+
+.simple-search-results .error-heading {
+  color: #ea4335 !important;
+  margin-top: 10px;
+  font-weight: 500;
+}
+
+[data-theme="dark"] .simple-search-results .error-heading {
+  color: #f28b82 !important;
+}
+
+/* Highlight styling */
+.simple-search-results .agent-answer strong {
+  font-weight: 600;
+  color: #1a73e8;
+  background-color: rgba(26, 115, 232, 0.1);
+  padding: 0 2px;
+}
+
+[data-theme="dark"] .simple-search-results .agent-answer strong {
+  color: #8ab4f8;
+  background-color: rgba(138, 180, 248, 0.1);
+}
+
+/* Remove extra spacing */
+.search-content-wrapper {
+  margin-bottom: 0;
+}
+
+/* Clean up HTML formatting for agent responses */
+.agent-answer h2 {
+  font-size: 1.2em;
+  margin-top: 16px;
+  margin-bottom: 8px;
+  color: #202124;
+}
+
+[data-theme="dark"] .agent-answer h2 {
+  color: #e8eaed;
+}
+
+.agent-answer ul {
+  margin-left: 20px;
+  margin-bottom: 16px;
+}
+
+.agent-answer li {
+  margin-bottom: 6px;
 }
 
 /* Error styling */
@@ -373,100 +403,59 @@ pre code.hljs {
   color: #f28b82;
 }
 
-/* Follow-up questions styling */
-.gemini-chips-container {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 12px;
-  width: 100%;
-}
-
-.gemini-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.gemini-chip {
-  display: flex;
-  align-items: center;
-  background-color: #f0f4f9;
-  border: none;
-  border-radius: 16px;
-  padding: 6px 12px;
-  font-size: 13px;
-  color: #1a73e8;
-  cursor: pointer;
-  transition: all 0.2s;
-  text-align: left;
-  font-family: 'Roboto', 'Arial', sans-serif;
-}
-
-.gemini-chip-icon {
-  display: flex;
-  align-items: center;
-  margin-right: 8px;
-  color: #1a73e8;
-}
-
-.gemini-chip-text {
-  max-width: calc(100% - 24px);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.gemini-chip:hover {
-  background-color: #e3e9f0;
-}
-
-[data-theme="dark"] .gemini-chip {
-  background-color: #303134;
-  color: #8ab4f8;
-}
-
-[data-theme="dark"] .gemini-chip-icon {
-  color: #8ab4f8;
-}
-
-[data-theme="dark"] .gemini-chip:hover {
-  background-color: #3c4043;
-}
-
-/* Key points section styling */
-.search-key-points {
-  margin-top: 16px;
-  padding: 12px 16px;
-  background-color: #f8f9fa;
+/* Match simple search result styling */
+.simple-search-results {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  max-width: 800px;
+  margin: 10px 0 20px;
+  line-height: 1.6;
   border-radius: 8px;
+  background-color: #f9f9f9;
+  padding: 16px 20px;
+  border-left: 4px solid #1a73e8;
 }
 
-[data-theme="dark"] .search-key-points {
-  background-color: #303134;
+[data-theme="dark"] .simple-search-results {
+  background-color: #25272a;
+  border-left: 4px solid #8ab4f8;
 }
 
-.search-key-points h4 {
+.simple-search-results.error-content {
+  border-left: 4px solid #ea4335;
+}
+
+[data-theme="dark"] .simple-search-results.error-content {
+  border-left: 4px solid #f28b82;
+}
+
+.simple-search-content {
+  margin-top: 12px;
+}
+
+.simple-search-results h3 {
   margin-top: 0;
-  font-size: 15px;
+  margin-bottom: 12px;
   font-weight: 500;
-  margin-bottom: 8px;
-  color: #202124;
+  color: #1a73e8;
 }
 
-[data-theme="dark"] .search-key-points h4 {
-  color: #e8eaed;
+[data-theme="dark"] .simple-search-results h3 {
+  color: #8ab4f8;
 }
 
-.search-key-points ul {
-  margin: 0;
-  padding-left: 16px;
+.simple-search-results.error-content h3 {
+  color: #ea4335;
 }
 
-.search-key-points li {
-  margin-bottom: 4px;
-  font-size: 13px;
+[data-theme="dark"] .simple-search-results.error-content h3 {
+  color: #f28b82;
+}
+
+/* Remove unnecessary elements */
+.search-key-points,
+.search-related-section,
+.search-follow-up {
+  display: none !important;
 }
 
 @media (max-width: 930px) {

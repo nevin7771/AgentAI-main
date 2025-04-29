@@ -3,8 +3,8 @@ import { commonIcon } from "../../../asset";
 import { useSelector, useDispatch } from "react-redux";
 import React, { useRef, useEffect, Fragment, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { getChat, deleteChatHistory } from "../../../store/chat-action";
-import { deleteAgentChatHistory } from "../../../store/agent-actions";
+import { getChat } from "../../../store/chat-action";
+import { chatAction } from "../../../store/chat";
 import ReplyByGemini from "./ReplyByGemini";
 import NewChatByGemini from "./NewChatGemini";
 import CopyBtn from "../../Ui/CopyBtn";
@@ -27,7 +27,47 @@ const ScrollChat = () => {
     if (chat.length === 0 && !historyId) {
       navigate("/");
     } else if (historyId && historyId !== chatHistoryId) {
-      dispatch(getChat(historyId));
+      // Try to load from server first
+      dispatch(getChat(historyId)).catch((error) => {
+        console.error("Server get chat failed, checking localStorage:", error);
+
+        // If server fetch fails, check localStorage
+        try {
+          const savedChats = JSON.parse(
+            localStorage.getItem("savedChats") || "[]"
+          );
+          const savedChat = savedChats.find((chat) => chat.id === historyId);
+
+          if (savedChat) {
+            console.log("Found chat in localStorage, restoring:", savedChat);
+
+            // Restore from localStorage
+            dispatch(
+              chatAction.replaceChat({
+                chats: [
+                  {
+                    user: savedChat.user,
+                    gemini: savedChat.gemini,
+                    isSearch: true,
+                    searchType: savedChat.searchType || "agent",
+                    id: Date.now(), // Just for rendering purposes
+                  },
+                ],
+              })
+            );
+
+            // Set chat history ID
+            dispatch(
+              chatAction.chatHistoryIdHandler({
+                chatHistoryId: historyId,
+              })
+            );
+          }
+        } catch (err) {
+          console.error("Error restoring from localStorage:", err);
+          navigate("/");
+        }
+      });
     } else {
       navigate(`/app/${chatHistoryId}`);
     }
@@ -70,65 +110,7 @@ const ScrollChat = () => {
 
   const lastElemetId = chat[chat.length - 1]?.id;
 
-  // Handle chat deletion
-  const handleDeleteChat = () => {
-    if (
-      window.confirm(
-        "Are you sure you want to delete this entire chat history?"
-      )
-    ) {
-      const deleteFunction =
-        chatType === "agent" ? deleteAgentChatHistory : deleteChatHistory;
-
-      dispatch(deleteFunction(chatHistoryId))
-        .then(() => {
-          // Update localStorage for agent or search history if needed
-          if (chatType === "agent") {
-            try {
-              const existingHistory = JSON.parse(
-                localStorage.getItem("agentHistory") || "[]"
-              );
-              const updatedHistory = existingHistory.filter(
-                (item) => item.id !== chatHistoryId
-              );
-              localStorage.setItem(
-                "agentHistory",
-                JSON.stringify(updatedHistory)
-              );
-            } catch (err) {
-              console.error(
-                "Error updating agent history in localStorage:",
-                err
-              );
-            }
-          } else if (chatType === "simple" || chatType === "deep") {
-            try {
-              const existingHistory = JSON.parse(
-                localStorage.getItem("searchHistory") || "[]"
-              );
-              const updatedHistory = existingHistory.filter(
-                (item) => item.id !== chatHistoryId
-              );
-              localStorage.setItem(
-                "searchHistory",
-                JSON.stringify(updatedHistory)
-              );
-            } catch (err) {
-              console.error(
-                "Error updating search history in localStorage:",
-                err
-              );
-            }
-          }
-
-          navigate("/");
-        })
-        .catch((error) => {
-          console.error("Failed to delete chat history:", error);
-          alert("Failed to delete chat history. Please try again.");
-        });
-    }
-  };
+  // Handle chat deletion - removed from UI per requirements
 
   // Get the chat type label
   const getChatTypeLabel = () => {
@@ -205,19 +187,16 @@ const ScrollChat = () => {
     </Fragment>
   ));
 
-  // Only show delete button if we have a valid chat history
-  const showDeleteButton =
-    chatHistoryId && chatHistoryId.length > 0 && chat.length > 0;
-
+  // Remove delete button from chat interface per requirements
   return (
     <div className={styles["scroll-chat-main"]} ref={chatRef}>
-      {showDeleteButton && (
+      {/* Only show chat type indicator */}
+      {chatHistoryId && chatHistoryId.length > 0 && chat.length > 0 && (
         <div className={styles["chat-actions"]}>
           <div className={styles["chat-type-indicator"]}>
             {chatType === "agent" ? (
               <div className={styles["agent-indicator"]}>
                 <img src={commonIcon.advanceGeminiIcon} alt="Agent icon" />
-                <span>Agent Chat</span>
               </div>
             ) : chatType === "simple" || chatType === "deep" ? (
               <div className={styles["search-indicator"]}>
@@ -236,24 +215,6 @@ const ScrollChat = () => {
               </div>
             ) : null}
           </div>
-
-          <button
-            className={styles["delete-chat-btn"]}
-            onClick={handleDeleteChat}
-            title="Delete entire chat history">
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg">
-              <path
-                d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
-                fill="currentColor"
-              />
-            </svg>
-            <span>Delete Chat</span>
-          </button>
         </div>
       )}
       {chatSection}

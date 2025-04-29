@@ -30,10 +30,11 @@ function logMessage(message) {
 }
 
 module.exports = function(app) {
-  // Use local server in development mode
-  const targetUrl = 'http://localhost:3030';
+  // Use local server in development mode - get from env or use default
+  const targetUrl = process.env.REACT_APP_SERVER_ENDPOINT || 'http://localhost:3030';
   
   logMessage(`Setting up proxy to target: ${targetUrl}`);
+  logMessage(`Current NODE_ENV: ${process.env.NODE_ENV}`);
   
   // Proxy all API requests 
   app.use(

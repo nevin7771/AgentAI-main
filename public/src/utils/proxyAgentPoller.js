@@ -27,8 +27,14 @@ const proxyAgentPoll = async (taskConfig, onComplete, onPending, onError) => {
     );
 
     try {
+      console.log(`Making proxy poll request to: /api/proxy-agent-poll with agentId=${agentId}, taskId=${taskId}`);
+      
+      // Use the BASE_URL from agent-actions.js to ensure correct endpoint
+      const apiUrl = `${window.location.origin}/api/proxy-agent-poll`;
+      console.log(`Full API URL: ${apiUrl}`);
+      
       // Make request through our backend proxy
-      const response = await fetch(`/api/proxy-agent-poll`, {
+      const response = await fetch(apiUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -41,7 +47,17 @@ const proxyAgentPoll = async (taskConfig, onComplete, onPending, onError) => {
       });
 
       if (!response.ok) {
-        throw new Error(`Error polling agent: HTTP ${response.status}`);
+        // Try to parse error response for more details
+        let errorDetails = "";
+        try {
+          const errorData = await response.json();
+          errorDetails = errorData.error || errorData.message || JSON.stringify(errorData);
+        } catch (e) {
+          // If we can't parse JSON, use the status text
+          errorDetails = response.statusText;
+        }
+        
+        throw new Error(`Error polling agent: HTTP ${response.status} - ${errorDetails}`);
       }
 
       const data = await response.json();

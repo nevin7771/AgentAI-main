@@ -21,9 +21,12 @@ const FALLBACK_AGENT_URLS = {
  */
 export const proxyAgentPoll = async (req, res) => {
   try {
+    console.log("[Proxy] Received agent poll request:", req.body);
+    
     const { agentId, taskId } = req.body;
 
     if (!agentId || !taskId) {
+      console.error("[Proxy] Missing required parameters:", { body: req.body });
       return res.status(400).json({
         success: false,
         error: "Agent ID and Task ID are required"
@@ -49,7 +52,10 @@ export const proxyAgentPoll = async (req, res) => {
 
     // Get agent-specific JWT secret
     const agentSecret = process.env[`${agentId.toUpperCase()}_JWT_SECRET`] 
-      || process.env.JWT_SECRET_KEY;
+      || process.env.JWT_SECRET_KEY 
+      || "gzazjvdts768lelcbcyy5ecpkiguthmq"; // Add fallback default
+    
+    console.log(`Using secret for agent ${agentId}: ${agentSecret ? "Secret found" : "No secret"}`);
     
     // Generate agent-specific token
     const agentToken = generateAgentToken(agentId, agentSecret);

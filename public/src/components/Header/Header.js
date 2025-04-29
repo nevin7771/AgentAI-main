@@ -52,7 +52,7 @@ const Header = () => {
           <img src={icon.menuIcon} alt="menu icon"></img>
         </div>
         <div className={styles["name"]} onClick={toggleAadvanceGeminiHandler}>
-          <p>Gemini</p>
+          <p>Vista</p>
           <img src={icon.dropIconSmall} alt="drop down button"></img>
         </div>
       </div>

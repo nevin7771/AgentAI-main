@@ -17,11 +17,7 @@ const Sidebar = () => {
   const isNewChat = useSelector((state) => state.chat.newChat);
   const recentChat = useSelector((state) => state.chat.recentChat);
   const [isShowMore, setisShowMore] = useState(false);
-  const [isShowMoreAgent, setIsShowMoreAgent] = useState(false);
-  const [isShowMoreSearch, setIsShowMoreSearch] = useState(false);
   const [isActiveChat, setIsActiveChat] = useState("");
-  const [agentHistory, setAgentHistory] = useState([]);
-  const [searchHistory, setSearchHistory] = useState([]);
   const chatHistoryId = useSelector((state) => state.chat.chatHistoryId);
   const location = useSelector((state) => state.user.location);
 
@@ -33,157 +29,60 @@ const Sidebar = () => {
     setisShowMore((pre) => !pre);
   };
 
-  const showMoreAgentHandler = () => {
-    setIsShowMoreAgent((pre) => !pre);
-  };
-
-  const showMoreSearchHandler = () => {
-    setIsShowMoreSearch((pre) => !pre);
-  };
+  // Only need a single show more handler now
 
   useEffect(() => {
     const id = chatHistoryId || "";
     setIsActiveChat(id);
   }, [chatHistoryId]);
 
-  // Organize chat history into categories when recent chats change
+  // No need to categorize chats anymore - all in one list
   useEffect(() => {
-    if (recentChat && recentChat.length > 0) {
-      // Extract agent-related chats
-      const agentChats = recentChat
-        .filter(
-          (chat) =>
-            chat.searchType === "agent" ||
-            (chat._id && chat._id.startsWith("agent_"))
-        )
-        .map((chat) => ({
-          id: chat._id,
-          title: chat.title || "Agent conversation",
-          type: "agent",
-          timestamp: chat.updatedAt || new Date().toISOString()
-        }));
+    // Just set active chat when chatHistoryId changes
+    const id = chatHistoryId || "";
+    setIsActiveChat(id);
+  }, [chatHistoryId]);
 
-      // Extract search-related chats
-      const searchChats = recentChat
-        .filter(
-          (chat) => chat.searchType === "simple" || chat.searchType === "deep"
-        )
-        .map((chat) => ({
-          id: chat._id,
-          title: chat.title || "Search result",
-          type: chat.searchType || "simple",
-          timestamp: chat.updatedAt || new Date().toISOString()
-        }));
-
-      // Filter out agent and search chats from recent chats
-      const regularChats = recentChat.filter(
-        (chat) =>
-          !chat.searchType ||
-          (chat.searchType !== "agent" &&
-            chat.searchType !== "simple" &&
-            chat.searchType !== "deep" &&
-            !(chat._id && chat._id.startsWith("agent_")))
-      );
-
-      // Get existing data from localStorage
-      let existingAgentHistory = [];
-      let existingSearchHistory = [];
+  // Check for chats saved in localStorage and merge with recentChat
+  useEffect(() => {
+    // Check if we have saved chats in localStorage
+    try {
+      const savedChats = JSON.parse(localStorage.getItem("savedChats") || "[]");
       
-      try {
-        const storedAgentHistory = localStorage.getItem("agentHistory");
-        if (storedAgentHistory) {
-          existingAgentHistory = JSON.parse(storedAgentHistory);
-        }
+      if (savedChats.length > 0) {
+        console.log(`Found ${savedChats.length} saved chats in localStorage to merge with recentChat`);
         
-        const storedSearchHistory = localStorage.getItem("searchHistory");
-        if (storedSearchHistory) {
-          existingSearchHistory = JSON.parse(storedSearchHistory);
+        // Only process if we have actual data
+        if (savedChats.length > 0) {
+          // Convert format to match recentChat format for display
+          const formattedChats = savedChats.map(chat => ({
+            _id: chat.id,
+            title: chat.title,
+            searchType: chat.searchType || "agent",
+            isSearch: true,
+            // Keep these properties for proper rendering
+            fromLocalStorage: true
+          }));
+          
+          // Filter out items that already exist in recentChat
+          const existingIds = recentChat.map(chat => chat._id);
+          const newChats = formattedChats.filter(chat => !existingIds.includes(chat._id));
+          
+          if (newChats.length > 0) {
+            console.log(`Adding ${newChats.length} chats from localStorage to recent chats`);
+            
+            // Combine with existing recentChat, preserving the array reference
+            const combinedChats = [...recentChat, ...newChats];
+            
+            // Update Redux store with combined chats for sidebar display
+            dispatch(chatAction.recentChatHandler({ recentChat: combinedChats }));
+          }
         }
-      } catch (err) {
-        console.error("Error reading history from localStorage:", err);
-      }
-      
-      // Merge server data with localStorage data
-      const mergedAgentHistory = [...agentChats];
-      const mergedSearchHistory = [...searchChats];
-      
-      // Add items from localStorage that aren't in the server data
-      existingAgentHistory.forEach(item => {
-        if (!mergedAgentHistory.some(chat => chat.id === item.id)) {
-          mergedAgentHistory.push(item);
-        }
-      });
-      
-      existingSearchHistory.forEach(item => {
-        if (!mergedSearchHistory.some(chat => chat.id === item.id)) {
-          mergedSearchHistory.push(item);
-        }
-      });
-      
-      // Sort by timestamp (newest first)
-      mergedAgentHistory.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-      mergedSearchHistory.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-      // Update state with merged data
-      setAgentHistory(mergedAgentHistory);
-      setSearchHistory(mergedSearchHistory);
-
-      // Save merged data to localStorage
-      try {
-        localStorage.setItem("agentHistory", JSON.stringify(mergedAgentHistory));
-        localStorage.setItem("searchHistory", JSON.stringify(mergedSearchHistory));
-      } catch (err) {
-        console.error("Error saving to localStorage:", err);
-      }
-
-      console.log(`Updated sidebar with ${mergedAgentHistory.length} agent chats and ${mergedSearchHistory.length} search results`);
-    }
-  }, [recentChat]);
-
-  // Load history from localStorage on initial load
-  useEffect(() => {
-    // Load agent history
-    try {
-      const storedAgentHistory = localStorage.getItem("agentHistory");
-      if (storedAgentHistory) {
-        setAgentHistory(JSON.parse(storedAgentHistory));
       }
     } catch (err) {
-      console.error("Error loading agent history from localStorage:", err);
+      console.error("Error loading saved chats from localStorage:", err);
     }
-
-    // Load search history
-    try {
-      const storedSearchHistory = localStorage.getItem("searchHistory");
-      if (storedSearchHistory) {
-        setSearchHistory(JSON.parse(storedSearchHistory));
-      }
-    } catch (err) {
-      console.error("Error loading search history from localStorage:", err);
-    }
-
-    // Listen for storage events to update sidebar when localStorage changes
-    const handleStorageChange = () => {
-      try {
-        // Update agent history
-        const updatedAgentHistory = localStorage.getItem("agentHistory");
-        if (updatedAgentHistory) {
-          setAgentHistory(JSON.parse(updatedAgentHistory));
-        }
-
-        // Update search history
-        const updatedSearchHistory = localStorage.getItem("searchHistory");
-        if (updatedSearchHistory) {
-          setSearchHistory(JSON.parse(updatedSearchHistory));
-        }
-      } catch (err) {
-        console.error("Error handling storage change:", err);
-      }
-    };
-
-    window.addEventListener("storage", handleStorageChange);
-    return () => window.removeEventListener("storage", handleStorageChange);
-  }, []);
+  }, [recentChat.length, dispatch]);
 
   const settingsHandler = (e) => {
     dispatch(uiAction.toggleSettings());
@@ -202,12 +101,6 @@ const Sidebar = () => {
   const icon = themeIcon();
   const sideBarWidthClass = isSidebarLong ? "side-bar-long" : "side-bar-sort";
   const showMoreArrowIcon = isShowMore ? icon.upArrowIcon : icon.expandIcon;
-  const showMoreAgentArrowIcon = isShowMoreAgent
-    ? icon.upArrowIcon
-    : icon.expandIcon;
-  const showMoreSearchArrowIcon = isShowMoreSearch
-    ? icon.upArrowIcon
-    : icon.expandIcon;
 
   const updateLocationHandler = () => {
     const location = localStorage.getItem("location");
@@ -216,113 +109,83 @@ const Sidebar = () => {
     }
   };
 
+  // Chat delete handler that works with both localStorage and MongoDB
   const deleteChatHandler = (e, chatId) => {
     e.preventDefault();
     e.stopPropagation();
 
     if (window.confirm("Are you sure you want to delete this chat history?")) {
-      dispatch(deleteChatHistory(chatId))
-        .then(() => {
-          // If currently viewing the deleted chat, navigate to home
-          if (chatId === chatHistoryId) {
-            navigate("/");
-          }
-        })
-        .catch((error) => {
-          console.error("Failed to delete chat history:", error);
-          alert("Failed to delete chat history. Please try again.");
-        });
-    }
-  };
+      try {
+        // First, remove from localStorage if present
+        try {
+          const savedChats = JSON.parse(localStorage.getItem("savedChats") || "[]");
+          const filteredChats = savedChats.filter(chat => chat.id !== chatId);
+          localStorage.setItem("savedChats", JSON.stringify(filteredChats));
+          console.log(`Removed chat ${chatId} from localStorage if present`);
+        } catch (err) {
+          console.error("Error removing from localStorage:", err);
+        }
 
-  const deleteAgentChatHandler = (e, chatId) => {
-    e.preventDefault();
-    e.stopPropagation();
+        // Now, remove from server if possible
+        const deleteAction = dispatch(deleteChatHistory(chatId));
 
-    if (window.confirm("Are you sure you want to delete this agent history?")) {
-      dispatch(deleteAgentChatHistory(chatId))
-        .then(() => {
-          // Update the local state after successful deletion
-          setAgentHistory((prevHistory) =>
-            prevHistory.filter((item) => item.id !== chatId)
+        // Check if we got a valid Promise back
+        if (deleteAction && typeof deleteAction.then === "function") {
+          deleteAction
+            .then(() => {
+              console.log(`Successfully deleted chat history ${chatId} from server`);
+              
+              // Update the recentChat list in Redux store to remove this chat
+              dispatch(
+                chatAction.recentChatHandler({
+                  recentChat: recentChat.filter(chat => chat._id !== chatId)
+                })
+              );
+
+              // If currently viewing the deleted chat, navigate to home
+              if (chatId === chatHistoryId) {
+                navigate("/");
+              }
+            })
+            .catch((error) => {
+              console.error(`Server delete failed: ${error}, falling back to client-side removal`);
+              
+              // Even if server delete fails, update the UI
+              dispatch(
+                chatAction.recentChatHandler({
+                  recentChat: recentChat.filter(chat => chat._id !== chatId)
+                })
+              );
+              
+              // If currently viewing the deleted chat, navigate to home
+              if (chatId === chatHistoryId) {
+                navigate("/");
+              }
+            });
+        } else {
+          console.warn("deleteChatHistory did not return a Promise, using client-side removal");
+          
+          // Remove from UI directly
+          dispatch(
+            chatAction.recentChatHandler({
+              recentChat: recentChat.filter(chat => chat._id !== chatId)
+            })
           );
 
-          // Update localStorage
-          try {
-            const updatedHistory = agentHistory.filter(
-              (item) => item.id !== chatId
-            );
-            localStorage.setItem(
-              "agentHistory",
-              JSON.stringify(updatedHistory)
-            );
-          } catch (err) {
-            console.error("Error updating agent history in localStorage:", err);
-          }
-
-          // If currently viewing the deleted chat, navigate to home
+          // If currently viewing the deleted chat, navigate to home anyway
           if (chatId === chatHistoryId) {
             navigate("/");
           }
-        })
-        .catch((error) => {
-          console.error("Failed to delete agent history:", error);
-          alert("Failed to delete agent history. Please try again.");
-        });
+        }
+      } catch (error) {
+        console.error("Failed to delete chat history:", error);
+        alert("Failed to delete chat history. Please try again.");
+      }
     }
   };
 
-  const deleteSearchChatHandler = (e, chatId) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    if (
-      window.confirm("Are you sure you want to delete this search history?")
-    ) {
-      dispatch(deleteChatHistory(chatId))
-        .then(() => {
-          // Update the local state after successful deletion
-          setSearchHistory((prevHistory) =>
-            prevHistory.filter((item) => item.id !== chatId)
-          );
-
-          // Also update localStorage directly
-          try {
-            const updatedHistory = searchHistory.filter(
-              (item) => item.id !== chatId
-            );
-            localStorage.setItem(
-              "searchHistory",
-              JSON.stringify(updatedHistory)
-            );
-          } catch (err) {
-            console.error(
-              "Error updating search history in localStorage:",
-              err
-            );
-          }
-
-          // If currently viewing the deleted chat, navigate to home
-          if (chatId === chatHistoryId) {
-            navigate("/");
-          }
-        })
-        .catch((error) => {
-          console.error("Failed to delete search history:", error);
-          alert("Failed to delete search history. Please try again.");
-        });
-    }
-  };
-
-  // Filter the regular chats (non-agent, non-search)
-  const regularChats = recentChat.filter(
-    (chat) =>
-      !chat.searchType ||
-      (chat.searchType !== "agent" &&
-        chat.searchType !== "simple" &&
-        chat.searchType !== "deep" &&
-        !chat._id?.startsWith("agent_"))
-  );
+  // Show all chats together now
+  const allChats = recentChat;
 
   return (
     <div className={`${styles["sidebar-main"]} ${styles[sideBarWidthClass]}`}>
@@ -346,9 +209,9 @@ const Sidebar = () => {
         )}
         {isSidebarLong && (
           <div className={styles["recent-chat-main"]}>
-            {regularChats.length > 0 && <p>Recent</p>}
+            {allChats.length > 0 && <p>Recent</p>}
 
-            {regularChats.slice(0, 5).map((chat) => (
+            {allChats.slice(0, 5).map((chat) => (
               <Link to={`/app/${chat._id}`} key={chat._id}>
                 <div
                   className={`${styles["recent-chat"]} ${
@@ -370,7 +233,7 @@ const Sidebar = () => {
                 </div>
               </Link>
             ))}
-            {regularChats.length > 5 && (
+            {allChats.length > 5 && (
               <div className={styles["show-more"]} onClick={showMoreHandler}>
                 <img src={showMoreArrowIcon} alt="drop down"></img>
                 <p>Show more</p>
@@ -378,7 +241,7 @@ const Sidebar = () => {
             )}
 
             {isShowMore &&
-              regularChats.slice(5, regularChats.length).map((chat) => (
+              allChats.slice(5, allChats.length).map((chat) => (
                 <Link to={`/app/${chat._id}`} key={chat._id}>
                   <div
                     className={`${styles["recent-chat"]} ${
@@ -401,157 +264,7 @@ const Sidebar = () => {
                 </Link>
               ))}
 
-            {/* Agent History Section */}
-            {agentHistory.length > 0 && (
-              <div className={styles["agent-history-section"]}>
-                <h3 className={styles["agent-section-title"]}>Agent History</h3>
-
-                {agentHistory.slice(0, 5).map((chat) => (
-                  <Link to={`/app/${chat.id}`} key={chat.id}>
-                    <div
-                      className={`${styles["recent-chat"]} ${
-                        styles["agent-chat"]
-                      } ${
-                        isActiveChat === chat.id
-                          ? styles["active-recent-chat"]
-                          : ""
-                      }`}
-                      onClick={() => {
-                        setIsActiveChat(chat.id);
-                      }}>
-                      <img
-                        src={icon.ideaIcon || commonIcon.advanceGeminiIcon}
-                        alt="agent"></img>
-                      <p>{chat.title?.slice(0, 20) || "Agent chat"}</p>
-                      <div
-                        className={styles["delete-icon"]}
-                        onClick={(e) => deleteAgentChatHandler(e, chat.id)}
-                        title="Delete agent history">
-                        <img src={icon.crossIcon} alt="delete"></img>
-                      </div>
-                    </div>
-                  </Link>
-                ))}
-
-                {agentHistory.length > 5 && (
-                  <div
-                    className={styles["show-more"]}
-                    onClick={showMoreAgentHandler}>
-                    <img src={showMoreAgentArrowIcon} alt="drop down"></img>
-                    <p>Show more agents</p>
-                  </div>
-                )}
-
-                {isShowMoreAgent &&
-                  agentHistory.slice(5, agentHistory.length).map((chat) => (
-                    <Link to={`/app/${chat.id}`} key={chat.id}>
-                      <div
-                        className={`${styles["recent-chat"]} ${
-                          styles["agent-chat"]
-                        } ${
-                          isActiveChat === chat.id
-                            ? styles["active-recent-chat"]
-                            : ""
-                        }`}
-                        onClick={() => {
-                          setIsActiveChat(chat.id);
-                        }}>
-                        <img
-                          src={icon.ideaIcon || commonIcon.advanceGeminiIcon}
-                          alt="agent"></img>
-                        <p>{chat.title?.slice(0, 20) || "Agent chat"}</p>
-                        <div
-                          className={styles["delete-icon"]}
-                          onClick={(e) => deleteAgentChatHandler(e, chat.id)}
-                          title="Delete agent history">
-                          <img src={icon.crossIcon} alt="delete"></img>
-                        </div>
-                      </div>
-                    </Link>
-                  ))}
-              </div>
-            )}
-
-            {/* Search History Section */}
-            {searchHistory.length > 0 && (
-              <div className={styles["search-history-section"]}>
-                <h3 className={styles["search-section-title"]}>
-                  Search History
-                </h3>
-
-                {searchHistory.slice(0, 5).map((chat) => (
-                  <Link to={`/app/${chat.id}`} key={chat.id}>
-                    <div
-                      className={`${styles["recent-chat"]} ${
-                        styles["search-chat"]
-                      } ${
-                        chat.type === "simple"
-                          ? styles["simple-search-chat"]
-                          : styles["deep-search-chat"]
-                      } ${
-                        isActiveChat === chat.id
-                          ? styles["active-recent-chat"]
-                          : ""
-                      }`}
-                      onClick={() => {
-                        setIsActiveChat(chat.id);
-                      }}>
-                      <img
-                        src={icon.searchIcon || icon.messageIcon}
-                        alt="search"></img>
-                      <p>{chat.title?.slice(0, 20) || "Search result"}</p>
-                      <div
-                        className={styles["delete-icon"]}
-                        onClick={(e) => deleteSearchChatHandler(e, chat.id)}
-                        title="Delete search history">
-                        <img src={icon.crossIcon} alt="delete"></img>
-                      </div>
-                    </div>
-                  </Link>
-                ))}
-
-                {searchHistory.length > 5 && (
-                  <div
-                    className={styles["show-more"]}
-                    onClick={showMoreSearchHandler}>
-                    <img src={showMoreSearchArrowIcon} alt="drop down"></img>
-                    <p>Show more searches</p>
-                  </div>
-                )}
-
-                {isShowMoreSearch &&
-                  searchHistory.slice(5, searchHistory.length).map((chat) => (
-                    <Link to={`/app/${chat.id}`} key={chat.id}>
-                      <div
-                        className={`${styles["recent-chat"]} ${
-                          styles["search-chat"]
-                        } ${
-                          chat.type === "simple"
-                            ? styles["simple-search-chat"]
-                            : styles["deep-search-chat"]
-                        } ${
-                          isActiveChat === chat.id
-                            ? styles["active-recent-chat"]
-                            : ""
-                        }`}
-                        onClick={() => {
-                          setIsActiveChat(chat.id);
-                        }}>
-                        <img
-                          src={icon.searchIcon || icon.messageIcon}
-                          alt="search"></img>
-                        <p>{chat.title?.slice(0, 20) || "Search result"}</p>
-                        <div
-                          className={styles["delete-icon"]}
-                          onClick={(e) => deleteSearchChatHandler(e, chat.id)}
-                          title="Delete search history">
-                          <img src={icon.crossIcon} alt="delete"></img>
-                        </div>
-                      </div>
-                    </Link>
-                  ))}
-              </div>
-            )}
+            {/* All chats shown in recent section */}
           </div>
         )}
       </div>
@@ -569,12 +282,6 @@ const Sidebar = () => {
           <img src={icon.settingsIcon} alt="settings icon"></img>
           {isSidebarLong && <p>Settings</p>}
         </div>
-        {isSidebarLong && (
-          <div className={styles["upgrade-gimini"]}>
-            <img src={commonIcon.advanceGeminiIcon} alt="gemini-logo"></img>
-            <p>Upgrade to Gemini Advanced</p>
-          </div>
-        )}
         <div className={styles["location"]} onClick={updateLocationHandler}>
           <div className={styles["dot"]}>
             <img src={icon.dotIcon} alt="dot icon"></img>

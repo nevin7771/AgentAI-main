@@ -6,6 +6,7 @@ import { agentAction } from "../../store/agent";
 import { SERVER_ENDPOINT } from "../../store/agent-actions";
 import proxyAgentPoll from "../../utils/proxyAgentPoller";
 import { useNavigate } from "react-router-dom";
+import { highlightKeywords } from "../../utils/highlightKeywords";
 
 /**
  * Manages polling of agent tasks directly to external APIs
@@ -118,71 +119,24 @@ const AgentPollingManager = ({
               resultText = resultText.replace(/\n/g, "<br>");
             }
 
+            // Highlight keywords from the question
+            const highlightedText = highlightKeywords(
+              resultText,
+              data.question
+            );
+
             console.log("Final formatted HTML result:", resultText);
 
             // Build the HTML content based on whether it's an error or normal response
             const formattedResult = `
               <div class="simple-search-results ${
                 isErrorResult ? "error-content" : ""
-              }">
-                <h3>Agent Response (${agentId})</h3>
-                
-                <div class="simple-search-content">
-                  <div class="agent-result">
-                    <h4>${isErrorResult ? "Error Response" : "Answer"}</h4>
+              }">                
+                <div class="search-content-wrapper">
+                  <div class="search-main-content">
+                    ${isErrorResult}
                     <div class="agent-answer">
-                      ${resultText}
-                    </div>
-                  </div>
-                </div>
-                
-                ${
-                  !isErrorResult
-                    ? `
-                <div class="search-key-points">
-                  <h4>Key Points</h4>
-                  <ul>
-                    <li>This response came directly from the ${agentId} agent</li>
-                    <li>Responses processed directly from the agent API</li>
-                    <li>For more perspectives, try selecting multiple agents</li>
-                  </ul>
-                </div>
-                `
-                    : ""
-                }
-                
-                <div class="search-related-section">
-                  <h4>Next Steps</h4>
-                  <p>You can try:</p>
-                  <ul>
-                    <li>Asking a more specific question</li>
-                    <li>Including more details in your query</li>
-                    <li>Selecting different agents for other perspectives</li>
-                  </ul>
-                </div>
-                
-                <div class="search-follow-up">
-                  <h4>Follow-up Questions</h4>
-                  <div class="gemini-chips-container">
-                    <div class="gemini-chips">
-                      <button class="gemini-chip" onclick="document.querySelector('.input-field').value='Tell me more about error codes'; setTimeout(() => document.querySelector('.send-btn').click(), 100);">
-                        <span class="gemini-chip-icon">
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                            <path d="M21 21L15 15M17 10C17 13.866 13.866 17 10 17C6.13401 17 3 13.866 3 10C3 6.13401 6.13401 3 10 3C13.866 3 17 6.13401 17 10Z" 
-                              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                          </svg>
-                        </span>
-                        <span class="gemini-chip-text">Tell me more about error codes</span>
-                      </button>
-                      <button class="gemini-chip" onclick="document.querySelector('.input-field').value='How to troubleshoot network errors?'; setTimeout(() => document.querySelector('.send-btn').click(), 100);">
-                        <span class="gemini-chip-icon">
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                            <path d="M21 21L15 15M17 10C17 13.866 13.866 17 10 17C6.13401 17 3 13.866 3 10C3 6.13401 6.13401 3 10 3C13.866 3 17 6.13401 17 10Z" 
-                              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                          </svg>
-                        </span>
-                        <span class="gemini-chip-text">How to troubleshoot network errors?</span>
-                      </button>
+                      ${highlightedText}
                     </div>
                   </div>
                 </div>

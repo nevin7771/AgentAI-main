@@ -1,8 +1,9 @@
 // public/src/components/InputSection/InputSection.js
 import styles from "./InputSection.module.css";
-import { sendDeepSearchRequest } from "../../store/chat-action";
+import { sendDeepSearchRequest, getRecentChat } from "../../store/chat-action";
 import { sendAgentQuestion } from "../../store/agent-actions";
-import pollAgentTask from "../../utils/agentTaskPoller"; // Import the poller
+import pollAgentTask from "../../utils/agentTaskPoller";
+import { highlightKeywords } from "../../utils/highlightKeywords";
 import { useEffect, useState, useRef } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate } from "react-router-dom";
@@ -132,38 +133,30 @@ const InputSection = () => {
       resultText = resultText.replace(/\n/g, "<br>");
     }
 
-    // Build the HTML for display
+    // Highlight keywords from the query
+    const highlightedText = highlightKeywords(
+      resultText,
+      data.question || userInput
+    );
+
+    // Build the HTML for display - SIMPLIFIED VERSION to match SimpleSearch
     const formattedResult = `
       <div class="simple-search-results ${
         isErrorResult ? "error-content" : ""
       }">
         <h3>Agent Response (${data.agentId})</h3>
         
-        <div class="simple-search-content">
-          <div class="agent-result">
-            <h4>${isErrorResult ? "Error Response" : "Answer"}</h4>
+        <div class="search-content-wrapper">
+          <div class="search-main-content">
+            ${
+              isErrorResult
+                ? '<h4 class="error-heading">Error Response</h4>'
+                : ""
+            }
             <div class="agent-answer">
-              ${resultText}
+              ${highlightedText}
             </div>
           </div>
-        </div>
-        
-        <div class="search-key-points">
-          <h4>Key Points</h4>
-          <ul>
-            <li>This response came directly from the ${data.agentId} agent</li>
-            <li>For more perspectives, try selecting multiple agents</li>
-          </ul>
-        </div>
-        
-        <div class="search-related-section">
-          <h4>Next Steps</h4>
-          <p>You can try:</p>
-          <ul>
-            <li>Asking a more specific question</li>
-            <li>Including more details in your query</li>
-            <li>Selecting different agents for other perspectives</li>
-          </ul>
         </div>
       </div>
     `;
@@ -184,10 +177,12 @@ const InputSection = () => {
       })
     );
 
-    // Generate a random ID for the chat if needed
-    const chatId = `agent_${Date.now()}_${Math.random()
+    // Use server-provided chat history ID if available or generate one
+    const chatId = data.chatHistoryId || `agent_${Date.now()}_${Math.random()
       .toString(36)
       .substring(2, 9)}`;
+
+    console.log(`Using chat history ID: ${chatId} (from server: ${!!data.chatHistoryId})`);
 
     // Set chat history ID
     dispatch(
@@ -196,30 +191,48 @@ const InputSection = () => {
       })
     );
 
+    // Store in localStorage for persistence across page refreshes
+    const storableChatData = {
+      id: chatId,
+      title: data.question || userInput || "Agent query",
+      searchType: "agent",
+      isSearch: true,
+      timestamp: new Date().toISOString(),
+      gemini: formattedResult,
+      user: data.question || userInput || "Agent query",
+    };
+
+    try {
+      // Save to local storage as backup
+      const savedChats = JSON.parse(localStorage.getItem("savedChats") || "[]");
+      // Check if this chat already exists
+      const existingIndex = savedChats.findIndex(chat => chat.id === chatId);
+      
+      if (existingIndex > -1) {
+        // Update existing
+        savedChats[existingIndex] = storableChatData;
+      } else {
+        // Add new
+        savedChats.unshift(storableChatData);
+      }
+      
+      // Store back to localStorage (limit to 50 entries)
+      localStorage.setItem("savedChats", JSON.stringify(savedChats.slice(0, 50)));
+      console.log("Saved agent chat to localStorage for persistence");
+    } catch (err) {
+      console.error("Failed to save chat to localStorage:", err);
+    }
+
     // Update UI state
     dispatch(uiAction.setLoading(false));
 
+    // Fetch recent chats to update sidebar
+    setTimeout(() => {
+      dispatch(getRecentChat());
+    }, 500);
+
     // Navigate to the chat page
     navigate(`/app/${chatId}`);
-
-    // Add to localStorage agent history
-    try {
-      const existingHistory = JSON.parse(
-        localStorage.getItem("agentHistory") || "[]"
-      );
-      const newHistoryItem = {
-        id: chatId,
-        title: data.question || "Agent query",
-        type: "agent",
-      };
-
-      localStorage.setItem(
-        "agentHistory",
-        JSON.stringify([newHistoryItem, ...existingHistory])
-      );
-    } catch (err) {
-      console.error("Error updating agent history in localStorage:", err);
-    }
   };
 
   const onSubmitHandler = async (e) => {
@@ -231,7 +244,7 @@ const InputSection = () => {
       try {
         dispatch(uiAction.setLoading(true));
 
-        // Add loading indicator to chat
+        // Add loading indicator to chat - ONLY ADD THIS ONCE
         dispatch(
           chatAction.chatStart({
             useInput: {
@@ -293,7 +306,18 @@ const InputSection = () => {
               });
 
               if (!response.ok) {
-                throw new Error(`Polling error: ${response.status}`);
+                // Try to parse error response for more details
+                let errorDetails = "";
+                try {
+                  const errorData = await response.json();
+                  errorDetails = errorData.error || errorData.message || JSON.stringify(errorData);
+                  console.error("Error response from proxy-agent-poll:", errorData);
+                } catch (e) {
+                  // If we can't parse JSON, use the status text
+                  errorDetails = response.statusText;
+                }
+                
+                throw new Error(`Polling error: HTTP ${response.status} - ${errorDetails}`);
               }
 
               const data = await response.json();

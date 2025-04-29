@@ -42,6 +42,12 @@ export const generateAgentToken = (agentId, secretKey) => {
       exp: exp,
     };
     
+    // Make sure we have a valid secret key, otherwise use default
+    if (!secretKey) {
+      console.warn(`No secret key provided for agent ${agentId}, using default JWT_SECRET_KEY`);
+      secretKey = process.env.JWT_SECRET_KEY || "gzazjvdts768lelcbcyy5ecpkiguthmq";
+    }
+    
     console.log(`Generating token for agent ${agentId} with payload:`, payload);
     console.log(`Using secret key: ${secretKey.substring(0, 5)}...`);
     
