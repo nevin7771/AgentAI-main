@@ -43,45 +43,100 @@ const Sidebar = () => {
     setIsActiveChat(id);
   }, [chatHistoryId]);
 
-  // Check for chats saved in localStorage and merge with recentChat
-  useEffect(() => {
-    // Check if we have saved chats in localStorage
+  // Function to load chats from localStorage
+  const loadLocalStorageChats = () => {
     try {
+      // Check both localStorage items for saved chats
       const savedChats = JSON.parse(localStorage.getItem("savedChats") || "[]");
+      const searchHistory = JSON.parse(localStorage.getItem("searchHistory") || "[]");
       
-      if (savedChats.length > 0) {
-        console.log(`Found ${savedChats.length} saved chats in localStorage to merge with recentChat`);
+      console.log(`Found ${savedChats.length} saved chats and ${searchHistory.length} search history items in localStorage`);
+      
+      // Process savedChats
+      const formattedSavedChats = savedChats.map(chat => ({
+        _id: chat.id,
+        title: chat.title,
+        searchType: chat.searchType || "agent",
+        isSearch: true,
+        fromLocalStorage: true,
+        timestamp: chat.timestamp || new Date().toISOString()
+      }));
+      
+      // Process searchHistory items
+      const formattedSearchHistory = searchHistory.map(item => ({
+        _id: item.id,
+        title: item.title,
+        searchType: item.type || "search",
+        isSearch: true,
+        fromLocalStorage: true,
+        timestamp: item.timestamp || new Date().toISOString()
+      }));
+      
+      // Combine both sources
+      const allLocalChats = [...formattedSavedChats, ...formattedSearchHistory];
+      
+      if (allLocalChats.length > 0) {
+        // Filter out duplicates (same ID) and keep the most recent ones
+        const uniqueChats = [];
+        const seenIds = new Set();
         
-        // Only process if we have actual data
-        if (savedChats.length > 0) {
-          // Convert format to match recentChat format for display
-          const formattedChats = savedChats.map(chat => ({
-            _id: chat.id,
-            title: chat.title,
-            searchType: chat.searchType || "agent",
-            isSearch: true,
-            // Keep these properties for proper rendering
-            fromLocalStorage: true
-          }));
-          
-          // Filter out items that already exist in recentChat
-          const existingIds = recentChat.map(chat => chat._id);
-          const newChats = formattedChats.filter(chat => !existingIds.includes(chat._id));
-          
-          if (newChats.length > 0) {
-            console.log(`Adding ${newChats.length} chats from localStorage to recent chats`);
-            
-            // Combine with existing recentChat, preserving the array reference
-            const combinedChats = [...recentChat, ...newChats];
-            
-            // Update Redux store with combined chats for sidebar display
-            dispatch(chatAction.recentChatHandler({ recentChat: combinedChats }));
+        for (const chat of allLocalChats) {
+          if (!seenIds.has(chat._id)) {
+            seenIds.add(chat._id);
+            uniqueChats.push(chat);
           }
+        }
+        
+        // Sort chats by timestamp (most recent first)
+        uniqueChats.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        
+        // Filter out items that already exist in recentChat
+        const existingIds = recentChat.map(chat => chat._id);
+        const newChats = uniqueChats.filter(chat => !existingIds.includes(chat._id));
+        
+        if (newChats.length > 0 || uniqueChats.length !== recentChat.length) {
+          console.log(`Adding ${newChats.length} chats from localStorage to recent chats`);
+          
+          // Create a completely new combined chats array with proper sorting
+          const combinedChats = [...recentChat.filter(chat => !chat.fromLocalStorage), ...uniqueChats];
+          
+          // Sort by timestamp again after combining
+          combinedChats.sort((a, b) => {
+            const dateA = a.timestamp ? new Date(a.timestamp) : new Date(0);
+            const dateB = b.timestamp ? new Date(b.timestamp) : new Date(0);
+            return dateB - dateA;
+          });
+          
+          // Update Redux store with combined chats for sidebar display
+          dispatch(chatAction.recentChatHandler({ recentChat: combinedChats }));
         }
       }
     } catch (err) {
       console.error("Error loading saved chats from localStorage:", err);
     }
+  };
+
+  // Listen for storage events to update sidebar
+  useEffect(() => {
+    const handleStorageChange = () => {
+      console.log("Storage changed, reloading chat history");
+      loadLocalStorageChats();
+    };
+    
+    // Initial load
+    loadLocalStorageChats();
+    
+    // Listen for storage events
+    window.addEventListener('storage', handleStorageChange);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, [dispatch]);
+  
+  // Also reload when recentChat changes
+  useEffect(() => {
+    loadLocalStorageChats();
   }, [recentChat.length, dispatch]);
 
   const settingsHandler = (e) => {
@@ -116,12 +171,19 @@ const Sidebar = () => {
 
     if (window.confirm("Are you sure you want to delete this chat history?")) {
       try {
-        // First, remove from localStorage if present
+        // First, remove from both localStorage collections if present
         try {
+          // Remove from savedChats
           const savedChats = JSON.parse(localStorage.getItem("savedChats") || "[]");
-          const filteredChats = savedChats.filter(chat => chat.id !== chatId);
-          localStorage.setItem("savedChats", JSON.stringify(filteredChats));
-          console.log(`Removed chat ${chatId} from localStorage if present`);
+          const filteredSavedChats = savedChats.filter(chat => chat.id !== chatId);
+          localStorage.setItem("savedChats", JSON.stringify(filteredSavedChats));
+          
+          // Remove from searchHistory
+          const searchHistory = JSON.parse(localStorage.getItem("searchHistory") || "[]");
+          const filteredSearchHistory = searchHistory.filter(item => item.id !== chatId);
+          localStorage.setItem("searchHistory", JSON.stringify(filteredSearchHistory));
+          
+          console.log(`Removed chat ${chatId} from localStorage collections`);
         } catch (err) {
           console.error("Error removing from localStorage:", err);
         }

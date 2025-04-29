@@ -23,55 +23,100 @@ const ScrollChat = () => {
 
   const userLogo = userImage || commonIcon.avatarIcon;
 
+  // First useEffect just to watch for empty chat state and redirect home
   useEffect(() => {
     if (chat.length === 0 && !historyId) {
-      navigate("/");
-    } else if (historyId && historyId !== chatHistoryId) {
-      // Try to load from server first
-      dispatch(getChat(historyId)).catch((error) => {
-        console.error("Server get chat failed, checking localStorage:", error);
-
-        // If server fetch fails, check localStorage
-        try {
-          const savedChats = JSON.parse(
-            localStorage.getItem("savedChats") || "[]"
-          );
-          const savedChat = savedChats.find((chat) => chat.id === historyId);
-
-          if (savedChat) {
-            console.log("Found chat in localStorage, restoring:", savedChat);
-
-            // Restore from localStorage
-            dispatch(
-              chatAction.replaceChat({
-                chats: [
-                  {
-                    user: savedChat.user,
-                    gemini: savedChat.gemini,
-                    isSearch: true,
-                    searchType: savedChat.searchType || "agent",
-                    id: Date.now(), // Just for rendering purposes
-                  },
-                ],
-              })
-            );
-
-            // Set chat history ID
-            dispatch(
-              chatAction.chatHistoryIdHandler({
-                chatHistoryId: historyId,
-              })
-            );
-          }
-        } catch (err) {
-          console.error("Error restoring from localStorage:", err);
-          navigate("/");
-        }
-      });
-    } else {
-      navigate(`/app/${chatHistoryId}`);
+      // No data and no ID to load, redirect home
+      const timer = setTimeout(() => {
+        navigate("/");
+      }, 0);
+      return () => clearTimeout(timer);
     }
-  }, [dispatch, historyId, chatHistoryId, navigate, chat]);
+  }, [chat.length, historyId, navigate]);
+  
+  // Second useEffect to handle URL/state synchronization
+  useEffect(() => {
+    // If we have a history ID in the URL but it doesn't match state, load it
+    if (historyId && historyId !== chatHistoryId) {
+      const loadChatHistory = async () => {
+        try {
+          // Try server first
+          await dispatch(getChat(historyId));
+        } catch (error) {
+          console.error("Server get chat failed, checking localStorage:", error);
+          loadFromLocalStorage();
+        }
+      };
+      
+      loadChatHistory();
+    }
+    
+    // If we have chat data but URL doesn't have ID, update URL
+    if (!historyId && chatHistoryId) {
+      const timer = setTimeout(() => {
+        navigate(`/app/${chatHistoryId}`);
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [historyId, chatHistoryId, dispatch, navigate]);
+  
+  // Function to load from localStorage as fallback
+  const loadFromLocalStorage = () => {
+    try {
+      // Check both savedChats and searchHistory
+      const savedChats = JSON.parse(localStorage.getItem("savedChats") || "[]");
+      const searchHistory = JSON.parse(localStorage.getItem("searchHistory") || "[]");
+      
+      // Look for the chat in both locations
+      let savedChat = savedChats.find((chat) => chat.id === historyId);
+      
+      // Check searchHistory if not found in savedChats
+      if (!savedChat) {
+        const historyItem = searchHistory.find(item => item.id === historyId);
+        if (historyItem) {
+          // Create a placeholder chat from the history item
+          savedChat = {
+            id: historyItem.id,
+            user: historyItem.title || "Search query",
+            gemini: `<div class="search-result agent-result">This is a search result for "${historyItem.title || 'unknown query'}" created at ${new Date(historyItem.timestamp).toLocaleString()}</div>`,
+            searchType: historyItem.type || "agent"
+          };
+        }
+      }
+      
+      if (savedChat) {
+        console.log("Found chat in localStorage, restoring:", savedChat);
+        
+        // Update Redux state
+        dispatch(chatAction.replaceChat({
+          chats: [{
+            user: savedChat.user,
+            gemini: savedChat.gemini,
+            isSearch: true,
+            searchType: savedChat.searchType || "agent",
+            id: Date.now() // Unique ID for rendering
+          }]
+        }));
+        
+        // Update history ID in state
+        dispatch(chatAction.chatHistoryIdHandler({
+          chatHistoryId: historyId
+        }));
+      } else {
+        // No chat found in localStorage either, go home
+        const timer = setTimeout(() => {
+          navigate("/");
+        }, 0);
+        return () => clearTimeout(timer);
+      }
+    } catch (err) {
+      console.error("Error restoring from localStorage:", err);
+      const timer = setTimeout(() => {
+        navigate("/");
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  };
 
   // Detect the chat type based on the chat history ID or chat content
   useEffect(() => {
@@ -161,7 +206,9 @@ const ScrollChat = () => {
               <div
                 className={`search-result ${
                   c?.searchType === "agent" ? "agent-result" : ""
-                } ${c?.usedCache ? "cached-result" : ""}`}>
+                } ${c?.usedCache ? "cached-result" : ""}`}
+                // Add key to force re-render and prevent duplicates
+                key={`search-${index}-${c?.id}`}>
                 {c?.usedCache && (
                   <div className="cache-indicator">Cached Result</div>
                 )}
@@ -182,7 +229,7 @@ const ScrollChat = () => {
           {c?.gemini?.length > 0 && <CopyBtn data={c?.gemini} />}
         </div>
       ) : (
-        navigate("/")
+        <div>Error loading chat</div>
       )}
     </Fragment>
   ));

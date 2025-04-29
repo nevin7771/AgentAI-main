@@ -542,7 +542,8 @@ export const getChat = (chatHistoryId) => {
     }
     
     // If not found in localStorage or not an agent chat, try the server
-    const url = `${BASE_URL}/gemini/api/chatdata`;
+    // Use the existing endpoint - don't create new ones
+    const url = `${SERVER_ENDPOINT}/gemini/api/chatdata`;
 
     return new Promise((resolve, reject) => {
       fetch(url, {

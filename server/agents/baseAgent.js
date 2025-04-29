@@ -94,6 +94,12 @@ export default class BaseAgent {
       "FormatResponse method must be implemented by child classes"
     );
   }
+  
+  // Process a query and return results
+  async processQuery(query, conversationHistory = []) {
+    this.log(`Processing query: "${query}"`);
+    return this.execute(query);
+  }
 
   // Handle errors
   handleError(error) {

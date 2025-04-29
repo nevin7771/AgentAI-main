@@ -2,56 +2,62 @@ version: "3.8"
 services:
   mongodb:
     image: mongo:latest
-    container_name: mongodb
+    container_name: mongodb-local
     ports:
-      - "27018:27017" # Changed to 27018->27017 to avoid conflict
+      - "27018:27017" # Changed to 27018->27017 to avoid conflict with local MongoDB
     volumes:
-      - mongodb_data:/data/db
+      - mongodb_data_local:/data/db
     networks:
-      - gemini-network
+      - agentai-network-local
+    restart: unless-stopped
 
   server:
     build:
       context: ./server
       dockerfile: Dockerfile
-    container_name: gemini-server-container
+    container_name: agentai-server-local
     ports:
-      - "3031:3030" # Changed to 3031->3030 to avoid conflict
+      - "3031:3030" # Changed to 3031->3030 to avoid conflict with local server
     environment:
-      - MONGODB_URL=mongodb://localhost:27017/gemini # Internal Docker network connection stays the same
-      - CLIENT_REDIRECT_URL=http://localhost:3000 # Update to match new client port
+      - NODE_ENV=development
+      - MONGODB_URI=mongodb://mongodb-local:27017/agentai
+      - CLIENT_REDIRECT_URL=http://localhost:3001
     env_file:
-      - ./server/.env
+      - ./.env
     depends_on:
       - mongodb
-    networks:
-      - gemini-network
     volumes:
       - ./server:/app
       - /app/node_modules
+      - ./logs:/app/logs
+    networks:
+      - agentai-network-local
+    restart: unless-stopped
 
   client:
     build:
       context: ./public
       dockerfile: Dockerfile
-    container_name: gemini-client-container
+    container_name: agentai-client-local
     ports:
-      - "3001:3000" # Changed to 3001->3000 to avoid conflict
+      - "3001:3000" # Changed to 3001->3000 to avoid conflict with local client
     environment:
-      - REACT_APP_SERVER_ENDPOINT=http://localhost:3030 # Update to match new server port
+      - NODE_ENV=development
+      - REACT_APP_SERVER_ENDPOINT=http://localhost:3031
     env_file:
-      - ./public/.env
+      - ./.env
     depends_on:
       - server
-    networks:
-      - gemini-network
     volumes:
       - ./public:/app
       - /app/node_modules
+    networks:
+      - agentai-network-local
+    restart: unless-stopped
 
 networks:
-  gemini-network:
+  agentai-network-local:
     driver: bridge
 
 volumes:
-  mongodb_data:
+  mongodb_data_local:

@@ -200,7 +200,7 @@ ${context}
 
 Step 1: First, analyze the query and information. What is the user asking about?
 Step 2: Do you have sufficient information to answer this query?
-Step 3: Formulate a clear, concise answer (maximum 300 words). Include only essential information.
+Step 3: Formulate a clear, comprehensive answer (maximum 800 words). Include detailed information.
 Step 4: Cite sources for your information using [1], [2], etc. format.
 
 Additional instructions:
@@ -219,12 +219,19 @@ Format your response following this structure:
 
 [1-2 sentence direct answer]
 
-[Key details in 3-4 bullet points or short paragraphs]
+## Key Points
+- [Key point 1]
+- [Key point 2]
+- [Key point 3]
+- [Key point 4]
+
+[Detailed information in 4-8 paragraphs]
 
 ## Related Questions
 - [First related question]
 - [Second related question]
 - [Third related question]
+- [Fourth related question]
 
 ## Sources
 [1] [Source 1 name]
@@ -237,7 +244,7 @@ Format your response following this structure:
     model: "gpt-4",
     messages: [{ role: "user", content: prompt }],
     temperature: 0.5,
-    max_tokens: 1000,
+    max_tokens: 2000,
   });
   
   const answer = completion.choices[0].message.content;

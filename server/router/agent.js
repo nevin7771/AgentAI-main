@@ -324,8 +324,23 @@ router.delete("/api/chat-history/:chatHistoryId", async (req, res) => {
     const { chatHistory } = await import("../model/chatHistory.js");
     const { user } = await import("../model/user.js");
 
-    // Find the chat history
-    const chatHistoryDoc = await chatHistory.findById(chatHistoryId);
+    let chatHistoryDoc;
+    
+    // Check if chatHistoryId is a MongoDB ObjectId or a client-generated ID
+    if (/^[0-9a-fA-F]{24}$/.test(chatHistoryId)) {
+      // This is a valid MongoDB ObjectId, find by ID
+      chatHistoryDoc = await chatHistory.findById(chatHistoryId);
+    } else {
+      // This is a client-generated ID (like agent_timestamp_random)
+      // Look for it in a custom field or try a different query
+      console.log(`[DeleteChatHistory] ID is not a MongoDB ObjectId, looking up by custom ID`);
+      chatHistoryDoc = await chatHistory.findOne({ 
+        $or: [
+          { clientId: chatHistoryId },
+          { title: { $regex: chatHistoryId, $options: 'i' } }
+        ]
+      });
+    }
     
     if (!chatHistoryDoc) {
       return res.status(404).json({

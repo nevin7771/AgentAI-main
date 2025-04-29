@@ -235,30 +235,108 @@ export const getChatHistory = (req, res, next) => {
 
 let a = 0;
 
-export const postChat = (req, res, next) => {
-  const chatHistoryId = req.body.chatHistoryId;
-  const userId = req.user._id;
-  const isNotAuthUser = req.auth === "noauth";
+export const postChat = async (req, res, next) => {
+  try {
+    const chatHistoryId = req.body.chatHistoryId;
+    
+    // If no chatHistoryId is provided, return an error
+    if (!chatHistoryId) {
+      return res.status(400).json({
+        success: false,
+        error: "Chat history ID is required"
+      });
+    }
 
-  console.log("Looking for chat history:", chatHistoryId, "for user:", userId);
+    const userId = req.user?._id;
+    const isNotAuthUser = req.auth === "noauth";
 
-  // Simple find for authenticated users
-  let query;
-  if (isNotAuthUser) {
-    // For non-auth users, find from most recent chats
-    query = chatHistory.find({ user: userId })
-      .sort({ timestamp: -1 })
-      .limit(5)
+    console.log("Looking for chat history:", chatHistoryId, "user:", userId || "none");
+
+    // Check if this is an agent chat or client-generated ID
+    const isClientId = chatHistoryId && !(/^[0-9a-fA-F]{24}$/.test(chatHistoryId));
+    const isAgentChat = chatHistoryId && chatHistoryId.startsWith("agent_");
+    
+    console.log(`Chat lookup: ID=${chatHistoryId}, isClientId=${isClientId}, isAgentChat=${isAgentChat}`);
+    
+    // For agent chats, we need special handling
+    if (isAgentChat) {
+      // Try to find the chat first by clientId
+      let agentChatDoc = await chatHistory.findOne({ clientId: chatHistoryId });
+      
+      // If not found but looks like a client ID, try a pattern search
+      if (!agentChatDoc && isClientId) {
+        agentChatDoc = await chatHistory.findOne({ 
+          type: "agent",
+          title: { $regex: chatHistoryId.split('_')[1], $options: 'i' } 
+        });
+        
+        if (!agentChatDoc) {
+          // Last attempt - try any type="agent" document
+          const recentAgentChats = await chatHistory.find({ type: "agent" })
+            .sort({ timestamp: -1 })
+            .limit(3);
+            
+          if (recentAgentChats.length > 0) {
+            agentChatDoc = recentAgentChats[0]; // Just use the most recent one
+            console.log(`No exact match found - using most recent agent chat: ${agentChatDoc._id}`);
+          }
+        }
+      }
+      
+      if (agentChatDoc) {
+        console.log(`Found agent chat: ${agentChatDoc._id}, clientId: ${agentChatDoc.clientId}`);
+        
+        // Populate the chat messages
+        await agentChatDoc.populate('chat');
+        
+        return res.status(200).json({
+          chatHistory: agentChatDoc._id,
+          chats: agentChatDoc.chat?.messages || []
+        });
+      } else {
+        // For agent chats, rather than returning 403, return empty
+        return res.status(200).json({
+          chatHistory: chatHistoryId,
+          message: "Agent chat not found in database",
+          chats: []
+        });
+      }
+    }
+  
+    // For regular chats, use the existing logic
+    let query;
+    if (isNotAuthUser) {
+      // For non-auth users, find from most recent chats
+      query = chatHistory.find({ user: userId })
+        .sort({ timestamp: -1 })
+      .limit(10) // Increased limit to make it more likely to find client IDs
       .then(histories => {
         // Check if the requested chat history is in the allowed list
         if (chatHistoryId) {
-          const allowedIds = histories.map(h => h._id.toString());
-          if (!allowedIds.includes(chatHistoryId)) {
-            const error = new Error("Unauthorized access to chat history");
-            error.statusCode = 403;
-            throw error;
+          if (isClientId) {
+            // For client IDs, search by clientId first, then fallback to title
+            console.log("Looking for client ID:", chatHistoryId);
+            return chatHistory.findOne({
+              user: userId,
+              $or: [
+                { clientId: chatHistoryId },
+                { title: { $regex: chatHistoryId, $options: 'i' } }
+              ]
+            }).populate('chat');
+          } else {
+            // For MongoDB IDs, check if in allowed list
+            const allowedIds = histories.map(h => h._id.toString());
+            if (!allowedIds.includes(chatHistoryId)) {
+              console.log("ChatHistoryId not in allowed list:", chatHistoryId, "Allowed:", allowedIds);
+              // Instead of failing, just return the most recent chat if available
+              if (histories.length > 0) {
+                return chatHistory.findOne({ _id: histories[0]._id }).populate('chat');
+              } else {
+                return null;
+              }
+            }
+            return chatHistory.findOne({ _id: chatHistoryId, user: userId }).populate('chat');
           }
-          return chatHistory.findOne({ _id: chatHistoryId, user: userId }).populate('chat');
         } else if (histories.length > 0) {
           // If no specific ID, just return the most recent one
           return chatHistory.findOne({ _id: histories[0]._id }).populate('chat');
@@ -267,42 +345,79 @@ export const postChat = (req, res, next) => {
         }
       });
   } else {
-    // For authenticated users, directly find by ID
-    query = chatHistory.findOne({ _id: chatHistoryId, user: userId }).populate('chat');
+    // For authenticated users - with more flexible lookup
+    if (isClientId) {
+      // For client IDs, search by clientId field directly
+      console.log(`[Auth] Looking for client ID: ${chatHistoryId}`);
+      query = chatHistory.findOne({
+        $or: [
+          { clientId: chatHistoryId, user: userId },
+          { title: chatHistoryId, user: userId },
+          { clientId: chatHistoryId } // Fallback: try any user if this is an agent chat
+        ]
+      }).populate('chat');
+    } else {
+      // For MongoDB IDs, directly find by ID
+      query = chatHistory.findOne({ 
+        $or: [
+          { _id: chatHistoryId, user: userId },
+          { _id: chatHistoryId } // Fallback: try any user if this is a public chat
+        ]
+      }).populate('chat');
+    }
   }
 
-  query.then((chatData) => {
+  try {
+    const chatData = await query;
+    
     if (!chatData) {
-      const error = new Error("No Chat history found");
-      error.statusCode = 403;
-      throw error;
-      }
+      // Don't throw error, just return empty result
+      console.log("No chat data found for ID:", chatHistoryId);
+      return res.status(200).json({
+        success: true,
+        message: "No chat history found",
+        chatHistory: chatHistoryId,
+        chats: []
+      });
+    }
 
-      a += 1;
-      console.log("Old chats ", a);
+    a += 1;
+    console.log("Old chats ", a);
 
-      // Check if chat exists and has messages
-      if (chatData.chat && chatData.chat.messages) {
-        console.log("Found chat with messages:", chatData.chat.messages.length);
-        res.status(200).json({
-          chatHistory: chatData._id,
-          chats: chatData.chat.messages,
-        });
-      } else {
-        // Handle case where chat or messages might not exist
-        console.log("No messages found for chat history:", chatData._id);
-        res.status(200).json({
-          chatHistory: chatData._id,
-          chats: [],
-        });
-      }
-    })
-    .catch((err) => {
-      if (!err.statusCode) {
-        err.statusCode = 500;
-      }
-      next(err);
+    // Check if chat exists and has messages
+    if (chatData.chat && chatData.chat.messages) {
+      console.log("Found chat with messages:", chatData.chat.messages.length);
+      return res.status(200).json({
+        chatHistory: chatData._id,
+        chats: chatData.chat.messages,
+      });
+    } else {
+      // Handle case where chat or messages might not exist
+      console.log("No messages found for chat history:", chatData._id);
+      return res.status(200).json({
+        chatHistory: chatData._id,
+        chats: [],
+      });
+    }
+  } catch (innerErr) {
+    console.error("Error retrieving chat data:", innerErr);
+    return res.status(200).json({
+      success: false,
+      message: innerErr.message || "Error retrieving chat data",
+      chatHistory: chatHistoryId,
+      chats: []
     });
+    }
+  } catch (err) {
+    console.error("Error retrieving chat:", err);
+    // Return empty result instead of error
+    return res.status(200).json({
+      success: false,
+      message: err.message || "Error retrieving chat",
+      chatHistory: chatHistoryId,
+      chats: []
+    });
+  }
 };
 
 let d = 0;

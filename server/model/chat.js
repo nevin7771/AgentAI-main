@@ -24,7 +24,7 @@ const chatSchema = new Schema({
       },
       searchType: {
         type: String,
-        enum: ['simple', 'deep', null],
+        enum: ['simple', 'deep', 'agent', null],
         default: null
       },
       timestamp: {

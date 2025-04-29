@@ -28,43 +28,65 @@ export const sendAgentQuestion = (questionData) => {
         )}`
       );
 
-      // First try with proxy approach
-      let url = "/api/agent-question"; // Use proxy path (relative)
-      let response;
-
+      // First generate JWT token
+      let token;
       try {
-        console.log(`Attempting to send agent question via proxy to: ${url}`);
-        // Send the question request - using proxy
+        console.log("Generating JWT token for agent API");
+        const tokenResponse = await fetch(`${SERVER_ENDPOINT}/api/generate-jwt`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            agentId: agents[0] || "default"
+          }),
+        });
+        
+        if (!tokenResponse.ok) {
+          throw new Error(`Failed to generate token: ${tokenResponse.status}`);
+        }
+        
+        const tokenData = await tokenResponse.json();
+        token = tokenData.token;
+        console.log("Successfully generated JWT token");
+      } catch (tokenError) {
+        console.error("Failed to generate token:", tokenError);
+        // Continue without token
+      }
+      
+      // Then submit question to agent via proxy endpoint
+      let response;
+      try {
+        console.log("Submitting question to agent proxy API");
+        // Use the proxy-agent-poll endpoint which can handle initial requests too
+        const url = `${SERVER_ENDPOINT}/api/proxy-agent-poll`;
+        
         response = await fetch(url, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Accept: "application/json",
+            ...(token && { "Authorization": `Bearer ${token}` })
           },
           credentials: "include",
           body: JSON.stringify({
             question,
-            agents,
+            agentId: agents[0] || "local", // Use the first agent in the list
             chatHistoryId,
           }),
         });
 
-        // If fetch worked but returned an error, try the direct URL
         if (!response.ok) {
-          const statusCode = response.status;
-          console.warn(
-            `Proxy agent request failed with status ${statusCode}, trying direct URL...`
-          );
-          throw new Error(`Server Error: ${statusCode}`);
+          throw new Error(`Agent proxy request failed: ${response.status}`);
         }
-      } catch (proxyError) {
-        console.error("Proxy agent request failed:", proxyError);
+      } catch (apiError) {
+        console.error("Agent proxy request failed:", apiError);
 
-        // Try direct URL as a fallback
-        url = `${SERVER_ENDPOINT}/api/agent-question`;
-        console.log(`Trying direct URL for agent request: ${url}`);
+        // Try direct agent request as a fallback
+        const fallbackUrl = `${SERVER_ENDPOINT}/api/agent-request`;
+        console.log(`Trying fallback URL for agent request: ${fallbackUrl}`);
 
-        response = await fetch(url, {
+        response = await fetch(fallbackUrl, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -73,7 +95,7 @@ export const sendAgentQuestion = (questionData) => {
           credentials: "include",
           body: JSON.stringify({
             question,
-            agents,
+            agentType: agents[0] || "search",
             chatHistoryId,
           }),
         });
@@ -207,51 +229,51 @@ export const pollAgentResponse = (taskId) => {
     try {
       console.log(`Polling for agent response with taskId: ${taskId}`);
 
-      // First try with proxy approach
-      let url = `/api/agent-response/${taskId}`; // Use proxy path (relative)
-      let response;
-
+      // Get a JWT token first (will need this for authenticated requests)
+      let token;
       try {
-        console.log(`Attempting to poll agent response via proxy from: ${url}`);
-        // Send the request using proxy
-        response = await fetch(url, {
-          method: "GET",
-          credentials: "include",
+        const tokenResponse = await fetch(`${SERVER_ENDPOINT}/api/generate-jwt`, {
+          method: "POST",
           headers: {
-            Accept: "application/json",
+            "Content-Type": "application/json",
           },
+          body: JSON.stringify({
+            agentId: "default"
+          }),
         });
-
-        // If fetch worked but returned an error, try the direct URL
-        if (!response.ok) {
-          const statusCode = response.status;
-          console.warn(
-            `Proxy agent poll failed with status ${statusCode}, trying direct URL...`
-          );
-          throw new Error(`Server Error: ${statusCode}`);
+        
+        if (tokenResponse.ok) {
+          const tokenData = await tokenResponse.json();
+          token = tokenData.token;
+          console.log("Successfully generated JWT token for polling");
         }
-      } catch (proxyError) {
-        console.error("Proxy agent poll failed:", proxyError);
-
-        // Try direct URL as a fallback
-        url = `${SERVER_ENDPOINT}/api/agent-response/${taskId}`;
-        console.log(`Trying direct URL for agent poll: ${url}`);
-
-        response = await fetch(url, {
-          method: "GET",
-          credentials: "include",
-          headers: {
-            Accept: "application/json",
-          },
-        });
-
-        if (!response.ok) {
-          throw new Error(`Request failed with status: ${response.status}`);
-        }
+      } catch (tokenError) {
+        console.error("Failed to generate token for polling:", tokenError);
+        // Continue without token
       }
 
+      // Use the proxy-agent-poll endpoint for polling too
+      const url = `${SERVER_ENDPOINT}/api/proxy-agent-poll`;
+      console.log(`Polling agent response via proxy for taskId: ${taskId}`);
+      
+      // Send the request - use POST to match the proxy endpoint's expected format
+      const response = await fetch(url, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          ...(token && { "Authorization": `Bearer ${token}` })
+        },
+        body: JSON.stringify({
+          taskId,
+          // Extract agent ID from taskId which should be in format agentId_timestamp_random
+          agentId: taskId.split('_')[0]
+        })
+      });
+
       if (!response.ok) {
-        throw new Error(`Request failed with status: ${response.status}`);
+        throw new Error(`Agent proxy poll failed with status: ${response.status}`);
       }
 
       const data = await response.json();
@@ -335,6 +357,9 @@ export const pollAgentResponse = (taskId) => {
           // Save back to localStorage
           localStorage.setItem("searchHistory", JSON.stringify(limitedHistory));
           console.log("Agent search saved to localStorage history");
+          
+          // Dispatch storage event to notify sidebar component
+          window.dispatchEvent(new Event('storage'));
         } catch (err) {
           console.error("Error saving agent search to localStorage:", err);
         }
@@ -497,53 +522,44 @@ export const fetchAvailableAgents = () => {
     try {
       dispatch(agentAction.setLoading(true));
 
-      // First try with proxy approach
-      let url = `/api/available-agents`; // Use proxy path (relative)
-      let response;
-
+      // Get JWT token first (required for authenticated endpoints)
+      let token;
       try {
-        console.log(
-          `Attempting to fetch available agents via proxy from: ${url}`
-        );
-        // Send the request using proxy
-        response = await fetch(url, {
-          method: "GET",
-          credentials: "include",
+        const tokenResponse = await fetch(`${SERVER_ENDPOINT}/api/generate-jwt`, {
+          method: "POST",
           headers: {
-            Accept: "application/json",
+            "Content-Type": "application/json",
           },
+          body: JSON.stringify({
+            agentId: "default"
+          }),
         });
-
-        // If fetch worked but returned an error, try the direct URL
-        if (!response.ok) {
-          const statusCode = response.status;
-          console.warn(
-            `Proxy agents fetch failed with status ${statusCode}, trying direct URL...`
-          );
-          throw new Error(`Server Error: ${statusCode}`);
+        
+        if (tokenResponse.ok) {
+          const tokenData = await tokenResponse.json();
+          token = tokenData.token;
+          console.log("Successfully generated JWT token for fetching agents");
         }
-      } catch (proxyError) {
-        console.error("Proxy agents fetch failed:", proxyError);
-
-        // Try direct URL as a fallback
-        url = `${SERVER_ENDPOINT}/api/available-agents`;
-        console.log(`Trying direct URL for agents fetch: ${url}`);
-
-        response = await fetch(url, {
-          method: "GET",
-          credentials: "include",
-          headers: {
-            Accept: "application/json",
-          },
-        });
-
-        if (!response.ok) {
-          throw new Error(`Request failed with status: ${response.status}`);
-        }
+      } catch (tokenError) {
+        console.error("Failed to generate token for fetching agents:", tokenError);
+        // Continue without token
       }
 
+      // Fetch available agents
+      const url = `${SERVER_ENDPOINT}/api/available-agents`;
+      console.log(`Fetching available agents from: ${url}`);
+      
+      const response = await fetch(url, {
+        method: "GET",
+        credentials: "include",
+        headers: {
+          Accept: "application/json",
+          ...(token && { "Authorization": `Bearer ${token}` })
+        },
+      });
+
       if (!response.ok) {
-        throw new Error(`Request failed with status: ${response.status}`);
+        throw new Error(`Failed to fetch available agents: ${response.status}`);
       }
 
       const data = await response.json();

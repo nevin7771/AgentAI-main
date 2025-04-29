@@ -87,7 +87,10 @@ const AgentChat = () => {
   const pollForResponse = async (taskId) => {
     let attempts = 0;
     const maxAttempts = 30; // Maximum 30 attempts (5 minutes total)
-    const pollInterval = 5000; // Poll every 5 seconds
+    const pollInterval = 3000; // Poll every 3 seconds
+
+    // Immediately add loading indicator to chat
+    navigate("/app"); // Go to main chat page to show loading
 
     const poll = async () => {
       try {
@@ -97,8 +100,9 @@ const AgentChat = () => {
         );
 
         const data = await dispatch(pollAgentResponse(taskId));
+        console.log("Poll attempt", attempts, "received data:", data);
 
-        if (data.status === "complete") {
+        if (data && data.status === "complete") {
           // Success! We have the response
           setProcessingStatus("Response received!");
           setIsProcessing(false);
@@ -122,8 +126,8 @@ const AgentChat = () => {
           return;
         }
 
-        // Update status with completion information
-        if (data.completedAgents && data.pendingAgents) {
+        // Update status with completion information if available
+        if (data && data.completedAgents && data.pendingAgents) {
           const completed = data.completedAgents.length;
           const total = completed + data.pendingAgents.length;
           setProcessingStatus(

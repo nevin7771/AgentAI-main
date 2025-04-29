@@ -9,6 +9,12 @@ RUN npm install
 
 COPY . .
 
-EXPOSE 3030
+# Make port configurable via environment variable
+EXPOSE ${PORT:-3030}
+EXPOSE ${HTTPS_PORT:-3443}
 
-CMD ["npm", "run", "dev"]
+# Default to production, can be overridden at runtime
+ENV NODE_ENV=production
+
+# Use start script for production, dev for development
+CMD ["sh", "-c", "if [ \"$NODE_ENV\" = \"production\" ]; then npm start; else npm run dev; fi"]

@@ -1,144 +1,105 @@
-# Gemini AI Web App
+# AgentAI
 
-Gemini AI is an innovative web application that brings an interactive chat experience with the help of Google Gemini Pro api. Built using Node.js, React.js, MongoDB, and Redux Toolkit, this app allows users to engage in text-based conversations with Gemini AI. The application features Google OAuth V2 for user authentication, enabling enhanced capabilities and personalization.
+An AI agent platform with support for multiple types of AI agents and interaction methods.
 
-## Description
+## Features
 
-Gemini AI Web App is a Google Gemini clone, providing users with a seamless chat interface powered by advanced AI capabilities. Users can enjoy conversations with Gemini AI, receiving text-based responses. The application supports two user types:
+- Multiple agent types for different use cases
+- JWT-based authentication
+- OAuth integration with Okta
+- MongoDB database for storing chat history and user data
+- Docker support for easy deployment
 
-1. **Non-authenticated Users:**
+## Getting Started
 
-   - Limited to 10 chat requests per hour.
-   - Access to the last 5 chat history entries.
+### Prerequisites
 
-2. **Authenticated Users:**
-   - Unlimited chat responses.
-   - Full chat history access upon login.
-3. **Modern Interface:**
-   - Enjoy a clean and user-friendly interface for a seamless chat experience.
+- [Node.js](https://nodejs.org/) (v20 or higher)
+- [MongoDB](https://www.mongodb.com/) (v4 or higher)
+- [Docker](https://www.docker.com/) (optional, for containerized deployment)
 
-## Live Demo
+### Environment Setup
 
-Explore the live demo of Gemini AI: [https://geminichatai.netlify.app/](https://geminichatai.netlify.app/)
-
-![Demo Screenshot](https://res.cloudinary.com/dqone7ala/image/upload/v1710036366/Screenshot_2024-03-10_073520_wkcnwj.png)
-
-## Installation
-
-### Server Side
-
-1. Clone the repository:
-
-   ```bash
-   git clone https://github.com/shuvra-matrix/Gemini-Ai--MERN.git
-   ```
-
-2. Navigate to the server folder:
-
-   ```bash
-   cd ./server
-   ```
-
-3. Install dependencies:
-
-   ```bash
-   npm install
-   ```
-
-4. Set up environment variables in a `.env` file:
-
-   ```
-   MONGO_USER=mongodb_username
-   MONGO_PASS=mongodb_password
-   GEMINI_API_KEY=gemini_api_key
-   CLIENT_API_KEY=server_client_verify_api_key(generate by user)
-   GEO_API_KEY=ipgeolocation_api_key
-   LOCATION_API_KEY=geocode_api_key
-   GOOGLE_CLIENT_ID=google_oauth_client_id
-   GOOGLE_CLIENT_SECRET=google_oauth_client_secret
-   GOOGLE_OAUTH_REDIRECT_URL=google_oauth_redirect_url
-   CLIENT_REDIRECT_URL="http://localhost:3000"
-   ACCESS_TOKEN_JWT_SECRET=cookie_secret
-   REFRESH_TOKEN_JWT_SECRET=cookie_secret
-   ACCESS_TOKEN_EXPIRETIME=15m
-   REFRESH_TOKEN_EXPIRETIME=7d
-   APPLICATION_TYPE="dev" or"production"
-   COOKIE_DOMAIN=serverid_domain
-   ```
-
-5. Run the server:
-
-   ```bash
-   npm start
-   ```
-
-### Client Side
-
-1. Navigate to the root directory:
-
-   ```bash
-   cd Gemini-Ai--MERN
-   ```
-
-2. Install client dependencies:
-
-   ```bash
-   npm install
-   ```
-
-3. Set up client-side environment variables in a `.env` file:
-
-   ```
-   REACT_APP_GEMINI_KEY=user_generated_key)
-   REACT_APP_GOOGLE_CLIENT_ID=google_oauth_client_id
-   REACT_APP_GOOGLE_CLIENT_SECRET=google_oauth_client_secret
-   REACT_APP_GOOGLE_OAUTH_REDIRECT_URL=google_oauth_redirect_url
-   REACT_APP_SERVER_ENDPOINT=http://localhost:3030
-   ```
-
-4. Run the client:
-
-   ```bash
-   npm start
-   ```
-
-## Docker Setup
-
-If you have Docker installed, use the following command in the root directory:
+The application uses a centralized `.env` file in the root directory for all environment variables. Copy the example file to create your own:
 
 ```bash
-docker-compose -f docker-compose.yaml up
+cp .env.example .env
 ```
 
-## Location Tracking
+Edit the `.env` file to configure your environment variables:
 
-Gemini AI Web App employs location tracking features for enhanced user experience. The following APIs are utilized on the server side to obtain location and IP details:
+- Database connection
+- API keys
+- JWT secrets
+- OAuth settings
+- Agent configuration
 
-1. **IP Geolocation API:**
+### Local Development Setup
 
-   - Used to retrieve initial location details based on the user's IP address.
-   - API Endpoint: [https://ipgeolocation.io/](https://ipgeolocation.io/)
-   - This information helps in providing a general idea of the user's location.
+For local development without Docker:
 
-2. **Geocode API:**
-   - Utilized to get precise user location details by updating location based on latitude and longitude.
-   - API Endpoint: [https://geocode.maps.co/](https://geocode.maps.co/)
-   - The app uses this API to convert latitude and longitude coordinates into an accurate user location.
+```bash
+# Install dependencies for both the frontend and backend
+npm install
+cd public && npm install
+cd ../server && npm install
 
-Please note that the use of location data is subject to our [Privacy Policy](https://github.com/shuvra-matrix/Gemini-Ai--MERN/blob/main/PRIVACY-POLICY.md), and user consent is prioritized. The obtained location information is solely used to enhance user experience within the Gemini AI Web App. We do not share this information with third parties.
+# Start the development servers
+cd ..
+./start-dev.sh
+```
 
-If you have any concerns or questions regarding the use of location tracking in Gemini AI Web App, please contact us at [shuvrachakrabarty97@gmail.com](shuvrachakrabarty97@gmail.com).
+### Docker Development Setup
 
-## Issues and Contributions
+For development using Docker:
 
-Report issues or contribute to the project on [GitHub](https://github.com/shuvra-matrix/Gemini-Ai--MERN).
+```bash
+# Start the containerized development environment
+./docker-dev.sh
+```
 
-## Privacy Policy
+This will start:
+- MongoDB at localhost:27018
+- Backend server at http://localhost:3031
+- Frontend client at http://localhost:3001
 
-Read our [Privacy Policy](https://github.com/shuvra-matrix/Gemini-Ai--MERN/blob/main/PRIVACY-POLICY.md) before using Gemini AI. Your use of this web app is subject to our privacy terms.
+### Production Deployment
 
-## Disclaimer
+For production deployment:
 
-Read the [Disclaimer](https://github.com/shuvra-matrix/Gemini-Ai--MERN/blob/main/DISCLAIMER.md) before using Gemini AI. Use of this web app implies acceptance of the terms stated in the disclaimer.
+```bash
+# Deploy the application using Docker
+docker-compose up -d
+```
 
-Enjoy chatting with Gemini AI! 🚀
+## File Structure
+
+```
+├── certs/                  # SSL certificates
+├── logs/                   # Application logs
+├── public/                 # Frontend React application
+├── server/                 # Backend Node.js application
+│   ├── agents/             # Agent implementation
+│   ├── config/             # Server configuration
+│   ├── controller/         # API controllers
+│   ├── middleware/         # Custom middleware
+│   ├── model/              # Database models
+│   ├── router/             # API routes
+│   ├── service/            # Business logic services
+│   └── utils/              # Utility functions
+├── .env                    # Environment variables (centralized)
+├── docker-compose.yaml     # Production Docker configuration
+├── docker-compose-local.yaml # Development Docker configuration
+└── docker-dev.sh           # Docker development startup script
+```
+
+## License
+
+This project is proprietary and confidential.
+
+## Additional Documentation
+
+- [Agent API Setup](AGENT_API_SETUP.md)
+- [SSL Setup](SSL_SETUP.md)
+- [Privacy Policy](PRIVACY-POLICY.md)
+- [Disclaimer](DISCLAIMER.md)
