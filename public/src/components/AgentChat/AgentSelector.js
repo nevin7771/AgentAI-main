@@ -16,15 +16,21 @@ const AgentSelector = () => {
 
   // Fetch available agents on component mount
   useEffect(() => {
-    dispatch(fetchAvailableAgents());
+    dispatch(fetchAvailableAgents()).catch((err) => {
+      console.error("Error in fetchAvailableAgents effect:", err);
+    });
   }, [dispatch]);
 
   // Toggle agent selection
   const toggleAgent = (agentId) => {
-    if (selectedAgents.includes(agentId)) {
-      dispatch(agentAction.removeSelectedAgent(agentId));
-    } else {
-      dispatch(agentAction.addSelectedAgent(agentId));
+    try {
+      if (selectedAgents.includes(agentId)) {
+        dispatch(agentAction.removeSelectedAgent(agentId));
+      } else {
+        dispatch(agentAction.addSelectedAgent(agentId));
+      }
+    } catch (err) {
+      console.error("Error in toggleAgent:", err);
     }
   };
 
@@ -35,13 +41,28 @@ const AgentSelector = () => {
 
   // Select all agents
   const selectAllAgents = () => {
-    dispatch(agentAction.setSelectedAgents(agents.map((agent) => agent.id)));
+    try {
+      if (agents && agents.length > 0) {
+        dispatch(
+          agentAction.setSelectedAgents(agents.map((agent) => agent.id))
+        );
+      }
+    } catch (err) {
+      console.error("Error in selectAllAgents:", err);
+    }
   };
 
   // Clear all selections
   const clearSelections = () => {
-    dispatch(agentAction.clearSelectedAgents());
+    try {
+      dispatch(agentAction.clearSelectedAgents());
+    } catch (err) {
+      console.error("Error in clearSelections:", err);
+    }
   };
+
+  // Safely get the count of agents
+  const agentCount = Array.isArray(agents) ? agents.length : 0;
 
   return (
     <div className={styles["agent-selector"]}>
@@ -70,7 +91,7 @@ const AgentSelector = () => {
                 className={styles["select-all-btn"]}
                 onClick={selectAllAgents}
                 disabled={
-                  agents.length === selectedAgents.length || agents.length === 0
+                  agentCount === selectedAgents.length || agentCount === 0
                 }>
                 Select All
               </button>
@@ -94,38 +115,40 @@ const AgentSelector = () => {
             </div>
           ) : (
             <div className={styles["agents-list"]}>
-              {agents.map((agent) => (
-                <div
-                  key={agent.id}
-                  className={`${styles["agent-item"]} ${
-                    selectedAgents.includes(agent.id) ? styles["selected"] : ""
-                  }`}
-                  onClick={() => toggleAgent(agent.id)}>
-                  <div className={styles["agent-checkbox"]}>
-                    {selectedAgents.includes(agent.id) && (
-                      <svg
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        xmlns="http://www.w3.org/2000/svg">
-                        <path
-                          d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"
-                          fill="currentColor"
-                        />
-                      </svg>
-                    )}
+              {agents && agents.length > 0 ? (
+                agents.map((agent) => (
+                  <div
+                    key={agent.id}
+                    className={`${styles["agent-item"]} ${
+                      selectedAgents.includes(agent.id)
+                        ? styles["selected"]
+                        : ""
+                    }`}
+                    onClick={() => toggleAgent(agent.id)}>
+                    <div className={styles["agent-checkbox"]}>
+                      {selectedAgents.includes(agent.id) && (
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          xmlns="http://www.w3.org/2000/svg">
+                          <path
+                            d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"
+                            fill="currentColor"
+                          />
+                        </svg>
+                      )}
+                    </div>
+                    <div className={styles["agent-info"]}>
+                      <span className={styles["agent-name"]}>{agent.name}</span>
+                      <span className={styles["agent-description"]}>
+                        {agent.description}
+                      </span>
+                    </div>
                   </div>
-                  <div className={styles["agent-info"]}>
-                    <span className={styles["agent-name"]}>{agent.name}</span>
-                    <span className={styles["agent-description"]}>
-                      {agent.description}
-                    </span>
-                  </div>
-                </div>
-              ))}
-
-              {agents.length === 0 && (
+                ))
+              ) : (
                 <div className={styles["no-agents"]}>
                   <p>No agents available</p>
                 </div>

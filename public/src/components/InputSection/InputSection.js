@@ -139,21 +139,12 @@ const InputSection = () => {
       data.question || userInput
     );
 
-    // Build the HTML for display - SIMPLIFIED VERSION to match SimpleSearch
+    // Build the HTML for display - CLEAN VERSION to match support documentation style
     const formattedResult = `
-      <div class="simple-search-results ${
-        isErrorResult ? "error-content" : ""
-      }">
-        <h3>Agent Response (${data.agentId})</h3>
-        
-        <div class="search-content-wrapper">
-          <div class="search-main-content">
-            ${
-              isErrorResult
-                ? '<h4 class="error-heading">Error Response</h4>'
-                : ""
-            }
-            <div class="agent-answer">
+      <div class="support-doc-results">
+        <div class="support-content-wrapper">
+          <div class="support-main-content">
+            <div class="support-answer">
               ${highlightedText}
             </div>
           </div>
@@ -178,11 +169,13 @@ const InputSection = () => {
     );
 
     // Use server-provided chat history ID if available or generate one
-    const chatId = data.chatHistoryId || `agent_${Date.now()}_${Math.random()
-      .toString(36)
-      .substring(2, 9)}`;
+    const chatId =
+      data.chatHistoryId ||
+      `agent_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
-    console.log(`Using chat history ID: ${chatId} (from server: ${!!data.chatHistoryId})`);
+    console.log(
+      `Using chat history ID: ${chatId} (from server: ${!!data.chatHistoryId})`
+    );
 
     // Set chat history ID
     dispatch(
@@ -206,8 +199,8 @@ const InputSection = () => {
       // Save to local storage as backup
       const savedChats = JSON.parse(localStorage.getItem("savedChats") || "[]");
       // Check if this chat already exists
-      const existingIndex = savedChats.findIndex(chat => chat.id === chatId);
-      
+      const existingIndex = savedChats.findIndex((chat) => chat.id === chatId);
+
       if (existingIndex > -1) {
         // Update existing
         savedChats[existingIndex] = storableChatData;
@@ -215,9 +208,12 @@ const InputSection = () => {
         // Add new
         savedChats.unshift(storableChatData);
       }
-      
+
       // Store back to localStorage (limit to 50 entries)
-      localStorage.setItem("savedChats", JSON.stringify(savedChats.slice(0, 50)));
+      localStorage.setItem(
+        "savedChats",
+        JSON.stringify(savedChats.slice(0, 50))
+      );
       console.log("Saved agent chat to localStorage for persistence");
     } catch (err) {
       console.error("Failed to save chat to localStorage:", err);
@@ -258,6 +254,14 @@ const InputSection = () => {
         );
 
         // Send the question and get the task ID
+        console.log(
+          "Sending agent question with input:",
+          userInput,
+          "agents:",
+          selectedAgents
+        );
+
+        // Send the question and get the task ID
         const agentResponse = await dispatch(
           sendAgentQuestion({
             question: userInput,
@@ -265,6 +269,12 @@ const InputSection = () => {
             chatHistoryId,
           })
         );
+
+        // Check if the response is valid and contains a taskId
+        if (!agentResponse || !agentResponse.taskId) {
+          console.error("Invalid agent response:", agentResponse);
+          throw new Error("Failed to get a valid response from agent service");
+        }
 
         console.log("Agent response task ID:", agentResponse.taskId);
 
@@ -310,14 +320,22 @@ const InputSection = () => {
                 let errorDetails = "";
                 try {
                   const errorData = await response.json();
-                  errorDetails = errorData.error || errorData.message || JSON.stringify(errorData);
-                  console.error("Error response from proxy-agent-poll:", errorData);
+                  errorDetails =
+                    errorData.error ||
+                    errorData.message ||
+                    JSON.stringify(errorData);
+                  console.error(
+                    "Error response from proxy-agent-poll:",
+                    errorData
+                  );
                 } catch (e) {
                   // If we can't parse JSON, use the status text
                   errorDetails = response.statusText;
                 }
-                
-                throw new Error(`Polling error: HTTP ${response.status} - ${errorDetails}`);
+
+                throw new Error(
+                  `Polling error: HTTP ${response.status} - ${errorDetails}`
+                );
               }
 
               const data = await response.json();

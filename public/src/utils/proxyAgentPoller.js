@@ -12,6 +12,16 @@
 const proxyAgentPoll = async (taskConfig, onComplete, onPending, onError) => {
   const { agentId, taskId, maxAttempts = 30, interval = 2000 } = taskConfig;
 
+  // Validate required parameters
+  if (!agentId || !taskId) {
+    const error = new Error(
+      `Missing required parameters: agentId=${agentId}, taskId=${taskId}`
+    );
+    console.error(error);
+    onError(error);
+    return false;
+  }
+
   // Log start of polling
   console.log(
     `Starting proxy poll for agent ${agentId} with taskId: ${taskId}`
@@ -27,12 +37,14 @@ const proxyAgentPoll = async (taskConfig, onComplete, onPending, onError) => {
     );
 
     try {
-      console.log(`Making proxy poll request to: /api/proxy-agent-poll with agentId=${agentId}, taskId=${taskId}`);
-      
-      // Use the BASE_URL from agent-actions.js to ensure correct endpoint
+      console.log(
+        `Making proxy poll request to: /api/proxy-agent-poll with agentId=${agentId}, taskId=${taskId}`
+      );
+
+      // Use the absolute URL to ensure correct endpoint
       const apiUrl = `${window.location.origin}/api/proxy-agent-poll`;
       console.log(`Full API URL: ${apiUrl}`);
-      
+
       // Make request through our backend proxy
       const response = await fetch(apiUrl, {
         method: "POST",
@@ -51,13 +63,16 @@ const proxyAgentPoll = async (taskConfig, onComplete, onPending, onError) => {
         let errorDetails = "";
         try {
           const errorData = await response.json();
-          errorDetails = errorData.error || errorData.message || JSON.stringify(errorData);
+          errorDetails =
+            errorData.error || errorData.message || JSON.stringify(errorData);
         } catch (e) {
           // If we can't parse JSON, use the status text
           errorDetails = response.statusText;
         }
-        
-        throw new Error(`Error polling agent: HTTP ${response.status} - ${errorDetails}`);
+
+        throw new Error(
+          `Error polling agent: HTTP ${response.status} - ${errorDetails}`
+        );
       }
 
       const data = await response.json();

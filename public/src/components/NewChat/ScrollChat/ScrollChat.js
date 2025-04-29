@@ -193,11 +193,9 @@ const ScrollChat = () => {
       {/* Only show chat type indicator */}
       {chatHistoryId && chatHistoryId.length > 0 && chat.length > 0 && (
         <div className={styles["chat-actions"]}>
-          <div className={styles["chat-type-indicator"]}>
+          <div>
             {chatType === "agent" ? (
-              <div className={styles["agent-indicator"]}>
-                <img src={commonIcon.advanceGeminiIcon} alt="Agent icon" />
-              </div>
+              <div className={styles["agent-indicator"]}></div>
             ) : chatType === "simple" || chatType === "deep" ? (
               <div className={styles["search-indicator"]}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none">

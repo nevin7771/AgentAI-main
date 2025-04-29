@@ -6,7 +6,6 @@ import { agentAction } from "../../store/agent";
 import { SERVER_ENDPOINT } from "../../store/agent-actions";
 import proxyAgentPoll from "../../utils/proxyAgentPoller";
 import { useNavigate } from "react-router-dom";
-import { highlightKeywords } from "../../utils/highlightKeywords";
 
 /**
  * Manages polling of agent tasks directly to external APIs
@@ -24,6 +23,32 @@ const AgentPollingManager = ({
   const [isPolling, setIsPolling] = useState(false);
   const [error, setError] = useState(null);
   const chatHistoryId = useSelector((state) => state.chat.chatHistoryId);
+
+  // Function to highlight keywords in a string
+  // Adding this directly to avoid import issues
+  const highlightKeywords = (text, query) => {
+    if (!text || !query) return text;
+
+    try {
+      // Extract keywords from the query (words with 4+ characters)
+      const keywords = query
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((word) => word.length >= 4)
+        .map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")); // Escape special regex chars
+
+      if (keywords.length === 0) return text;
+
+      // Create regex to find all instances of these keywords (case insensitive)
+      const regex = new RegExp(`(${keywords.join("|")})`, "gi");
+
+      // Replace with highlighted version
+      return text.replace(regex, "<strong>$1</strong>");
+    } catch (e) {
+      console.error("Error highlighting keywords:", e);
+      return text; // Fall back to original text
+    }
+  };
 
   useEffect(() => {
     // Skip if missing required params
@@ -119,22 +144,34 @@ const AgentPollingManager = ({
               resultText = resultText.replace(/\n/g, "<br>");
             }
 
-            // Highlight keywords from the question
-            const highlightedText = highlightKeywords(
-              resultText,
-              data.question
-            );
+            // Try to highlight keywords, fallback gracefully if it fails
+            let highlightedText;
+            try {
+              highlightedText = highlightKeywords(
+                resultText,
+                data.question || "error code"
+              );
+            } catch (e) {
+              console.error("Error highlighting keywords:", e);
+              highlightedText = resultText; // Use non-highlighted text as fallback
+            }
 
-            console.log("Final formatted HTML result:", resultText);
+            console.log("Final formatted HTML result:", highlightedText);
 
             // Build the HTML content based on whether it's an error or normal response
             const formattedResult = `
               <div class="simple-search-results ${
                 isErrorResult ? "error-content" : ""
-              }">                
+              }">
+                <h3>Agent Response (${agentId})</h3>
+                
                 <div class="search-content-wrapper">
                   <div class="search-main-content">
-                    ${isErrorResult}
+                    ${
+                      isErrorResult
+                        ? '<h4 class="error-heading">Error Response</h4>'
+                        : ""
+                    }
                     <div class="agent-answer">
                       ${highlightedText}
                     </div>
