@@ -3,7 +3,7 @@ import { themeIcon } from "../../asset";
 import { commonIcon } from "../../asset";
 import { useSelector, useDispatch } from "react-redux";
 import { uiAction } from "../../store/ui-gemini";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { chatAction } from "../../store/chat";
 import { Link, useNavigate } from "react-router-dom";
 import { userUpdateLocation } from "../../store/user-action";
@@ -246,8 +246,18 @@ const Sidebar = () => {
     }
   };
 
-  // Show all chats together now
-  const allChats = recentChat;
+  // Deduplicate chats by ID to avoid rendering duplicates
+  const allChats = (() => {
+    const seen = new Set();
+    const unique = [];
+    recentChat.forEach(chat => {
+      if (!seen.has(chat._id)) {
+        seen.add(chat._id);
+        unique.push(chat);
+      }
+    });
+    return unique;
+  })();
 
   return (
     <div className={`${styles["sidebar-main"]} ${styles[sideBarWidthClass]}`}>
