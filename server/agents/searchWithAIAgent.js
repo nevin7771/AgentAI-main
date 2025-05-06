@@ -5,52 +5,58 @@ import {
   performWebSearch,
   fetchWebContent,
   summarizeText,
+  generateFollowUpQuestions, // Import the new utility
 } from "./utils/agentUtils.js";
 
-// Helper function for basic Markdown to HTML (can be moved to utils)
-const markdownToHtmlSimple = (markdown) => {
-  if (!markdown) return "";
-  return markdown
-    .replace(/^###\s+(.*$)/gim, "<h3>$1</h3>")
-    .replace(/^##\s+(.*$)/gim, "<h2>$1</h2>")
-    .replace(/^#\s+(.*$)/gim, "<h1>$1</h1>")
-    .replace(/^\*\s+(.*$)/gim, "<li>$1</li>") // Unordered list items
-    .replace(/^\d+\.\s+(.*$)/gim, "<li>$1</li>") // Ordered list items
-    .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>") // Bold
-    .replace(/\*(.*?)\*/g, "<em>$1</em>") // Italic
-    .split("\n") // Split into lines to process lists and paragraphs
-    .reduce(
-      (acc, line) => {
-        line = line.trim();
-        if (line.startsWith("<li>")) {
-          if (!acc.inList) {
-            // Determine list type (simple check)
-            const listTag = line.match(/^<li>/) ? "ul" : "ol";
-            acc.html += `\n<${listTag}>\n${line}`;
-            acc.inList = true;
-            acc.listTag = listTag;
-          } else {
-            acc.html += `\n${line}`;
-          }
-        } else {
-          if (acc.inList) {
-            acc.html += `\n</${acc.listTag}>`;
-            acc.inList = false;
-          }
-          if (
-            line.length > 0 &&
-            !line.match(/^<(h[1-6]|p|div|blockquote|ul|ol)/)
-          ) {
-            acc.html += `\n<p>${line}</p>`; // Wrap non-list, non-header lines in <p>
-          } else if (line.length > 0) {
-            acc.html += `\n${line}`; // Keep existing block elements
-          }
-        }
-        return acc;
-      },
-      { html: "", inList: false, listTag: "ul" }
-    )
-    .html.trim(); // Get final HTML
+// Helper function to extract keywords (simple example)
+const extractKeywords = (text, count = 5) => {
+  if (!text) return [];
+  // Simple keyword extraction: split by space, filter common words, count frequency
+  const commonWords = new Set([
+    "the",
+    "a",
+    "an",
+    "is",
+    "are",
+    "was",
+    "were",
+    "in",
+    "on",
+    "at",
+    "to",
+    "for",
+    "of",
+    "and",
+    "or",
+    "it",
+    "this",
+    "that",
+    "you",
+    "i",
+    "me",
+    "my",
+    "your",
+    "with",
+    "as",
+    "by",
+    "if",
+    "how",
+    "what",
+    "when",
+    "where",
+    "why",
+  ]);
+  const words = text.toLowerCase().match(/\b\w+\b/g) || [];
+  const freq = {};
+  words.forEach((word) => {
+    if (!commonWords.has(word) && word.length > 2) {
+      freq[word] = (freq[word] || 0) + 1;
+    }
+  });
+  return Object.entries(freq)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, count)
+    .map(([word]) => word);
 };
 
 export default class SearchWithAIAgent extends BaseAgent {
@@ -87,36 +93,50 @@ export default class SearchWithAIAgent extends BaseAgent {
     return true;
   }
 
-  async execute(query) {
+  async execute(query, options = {}) {
     try {
       if (!this.openai) {
         await this.initialize();
       }
 
-      this.log(`Executing ${this.searchMode} search for: "${query}"`);
+      // Override search mode if provided in options
+      const currentSearchMode = options.searchMode || this.searchMode;
+
+      this.log(`Executing ${currentSearchMode} search for: "${query}"`);
       this.log(`Sources: ${this.sources.join(", ")}`);
 
       // Select the appropriate search method based on the search mode
-      let result;
+      let resultData;
 
-      switch (this.searchMode) {
+      switch (currentSearchMode) {
         case "research":
-          result = await this.performDeepResearch(query);
+          resultData = await this.performDeepResearch(query);
           break;
         case "deep":
-          result = await this.performDeepSearch(query);
+          resultData = await this.performDeepSearch(query);
           break;
         case "simple":
         default:
-          result = await this.performSimpleSearch(query);
+          resultData = await this.performSimpleSearch(query);
           break;
       }
 
+      // **Generate follow-up questions**
+      const followUpQuestions = await generateFollowUpQuestions(
+        query,
+        resultData.answer, // Use the generated answer text
+        this.openai // Pass the initialized OpenAI instance
+      );
+
+      // Standardized structured response
       return {
         success: true,
         query,
-        sources: this.sources,
-        result,
+        searchMode: currentSearchMode,
+        structuredAnswer: resultData.answer, // LLM should provide structured markdown
+        keywords: resultData.keywords || [],
+        sources: resultData.sources || [],
+        followUpQuestions: followUpQuestions, // Include generated questions
       };
     } catch (error) {
       return this.handleError(error);
@@ -142,34 +162,39 @@ export default class SearchWithAIAgent extends BaseAgent {
       )
       .join("\n\n");
 
-    // Step 3: Generate answer using LLM
+    // Step 3: Generate answer using LLM - **MODIFIED PROMPT**
+    const systemPrompt = `You are a search assistant. Provide a concise, structured answer to the user's question based ONLY on the provided search results. 
+Use Markdown for formatting (headings, lists, bold text). 
+Identify the main topic and key steps or points. 
+Cite sources using [[citation:X]]. 
+If the context is insufficient, state that clearly.`;
+
+    const userPrompt = `Question: ${query}\n\nSearch Results:\n${context}`;
+
     const response = await this.openai.chat.completions.create({
       model: this.config.defaultModel,
       messages: [
-        {
-          role: "system",
-          content: `You are a search assistant that provides accurate, helpful answers based on search results.
-          Use the provided search context to answer the user's question.
-          Always cite your sources using the citation format [[citation:X]] where X is the source number.
-          If the search results don't contain enough information to answer the question confidently, acknowledge that.
-          Be concise but thorough, and organize your response clearly.`,
-        },
-        {
-          role: "user",
-          content: `Question: ${query}\n\nSearch Results:\n${context}`,
-        },
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
       ],
       temperature: 0.5,
     });
 
+    const answerText = response.choices[0].message.content;
+    const keywords = extractKeywords(answerText);
+
+    // Prepare sources with keywords
+    const sourcesWithKeywords = searchResults.map((result) => ({
+      url: result.url,
+      title: result.title,
+      snippet: result.snippet,
+      keywordsInSnippet: extractKeywords(result.snippet, 3),
+    }));
+
     return {
-      answer: response.choices[0].message.content,
-      searchResults,
-      citations: searchResults.map((result) => ({
-        url: result.url,
-        title: result.title,
-        source: result.source,
-      })),
+      answer: answerText, // Structured markdown from LLM
+      keywords: keywords,
+      sources: sourcesWithKeywords,
     };
   }
 
@@ -226,34 +251,39 @@ export default class SearchWithAIAgent extends BaseAgent {
       )
       .join("\n\n");
 
-    // Step 5: Generate detailed answer using LLM
+    // Step 5: Generate detailed answer using LLM - **MODIFIED PROMPT**
+    const systemPrompt = `You are a deep search assistant. Provide a comprehensive, well-structured answer based ONLY on the provided search results and summaries. 
+Use Markdown for clear formatting (headings, lists, bold text). 
+Structure the answer logically (e.g., introduction, key points/steps, conclusion). 
+Cite sources using [[citation:X]]. 
+If the context is insufficient, state that clearly.`;
+
+    const userPrompt = `Question: ${query}\n\nSearch Results and Content Summaries:\n${context}`;
+
     const response = await this.openai.chat.completions.create({
       model: this.config.defaultModel,
       messages: [
-        {
-          role: "system",
-          content: `You are a deep search assistant that provides comprehensive, well-structured answers based on search results and webpage content.
-          Use the provided search context to thoroughly answer the user's question.
-          Always cite your sources using the citation format [[citation:X]] where X is the source number.
-          Organize your response with headings and bullet points where appropriate.
-          Provide a detailed analysis while remaining factual and accurate.`,
-        },
-        {
-          role: "user",
-          content: `Question: ${query}\n\nSearch Results and Content:\n${context}`,
-        },
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
       ],
       temperature: 0.4,
     });
 
+    const answerText = response.choices[0].message.content;
+    const keywords = extractKeywords(answerText);
+
+    // Prepare sources with keywords
+    const sourcesWithKeywords = contentResults.map((result) => ({
+      url: result.url,
+      title: result.title,
+      snippet: result.summary || result.snippet, // Use summary if available
+      keywordsInSnippet: extractKeywords(result.summary || result.snippet, 3),
+    }));
+
     return {
-      answer: response.choices[0].message.content,
-      searchResults: contentResults,
-      citations: contentResults.map((result) => ({
-        url: result.url,
-        title: result.title,
-        source: result.source,
-      })),
+      answer: answerText, // Structured markdown from LLM
+      keywords: keywords,
+      sources: sourcesWithKeywords,
     };
   }
 
@@ -264,11 +294,11 @@ export default class SearchWithAIAgent extends BaseAgent {
       messages: [
         {
           role: "system",
-          content: `You are a research question generator. Based on the main query, create 3 specific sub-questions that would help fully answer the main question when researched. Make the questions specific and targeted.`,
+          content: `You are a research question generator. Based on the main query, create 3 specific sub-questions that would help fully answer the main question when researched. Make the questions specific and targeted. Return only the questions, numbered.`, // Simplified prompt
         },
         {
           role: "user",
-          content: `Main research query: ${query}\n\nGenerate 3 specific sub-questions to research:`,
+          content: `Main research query: ${query}\n\nGenerate 3 specific sub-questions to research:`, // Simplified prompt
         },
       ],
       temperature: 0.7,
@@ -327,164 +357,42 @@ export default class SearchWithAIAgent extends BaseAgent {
       )
       .join("\n\n");
 
-    // Step 4: Generate comprehensive research report
+    // Step 4: Generate comprehensive research report - **MODIFIED PROMPT**
+    const systemPrompt = `You are a comprehensive research assistant. Synthesize the research findings into a cohesive, well-structured report answering the main question. 
+Use Markdown for clear formatting (headings, lists, bold text). 
+Structure the report logically (e.g., summary, key findings by theme, details, conclusion). 
+Cite sources using [[citation:X]]. 
+Focus on accuracy and clarity, using ONLY the provided context.`;
+
+    const userPrompt = `Main research question: ${query}\n\nResearch findings:\n${researchContext}`;
+
     const response = await this.openai.chat.completions.create({
       model: this.config.defaultModel,
       messages: [
-        {
-          role: "system",
-          content: `You are a comprehensive research assistant. Your task is to synthesize research findings from multiple sources into a cohesive, well-structured report.
-          
-          Create a detailed research report that thoroughly addresses the main question while incorporating all the research findings provided. 
-          
-          Format your response as a proper research report with:
-          1. An executive summary
-          2. Key findings organized by theme or topic
-          3. Detailed analysis of each major point
-          4. Conclusions and recommendations if applicable
-          
-          Always cite your sources using the citation format [[citation:X]] where X is the source number when referencing specific information.
-          Use appropriate headings, bullet points, and formatting to create a professional, easy-to-read report.`,
-        },
-        {
-          role: "user",
-          content: `Main research question: ${query}\n\nResearch findings:\n${researchContext}`,
-        },
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
       ],
       temperature: 0.3,
     });
 
+    const answerText = response.choices[0].message.content;
+    const keywords = extractKeywords(answerText);
+
+    // Prepare sources with keywords
+    const sourcesWithKeywords = allResults.map((result) => ({
+      url: result.url,
+      title: result.title,
+      snippet: result.summary, // Use summary for research mode
+      keywordsInSnippet: extractKeywords(result.summary, 3),
+    }));
+
     return {
-      answer: response.choices[0].message.content,
-      searchResults: allResults,
-      subQuestions,
-      citations: allResults.map((result) => ({
-        url: result.url,
-        title: result.title,
-        source: result.source,
-      })),
+      answer: answerText, // Structured markdown from LLM
+      keywords: keywords,
+      sources: sourcesWithKeywords,
+      subQuestions: subQuestions, // Include sub-questions in the result
     };
   }
 
-  formatResponse(data) {
-    if (!data.success) {
-      // Use a generic error container or mode-specific later
-      return `<div class="search-error">
-        <h3>Search Error</h3>
-        <p>Sorry, there was an error processing your search request: ${data.error}</p>
-      </div>`;
-    }
-
-    const { query, result, sources } = data;
-    const { answer, citations, searchResults } = result;
-
-    // --- Simple Search Formatting ---
-    if (this.searchMode === "simple") {
-      const formattedAnswer = markdownToHtmlSimple(answer);
-
-      return `
-        <div class="simple-search-results">
-          <h3>Search Results</h3>
-          <p><strong>Query:</strong> "${query}"</p>
-          
-          <div class="simple-search-content">
-            ${formattedAnswer}
-          </div>
-          
-          <div class="simple-search-note">
-            <p><small>Note: This is a simple search result. For more comprehensive research, use the Deep Research option.</small></p>
-          </div>
-        </div>
-      `;
-    }
-
-    // --- Deep/Research Search Formatting (Google Style from previous step) ---
-    else {
-      let processedAnswer = answer;
-
-      // Make URLs clickable
-      const urlRegex = /(https?:\/\/[^\s]+)/g;
-      processedAnswer = processedAnswer.replace(
-        urlRegex,
-        '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
-      );
-
-      // Format citation markers [[citation:X]] -> <a href="#citation-X" class="citation-link">🔗</a>
-      const citationRegex = /\[\[citation:(\d+)\]\]/g;
-      processedAnswer = processedAnswer.replace(citationRegex, (match, p1) => {
-        const citation = citations ? citations[parseInt(p1) - 1] : null;
-        const citationUrl = citation ? citation.url : "#";
-        return ` <a href="${citationUrl}" target="_blank" rel="noopener noreferrer" class="citation-link" title="Source ${p1}">🔗</a>`;
-      });
-
-      // Basic Markdown to HTML for deep/research
-      processedAnswer = processedAnswer
-        .replace(/^###\s+(.*$)/gim, "<h3>$1</h3>")
-        .replace(/^##\s+(.*$)/gim, "<h2>$1</h2>")
-        .replace(/^#\s+(.*$)/gim, "<h1>$1</h1>")
-        .replace(/^\*\s+(.*$)/gim, "<li>$1</li>")
-        .replace(/^\d+\.\s+(.*$)/gim, "<li>$1</li>")
-        .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-        .replace(/\*(.*?)\*/g, "<em>$1</em>");
-
-      processedAnswer = processedAnswer.replace(
-        /^(<li>.*<\/li>\s*)+/gm,
-        (match) => {
-          const listTag = match.match(/^<li>/) ? "ul" : "ol";
-          return `<${listTag}>${match}</${listTag}>`;
-        }
-      );
-
-      processedAnswer = processedAnswer
-        .split("\n")
-        .map((line) => {
-          line = line.trim();
-          if (
-            line.length === 0 ||
-            line.match(/^<(ul|ol|li|h[1-6]|p|div|blockquote)/)
-          ) {
-            return line;
-          }
-          return `<p>${line}</p>`;
-        })
-        .join("\n");
-
-      const sourcesToDisplay = searchResults || citations || [];
-
-      return `
-        <div class="search-results-container google-style">
-          <div class="search-results-main">
-            <div class="search-answer">
-              ${processedAnswer}
-            </div>
-          </div>
-          
-          <div class="search-results-sidebar">
-            <div class="search-sources">
-              ${sourcesToDisplay.length > 0 ? "<h4>Sources</h4>" : ""}
-              <ul>
-                ${sourcesToDisplay
-                  .map(
-                    (source, index) => `
-                  <li id="citation-${index + 1}">
-                    <a href="${
-                      source.url
-                    }" target="_blank" rel="noopener noreferrer">
-                      <span class="source-favicon"></span>
-                      <span class="source-title">${source.title}</span>
-                      <span class="source-url">${
-                        new URL(source.url).hostname
-                      }</span>
-                    </a>
-                  </li>
-                `
-                  )
-                  .join("")}
-              </ul>
-            </div>
-          </div>
-        </div>
-      `;
-    }
-  }
+  // REMOVED formatResponse method - formatting is now frontend responsibility
 }

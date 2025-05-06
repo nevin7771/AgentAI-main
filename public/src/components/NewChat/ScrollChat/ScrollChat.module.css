@@ -1,221 +1,273 @@
+/* public/src/components/NewChat/ScrollChat/ScrollChat.module.css */
+/* Updated for Gemini-like chat format */
+
 .scroll-chat-main {
   width: 100%;
   display: flex;
   flex-flow: nowrap column;
-  height: 78dvh;
+  height: 78dvh; /* Adjust as needed */
   overflow-y: scroll;
   overflow-x: hidden;
-  padding: 0px 0px 20px;
-  gap: 20px;
+  padding: 20px 10px; /* Add some padding */
+  gap: 25px; /* Increase gap between messages */
 }
 
+/* Scrollbar styling */
 .scroll-chat-main::-webkit-scrollbar {
-  width: 10px;
+  width: 8px;
 }
-
 .scroll-chat-main::-webkit-scrollbar-track {
   background-color: transparent;
 }
-
 .scroll-chat-main::-webkit-scrollbar-thumb {
-  background-color: #80868b;
-  border-radius: 6px;
+  background-color: #bdc1c6; /* Lighter scrollbar */
+  border-radius: 4px;
 }
-
 .scroll-chat-main::-webkit-scrollbar-thumb:hover {
-  background-color: #60666a;
+  background-color: #9aa0a6;
 }
 
+/* Container for each user/model turn */
 .single-chat {
   width: 100%;
-  max-width: 712px;
+  max-width: 768px; /* Slightly wider max-width */
+  margin: 0 auto; /* Center align */
   display: flex;
-  flex-flow: nowrap column;
-  gap: 55px;
-  margin: 20px auto;
-  word-break: break-word;
-  position: relative;
+  flex-direction: column; /* Stack icon/content vertically */
+  gap: 8px; /* Space between icon row and content */
 }
 
-.single-chat:last-child {
-  margin-block-end: 6rem;
-}
-
-.user,
-.gemini {
+/* Row containing icon and sender name (optional) */
+.sender-info {
   display: flex;
-  flex-flow: nowrap row;
-  position: relative;
+  align-items: center;
+  gap: 10px;
 }
 
-.gemini {
-  min-height: 56px;
-}
-
-.user p,
-.gemini p {
-  font-size: 16px;
-  font-weight: 400;
-  color: var(--chat-font-color);
-  text-align: left;
-  padding-left: 20px;
-}
-
-.gemini p p {
-  padding-left: 0px;
-}
-
-.user p {
-  line-height: 24px;
-}
-
-.gemini p {
-  line-height: 28px;
-}
-
-.user img {
-  border: 0px;
-  border-radius: 50%;
-  height: 32px;
+.sender-info img {
   width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid #dadce0; /* Subtle border */
 }
 
-.gemini img {
-  width: 30px;
-  height: 30px;
+[data-theme="dark"] .sender-info img {
+  border: 1px solid #5f6368;
 }
+
+.sender-name {
+  font-weight: 600;
+  font-size: 0.95em;
+  color: var(--chat-font-color);
+}
+
+/* Content block for both user and model */
+.message-content {
+  width: 100%;
+  padding-left: 42px; /* Indent content past icon */
+  word-break: break-word;
+  line-height: 1.7; /* Improve readability */
+  font-size: 1rem;
+  color: var(--chat-font-color);
+}
+
+/* Specific styling for user message content */
+.user .message-content {
+  /* User messages don't need special styling unless desired */
+}
+
+/* Specific styling for model/agent message content */
+.gemini .message-content {
+  /* Model messages don't need special styling unless desired */
+}
+
+/* Style the search result block (already handled by GeminiResults.css) */
+.message-content .search-result {
+  /* Remove default padding/margins if GeminiResults.css handles it */
+  padding: 0;
+  margin: 0;
+  background: none; /* Let GeminiResults.css control background */
+  border: none; /* Let GeminiResults.css control border */
+}
+
+/* Ensure the dangerouslySetInnerHTML content takes full width */
+.message-content > div {
+  width: 100%;
+}
+
+/* Remove default paragraph margins within the message content if needed */
+.message-content p {
+  margin-top: 0;
+  margin-bottom: 1em; /* Keep bottom margin for paragraph spacing */
+}
+.message-content p:last-child {
+  margin-bottom: 0;
+}
+
+/* --- Keep Chat Actions and Indicators --- */
 
 /* Chat action buttons */
 .chat-actions {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 20px;
+  padding: 8px 0px; /* Adjust padding */
   margin: 0 auto;
   width: 100%;
-  max-width: 712px;
+  max-width: 768px; /* Match content width */
+  position: sticky; /* Keep indicators visible */
+  top: 0;
+  background-color: var(--background-color); /* Match page background */
+  z-index: 10;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 15px;
 }
 
-.delete-chat-btn {
+/* Keep delete button styling (though button is removed in JS) */
+.delete-chat-btn { 
+  /* ... existing styles ... */
+}
+
+/* Keep Chat Type Indicators styling */
+.chat-type-indicator { /* ... existing styles ... */ }
+.agent-indicator, .search-indicator { /* ... existing styles ... */ }
+.agent-indicator { /* ... existing styles ... */ }
+[data-theme="dark"] .agent-indicator { /* ... existing styles ... */ }
+.search-indicator { /* ... existing styles ... */ }
+[data-theme="dark"] .search-indicator { /* ... existing styles ... */ }
+
+/* Sparkle Animation Styles */
+.sparkle-container {
+  position: relative;
+  width: 100%;
+  height: 24px;
+  margin-bottom: 16px;
+}
+
+.sparkle-animation {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
+  justify-content: center;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: 18px;
-  background-color: rgba(234, 67, 53, 0.1);
-  color: #ea4335;
-  border: none;
-  font-size: 13px;
-  cursor: pointer;
-  transition: background-color 0.2s;
 }
 
-.delete-chat-btn:hover {
-  background-color: rgba(234, 67, 53, 0.2);
+.sparkle-blue,
+.sparkle-red {
+  position: absolute;
+  width: 24px;
+  height: 24px;
 }
 
-[data-theme="dark"] .delete-chat-btn {
-  background-color: rgba(242, 139, 130, 0.2);
-  color: #f28b82;
+.sparkle-blue {
+  animation: rotateSparkle 2s infinite linear;
 }
 
-[data-theme="dark"] .delete-chat-btn:hover {
-  background-color: rgba(242, 139, 130, 0.3);
+.sparkle-red {
+  animation: rotateSparkleReverse 2s infinite linear;
 }
 
-/* Chat Type Indicators */
-.chat-type-indicator {
+@keyframes rotateSparkle {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes rotateSparkleReverse {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(-360deg);
+  }
+}
+
+/* Search Results Styling */
+.search-results-container {
+  width: 100%;
+  position: relative;
+  padding-top: 24px;
+}
+
+.search-content-wrapper {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  width: 100%;
 }
 
-.agent-indicator,
-.search-indicator {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: 18px;
-  font-size: 13px;
-  font-weight: 500;
+.search-main-content {
+  width: 100%;
 }
 
-.agent-indicator {
-  background-color: rgba(52, 168, 83, 0.1);
-  color: #34A853;
+.search-main-content h2 {
+  font-size: 1.3rem;
+  margin-bottom: 16px;
+  color: var(--heading-color);
 }
 
-.agent-indicator img {
-  width: 16px;
-  height: 16px;
+.search-answer {
+  font-size: 1rem;
+  line-height: 1.7;
 }
 
-[data-theme="dark"] .agent-indicator {
-  background-color: rgba(52, 168, 83, 0.2);
-  color: #81C995;
+.search-sources {
+  margin-top: 24px;
+  border-top: 1px solid var(--border-color);
+  padding-top: 16px;
 }
 
-.search-indicator {
-  background-color: rgba(66, 133, 244, 0.1);
-  color: #4285F4;
+.search-sources h3 {
+  font-size: 1.1rem;
+  margin-bottom: 12px;
+  color: var(--heading-color);
 }
 
-.search-indicator svg {
-  stroke: #4285F4;
+.search-sources ol {
+  padding-left: 24px;
 }
 
-[data-theme="dark"] .search-indicator {
-  background-color: rgba(66, 133, 244, 0.2);
-  color: #8AB4F8;
+.search-sources li {
+  margin-bottom: 8px;
 }
 
-[data-theme="dark"] .search-indicator svg {
-  stroke: #8AB4F8;
+.search-sources a {
+  color: var(--link-color);
+  text-decoration: none;
 }
 
-@media (max-width: 960px) {
+.search-sources a:hover {
+  text-decoration: underline;
+}
+
+.citation-link {
+  color: var(--link-color);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+/* --- Responsive Adjustments --- */
+@media (max-width: 768px) {
   .scroll-chat-main {
-    padding: 0px 20px 40px;
+    padding: 15px 5px; /* Adjust padding */
   }
-
-  .user img {
-    border: 0px;
-    border-radius: 50%;
-    height: 30px;
-    width: 30px;
-  }
-
   .single-chat {
-    gap: 30px;
+    max-width: 100%; /* Full width on smaller screens */
   }
-
-  .user,
-  .gemini {
-    flex-flow: nowrap column;
-    align-items: flex-start;
-    gap: 15px;
+  .message-content {
+    padding-left: 0; /* Remove indent on mobile */
+    margin-top: 8px; /* Add space below icon row */
   }
-
-  .user p,
-  .gemini p {
-    flex: 1;
-    padding-left: 0px;
+  .sender-info img {
+    width: 28px;
+    height: 28px;
   }
-  
   .chat-actions {
-    padding: 8px 0;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-  }
-  
-  .chat-type-indicator {
-    margin-bottom: 8px;
+     padding: 8px 10px; /* Add horizontal padding */
   }
 }
 
-@media (max-width: 255px) {
-  .scroll-chat-main {
-    padding: 0px 20px 60px;
-  }
-}

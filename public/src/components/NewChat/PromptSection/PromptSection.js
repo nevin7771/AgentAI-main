@@ -29,8 +29,7 @@ const PromptSection = () => {
         <div
           className={styles["prompt"]}
           key={p.id}
-          onClick={() => promptOnClick(p.long)}
-        >
+          onClick={() => promptOnClick(p.long)}>
           <p>{p.sort}</p>
           <div className={styles["icon"]}>
             {icon[p.icon] ? (

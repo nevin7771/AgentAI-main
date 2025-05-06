@@ -1,114 +1,181 @@
 // public/src/utils/agentResponseFormatter.js
+import { marked } from "marked"; // Use a proper Markdown parser
+import DOMPurify from "dompurify"; // Sanitize HTML
+
+// Helper function to highlight keywords in text
+const highlightKeywordsInText = (text, keywords = []) => {
+  if (!text || !keywords || keywords.length === 0) {
+    return text;
+  }
+  // Create a regex to match keywords (case-insensitive, whole words)
+  const regex = new RegExp(`\\b(${keywords.join("|")})\\b`, "gi");
+  return text.replace(
+    regex,
+    (match) => `<strong class="highlighted-keyword">${match}</strong>`
+  );
+};
 
 /**
- * Formats agent responses to match the simple search format
- * @param {string} question - The original question
- * @param {Array} agentResponses - The responses from different agents
- * @param {Array} selectedAgents - The list of agent IDs that were selected
- * @returns {string} Formatted HTML
+ * Formats the structured agent response into Gemini-style HTML.
+ * @param {object} responseData - The structured response object from the backend API.
+ * @returns {string} Formatted and sanitized HTML.
+ */
+export const formatAgentResponseGeminiStyle = (responseData) => {
+  if (!responseData || !responseData.success) {
+    return DOMPurify.sanitize(`
+      <div class="gemini-results-container error">
+        <h3>Error</h3>
+        <p>${
+          responseData.error ||
+          "An error occurred while processing your request."
+        }</p>
+      </div>
+    `);
+  }
+
+  const {
+    query,
+    searchMode,
+    structuredAnswer,
+    keywords = [],
+    sources = [],
+    followUpQuestions = [], // Will be used in Step 6
+    usedCache = false,
+  } = responseData;
+
+  // 1. Process the main answer (Markdown to HTML + Keyword Highlighting)
+  let formattedAnswerHtml = "";
+  if (structuredAnswer) {
+    try {
+      // Convert Markdown to HTML using marked
+      let rawHtml = marked.parse(structuredAnswer, { breaks: true, gfm: true });
+      // Highlight keywords in the generated HTML
+      formattedAnswerHtml = highlightKeywordsInText(rawHtml, keywords);
+    } catch (e) {
+      console.error("Error parsing Markdown:", e);
+      // Fallback: treat as plain text and highlight
+      formattedAnswerHtml = `<p>${highlightKeywordsInText(
+        structuredAnswer,
+        keywords
+      )}</p>`;
+    }
+  } else {
+    formattedAnswerHtml = "<p>No answer content available.</p>";
+  }
+
+  // 2. Process Sources (Highlight keywords in snippets)
+  const formattedSourcesHtml = sources
+    .map((source, index) => {
+      const hostname = source.url
+        ? new URL(source.url).hostname
+        : "Unknown source";
+      const highlightedSnippet = highlightKeywordsInText(
+        source.snippet,
+        source.keywordsInSnippet || keywords
+      );
+
+      return `
+      <li class="source-item" id="citation-${index + 1}">
+        <a href="${
+          source.url || "#"
+        }" target="_blank" rel="noopener noreferrer" class="source-link">
+          <span class="source-favicon"></span> 
+          <div class="source-details">
+            <span class="source-title">${source.title || "Untitled"}</span>
+            <span class="source-url">${hostname}</span>
+            ${
+              highlightedSnippet
+                ? `<p class="source-snippet">${highlightedSnippet}</p>`
+                : ""
+            }
+          </div>
+        </a>
+      </li>
+    `;
+    })
+    .join("");
+
+  // 3. Process Follow-up Questions (Placeholder for now - Step 6)
+  // We will generate actual chips later
+  const formattedFollowUpHtml = `
+    <div class="gemini-chips-container">
+      <h4>Follow-up Questions</h4>
+      <div class="gemini-chips">
+        ${
+          followUpQuestions.length > 0
+            ? followUpQuestions
+                .map(
+                  (q) =>
+                    `<button class="gemini-chip" onclick="/* TODO: Implement click handler */">
+                 <span class="gemini-chip-icon">?</span> 
+                 <span class="gemini-chip-text">${q}</span>
+               </button>`
+                )
+                .join("")
+            : `<p><small>No specific follow-up questions generated.</small></p>`
+        }
+        <!-- Example static chip -->
+        <button class="gemini-chip" onclick="/* TODO: Implement click handler */">
+          <span class="gemini-chip-icon">?</span> 
+          <span class="gemini-chip-text">Tell me more about ${
+            keywords[0] || query
+          }</span>
+        </button>
+      </div>
+    </div>
+  `;
+
+  // 4. Assemble the final HTML structure (Gemini Style)
+  const finalHtml = `
+    <div class="gemini-results-container ${searchMode}-search-results">
+      ${
+        usedCache
+          ? `<div class="cache-indicator"><small>Result from cache</small></div>`
+          : ``
+      }
+      <div class="gemini-results-main">
+        <div class="gemini-answer">
+          ${formattedAnswerHtml}
+        </div>
+        ${formattedFollowUpHtml} 
+      </div>
+      
+      ${
+        sources.length > 0
+          ? `
+        <div class="gemini-results-sidebar">
+          <div class="gemini-sources">
+            <h4>Sources</h4>
+            <ul>
+              ${formattedSourcesHtml}
+            </ul>
+          </div>
+        </div>
+      `
+          : ``
+      }
+    </div>
+  `;
+
+  // 5. Sanitize the final HTML before returning
+  return DOMPurify.sanitize(finalHtml);
+};
+
+// Keep the old formatter for potential compatibility or reference, but mark as deprecated
+/**
+ * @deprecated Use formatAgentResponseGeminiStyle instead.
  */
 export const formatAgentResponses = (
   question,
   agentResponses,
   selectedAgents = []
 ) => {
-  // If no responses, return an error message
-  if (!agentResponses || Object.keys(agentResponses).length === 0) {
-    return `
-      <div class="simple-search-results error">
-        <h3>No Agent Responses</h3>
-        <p>No responses were received from the selected agents.</p>
-      </div>
-    `;
-  }
-
-  // Start building the HTML
-  let html = `
-    <div class="simple-search-results">
-      <h3>Agent Responses</h3>
-      <p><strong>Query:</strong> "${question}"</p>
-      
-      <div class="simple-search-content">
-  `;
-
-  // Add each agent's response
-  for (const agentId in agentResponses) {
-    const agentName = getAgentName(agentId);
-    const response = agentResponses[agentId];
-
-    html += `
-      <div class="agent-result">
-        <h4>${agentName}</h4>
-        <div class="agent-answer">
-          ${response}
-        </div>
-      </div>
-    `;
-  }
-
-  // Add key points section if multiple agents responded
-  if (Object.keys(agentResponses).length > 1) {
-    html += `
-      <div class="search-key-points">
-        <h4>Key Points</h4>
-        <ul>
-          <li>Multiple agents have provided responses to your query</li>
-          <li>Each agent specializes in different areas of expertise</li>
-          <li>Consider all perspectives when evaluating the information</li>
-        </ul>
-      </div>
-    `;
-  }
-
-  // Add related questions/follow-up section
-  html += `
-      <div class="search-related-section">
-        <h4>Follow-up Questions</h4>
-        <div class="gemini-chips-container">
-          <div class="gemini-chips">
-            <button class="gemini-chip" onclick="document.querySelector('.input-field').value='Tell me more about ${question}'; setTimeout(() => document.querySelector('.send-btn').click(), 100);">
-              <span class="gemini-chip-icon">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z" 
-                    fill="currentColor"
-                  />
-                </svg>
-              </span>
-              <span class="gemini-chip-text">Tell me more about this</span>
-            </button>
-            <button class="gemini-chip" onclick="document.querySelector('.input-field').value='How does this compare to other options?'; setTimeout(() => document.querySelector('.send-btn').click(), 100);">
-              <span class="gemini-chip-icon">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z" 
-                    fill="currentColor"
-                  />
-                </svg>
-              </span>
-              <span class="gemini-chip-text">How does this compare to other options?</span>
-            </button>
-          </div>
-        </div>
-      </div>
-  `;
-
-  // Close the main content div
-  html += `
-      </div>
-      
-      <div class="simple-search-note">
-        <p><small>This response was generated by AI agents based on your query. Results may vary in accuracy and completeness.</small></p>
-      </div>
-    </div>
-  `;
-
-  return html;
+  console.warn("Using deprecated formatAgentResponses function.");
+  // ... (keep old implementation or return a basic message)
+  return `<p><i>[Old formatter - Please update to use formatAgentResponseGeminiStyle]</i></p>`;
 };
 
-/**
- * Helper function to get readable agent names from IDs
- * @param {string} agentId - The agent ID
- * @returns {string} The readable agent name
- */
+// Keep getAgentName if it's used elsewhere, otherwise it can be removed
 export const getAgentName = (agentId) => {
   const agentNames = {
     MRlQT_lhFw: "Client Agent",
@@ -116,7 +183,9 @@ export const getAgentName = (agentId) => {
     jira_ag: "Jira Agent",
     conf_ag: "Confluence Agent",
     zp_ag: "ZP Agent",
+    "search-with-ai": "Search Agent",
+    "deep-search": "Deep Search Agent",
+    "rag-search": "RAG Agent",
   };
-
   return agentNames[agentId] || agentId;
 };

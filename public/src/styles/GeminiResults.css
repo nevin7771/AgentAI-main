@@ -1,0 +1,270 @@
+/* public/src/styles/GeminiResults.css */
+
+/* Sparkle Animation Styles */
+.sparkle-container {
+  position: relative;
+  width: 100%;
+  height: 32px;
+  margin-bottom: 12px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.sparkle-animation {
+  position: relative;
+  width: 32px;
+  height: 32px;
+}
+
+.sparkle-blue,
+.sparkle-red {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 32px;
+  height: 32px;
+}
+
+.sparkle-blue {
+  animation: rotateSparkle 2s infinite linear;
+}
+
+.sparkle-red {
+  animation: rotateSparkleReverse 2s infinite linear;
+}
+
+@keyframes rotateSparkle {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes rotateSparkleReverse {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(-360deg);
+  }
+}
+
+/* Main container for Gemini-style results */
+.gemini-results-container {
+  display: flex;
+  flex-direction: row;
+  gap: 20px;
+  padding: 15px;
+  border-radius: 8px;
+  background-color: #f8f9fa; /* Light background */
+  font-family: sans-serif;
+  color: #3c4043; /* Default text color */
+  margin-bottom: 20px;
+  position: relative; /* For cache indicator positioning */
+}
+
+/* Cache indicator */
+.cache-indicator {
+  position: absolute;
+  top: 5px;
+  right: 10px;
+  font-size: 0.75em;
+  color: #80868b; /* Grey text */
+}
+
+/* Main content area (answer + follow-up) */
+.gemini-results-main {
+  flex: 2; /* Takes up more space */
+  min-width: 0; /* Prevent overflow issues */
+}
+
+/* Answer section */
+.gemini-answer {
+  line-height: 1.6;
+}
+
+.gemini-answer h1,
+.gemini-answer h2,
+.gemini-answer h3 {
+  color: #1a73e8; /* Blue headings */
+  margin-top: 1.2em;
+  margin-bottom: 0.6em;
+}
+
+.gemini-answer p {
+  margin-bottom: 1em;
+}
+
+.gemini-answer ul,
+.gemini-answer ol {
+  margin-left: 20px;
+  margin-bottom: 1em;
+}
+
+.gemini-answer li {
+  margin-bottom: 0.5em;
+}
+
+.gemini-answer strong,
+.gemini-answer b {
+  font-weight: 600;
+}
+
+/* Keyword highlighting */
+.highlighted-keyword {
+  background-color: #e8f0fe; /* Light blue highlight */
+  padding: 0.1em 0.2em;
+  border-radius: 3px;
+  font-weight: 600;
+  color: #174ea6; /* Darker blue text for highlight */
+}
+
+/* Sidebar for sources */
+.gemini-results-sidebar {
+  flex: 1; /* Takes up less space */
+  min-width: 250px; /* Minimum width for sidebar */
+  border-left: 1px solid #dadce0; /* Separator line */
+  padding-left: 20px;
+}
+
+.gemini-sources h4 {
+  font-size: 1.1em;
+  margin-bottom: 10px;
+  color: #5f6368; /* Grey heading */
+}
+
+.gemini-sources ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.source-item {
+  margin-bottom: 15px;
+}
+
+.source-link {
+  display: flex;
+  align-items: flex-start;
+  text-decoration: none;
+  color: inherit;
+  padding: 5px;
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+}
+
+.source-link:hover {
+  background-color: #e8f0fe; /* Light blue background on hover */
+}
+
+.source-favicon {
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
+  margin-top: 3px;
+  background-color: #dadce0; /* Placeholder color */
+  border-radius: 2px;
+  /* TODO: Add actual favicon fetching or default icon */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\'%3E%3Cpath fill=\'%235f6368\' d=\'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z\'/%3E%3C/svg%3E");
+  background-size: cover;
+}
+
+.source-details {
+  display: flex;
+  flex-direction: column;
+}
+
+.source-title {
+  font-weight: 500;
+  color: #1a0dab; /* Google blue link color */
+  font-size: 0.95em;
+  margin-bottom: 2px;
+}
+
+.source-url {
+  font-size: 0.8em;
+  color: #5f6368; /* Grey URL */
+  margin-bottom: 4px;
+}
+
+.source-snippet {
+  font-size: 0.85em;
+  color: #4d5156;
+  line-height: 1.4;
+}
+
+.source-snippet .highlighted-keyword {
+  background-color: #fff8e1; /* Lighter yellow highlight for snippets */
+  color: #795548; /* Brownish text for snippet highlight */
+  font-weight: 500;
+}
+
+/* Follow-up questions section */
+.gemini-chips-container {
+  margin-top: 20px;
+  padding-top: 15px;
+  border-top: 1px solid #dadce0;
+}
+
+.gemini-chips-container h4 {
+  font-size: 1.1em;
+  margin-bottom: 10px;
+  color: #5f6368;
+}
+
+.gemini-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.gemini-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border: 1px solid #dadce0;
+  border-radius: 16px;
+  background-color: #fff;
+  color: #3c4043;
+  font-size: 0.9em;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.gemini-chip:hover {
+  background-color: #f1f3f4;
+}
+
+.gemini-chip-icon {
+  margin-right: 6px;
+  /* Basic icon styling - replace with actual SVG or font icon */
+  width: 16px;
+  height: 16px;
+  display: inline-block;
+  line-height: 16px;
+  text-align: center;
+  font-weight: bold;
+  color: #1a73e8;
+}
+
+.gemini-chip-text {
+  white-space: nowrap;
+}
+
+/* Responsive adjustments (optional example) */
+@media (max-width: 768px) {
+  .gemini-results-container {
+    flex-direction: column;
+  }
+  .gemini-results-sidebar {
+    border-left: none;
+    border-top: 1px solid #dadce0;
+    padding-left: 0;
+    padding-top: 20px;
+    min-width: unset;
+  }
+}
+

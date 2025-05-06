@@ -33,26 +33,34 @@ const PORT_NO = 3030;
 const app = express();
 
 // JSON body parser configuration
-app.use(express.json({ 
-  limit: "10mb", // Increase JSON payload limit for large agent responses
-  verify: (req, res, buf) => {
-    req.rawBody = buf.toString();
-  }
-}));
+app.use(
+  express.json({
+    limit: "10mb", // Increase JSON payload limit for large agent responses
+    verify: (req, res, buf) => {
+      req.rawBody = buf.toString();
+    },
+  })
+);
 
 // Add the URL-encoded parser for form submissions
-app.use(express.urlencoded({ 
-  extended: true,
-  limit: "10mb"
-}));
+app.use(
+  express.urlencoded({
+    extended: true,
+    limit: "10mb",
+  })
+);
 
 app.use(requestIp.mw());
 
 // Log all incoming requests for debugging
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
-  if (req.method === 'POST' && req.body) {
-    console.log('Request body:', JSON.stringify(req.body).substring(0, 200) + (JSON.stringify(req.body).length > 200 ? '...' : ''));
+  if (req.method === "POST" && req.body) {
+    console.log(
+      "Request body:",
+      JSON.stringify(req.body).substring(0, 200) +
+        (JSON.stringify(req.body).length > 200 ? "..." : "")
+    );
   }
   next();
 });
@@ -84,7 +92,7 @@ app.options("*", cors(corsOption));
 app.use((req, res, next) => {
   // Get the origin from the request
   const origin = req.headers.origin;
-  
+
   // Check if origin is in our allowed origins
   const allowedOrigins = [
     originUrl || `https://${hostname}`,
@@ -93,12 +101,12 @@ app.use((req, res, next) => {
     "http://localhost:3000",
     "http://127.0.0.1:3000",
   ];
-  
+
   // If the origin is allowed, set it in the response header
   if (origin && allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader("Access-Control-Allow-Origin", origin);
   }
-  
+
   // Continue to the next middleware
   next();
 });
@@ -145,7 +153,11 @@ mongoose
   .connect(MONGODB_URL)
   .then(() => {
     // For development or if certificates don't exist, use HTTP server
-    if (process.env.NODE_ENV !== "production" || !fs.existsSync(SSL_CERT_PATH) || !fs.existsSync(SSL_KEY_PATH)) {
+    if (
+      process.env.NODE_ENV !== "production" ||
+      !fs.existsSync(SSL_CERT_PATH) ||
+      !fs.existsSync(SSL_KEY_PATH)
+    ) {
       const httpServer = http.createServer(app);
       httpServer.listen(process.env.PORT || PORT_NO, () => {
         console.log(
@@ -171,14 +183,14 @@ mongoose
         const httpsOptions = {
           cert: fs.readFileSync(SSL_CERT_PATH),
           key: fs.readFileSync(SSL_KEY_PATH),
-          minVersion: 'TLSv1.2',
+          minVersion: "TLSv1.2",
           ciphers: [
-            'TLS_AES_256_GCM_SHA384',
-            'TLS_CHACHA20_POLY1305_SHA256',
-            'TLS_AES_128_GCM_SHA256',
-            'ECDHE-RSA-AES128-GCM-SHA256',
-            'ECDHE-ECDSA-AES128-GCM-SHA256'
-          ].join(':')
+            "TLS_AES_256_GCM_SHA384",
+            "TLS_CHACHA20_POLY1305_SHA256",
+            "TLS_AES_128_GCM_SHA256",
+            "ECDHE-RSA-AES128-GCM-SHA256",
+            "ECDHE-ECDSA-AES128-GCM-SHA256",
+          ].join(":"),
         };
 
         const httpsServer = https.createServer(httpsOptions, app);

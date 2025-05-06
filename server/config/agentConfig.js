@@ -29,8 +29,8 @@ export const agentConfig = {
   // Jira Agent configuration
   jira_ag: {
     baseUrl:
-      "https://dg01ai.zoom.us/open/api/v1/caic/general-ai/MRlQT_PPQM2nZVaQVflhFw/jira_ag",
-    secretKey: "gzazjvdts768lelcbcyy5ecpkiguthmq",
+      "https://dg01ai.zoom.us/open/api/v1/caic/general-ai/tt6w7wNWQUOn5UBPCUi2mg/jira_ag",
+    secretKey: "xh94swe59q03xi1felkuxdntkn5gd9zt",
     jwkIssuer: "yana.bao+AIStudio+DG01@test.zoom.us",
     jwkAudience: "zoom_caic",
     jwkAid: "3v8eT3vkQ1-PBQnN61MJog",
