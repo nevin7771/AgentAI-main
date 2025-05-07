@@ -9,8 +9,8 @@ export const agentConfig = {
   // Client Agent configuration
   MRlQT_lhFw: {
     baseUrl:
-      "https://dg01ai.zoom.us/open/api/v1/caic/general-ai/MRlQT_PPQM2nZVaQVflhFw/MRlQT_lhFw",
-    secretKey: "gzazjvdts768lelcbcyy5ecpkiguthmq",
+      "https://dg01ai.zoom.us/open/api/v1/caic/general-ai/tt6w7wNWQUOn5UBPCUi2mg/MRlQT_lhFw",
+    secretKey: "xh94swe59q03xi1felkuxdntkn5gd9zt",
     jwkIssuer: "yana.bao+AIStudio+DG01@test.zoom.us",
     jwkAudience: "zoom_caic",
     jwkAid: "3v8eT3vkQ1-PBQnN61MJog",
@@ -19,8 +19,8 @@ export const agentConfig = {
   // ZR Agent configuration
   zr_ag: {
     baseUrl:
-      "https://dg01ai.zoom.us/open/api/v1/caic/general-ai/MRlQT_PPQM2nZVaQVflhFw/zr_ag",
-    secretKey: "gzazjvdts768lelcbcyy5ecpkiguthmq",
+      "https://dg01ai.zoom.us/open/api/v1/caic/general-ai/tt6w7wNWQUOn5UBPCUi2mg/zr_ag",
+    secretKey: "xh94swe59q03xi1felkuxdntkn5gd9zt",
     jwkIssuer: "yana.bao+AIStudio+DG01@test.zoom.us",
     jwkAudience: "zoom_caic",
     jwkAid: "3v8eT3vkQ1-PBQnN61MJog",
@@ -39,8 +39,8 @@ export const agentConfig = {
   // Confluence Agent configuration
   conf_ag: {
     baseUrl:
-      "https://dg01ai.zoom.us/open/api/v1/caic/general-ai/MRlQT_PPQM2nZVaQVflhFw/conf_ag",
-    secretKey: "gzazjvdts768lelcbcyy5ecpkiguthmq",
+      "https://dg01ai.zoom.us/open/api/v1/caic/general-ai/tt6w7wNWQUOn5UBPCUi2mg/conf_ag",
+    secretKey: "xh94swe59q03xi1felkuxdntkn5gd9zt",
     jwkIssuer: "yana.bao+AIStudio+DG01@test.zoom.us",
     jwkAudience: "zoom_caic",
     jwkAid: "3v8eT3vkQ1-PBQnN61MJog",
@@ -49,8 +49,8 @@ export const agentConfig = {
   // ZP Agent configuration
   zp_ag: {
     baseUrl:
-      "https://dg01ai.zoom.us/open/api/v1/caic/general-ai/MRlQT_PPQM2nZVaQVflhFw/zp_ag",
-    secretKey: "gzazjvdts768lelcbcyy5ecpkiguthmq",
+      "https://dg01ai.zoom.us/open/api/v1/caic/general-ai/tt6w7wNWQUOn5UBPCUi2mg/zp_ag",
+    secretKey: "xh94swe59q03xi1felkuxdntkn5gd9zt",
     jwkIssuer: "yana.bao+AIStudio+DG01@test.zoom.us",
     jwkAudience: "zoom_caic",
     jwkAid: "3v8eT3vkQ1-PBQnN61MJog",
@@ -59,8 +59,8 @@ export const agentConfig = {
   // Default configuration (fallback)
   default: {
     baseUrl:
-      "https://dg01ai.zoom.us/open/api/v1/caic/general-ai/MRlQT_PPQM2nZVaQVflhFw",
-    secretKey: "gzazjvdts768lelcbcyy5ecpkiguthmq",
+      "https://dg01ai.zoom.us/open/api/v1/caic/general-ai/tt6w7wNWQUOn5UBPCUi2mg",
+    secretKey: "xh94swe59q03xi1felkuxdntkn5gd9zt",
     jwkIssuer: "yana.bao+AIStudio+DG01@test.zoom.us",
     jwkAudience: "zoom_caic",
     jwkAid: "3v8eT3vkQ1-PBQnN61MJog",

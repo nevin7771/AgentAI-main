@@ -27,19 +27,10 @@ export const performWebSearch = async (query, sources, maxResults) => {
 };
 
 // --- Simulated Web Content Fetching ---
-// Placeholder for existing fetchWebContent
 export const fetchWebContent = async (url) => {
   console.log(`[Util] Simulating fetching content from ${url}`);
-  // Simulate fetching content
   try {
-    // In a real scenario, you might use axios or fetch
-    // const response = await axios.get(url, { timeout: 5000 });
-    // const $ = cheerio.load(response.data);
-    // const textContent = $("body").text(); // Basic text extraction
-    // return textContent.replace(/\s\s+/g, " ").trim().substring(0, 10000); // Limit length
-
-    // Simple simulation
-    await new Promise((resolve) => setTimeout(resolve, 50)); // Simulate network delay
+    await new Promise((resolve) => setTimeout(resolve, 50));
     return `Simulated content for ${url}. This page discusses various aspects related to the search query, providing details and examples.`;
   } catch (error) {
     console.error(`[Util] Error fetching ${url}: ${error.message}`);
@@ -58,15 +49,12 @@ export const summarizeText = async (text, openaiInstance, maxLength = 500) => {
       text.substring(0, maxLength) + (text.length > maxLength ? "..." : "")
     );
   }
-  // Simulate summarization API call
   try {
-    // const response = await openaiInstance.chat.completions.create({...
-    await new Promise((resolve) => setTimeout(resolve, 100)); // Simulate API delay
+    await new Promise((resolve) => setTimeout(resolve, 100));
     const summary = `Simulated summary: ${text.substring(0, 150)}...`;
     return summary.substring(0, maxLength);
   } catch (error) {
     console.error(`[Util] Error during summarization: ${error.message}`);
-    // Fallback to simple truncation
     return (
       text.substring(0, maxLength) + (text.length > maxLength ? "..." : "")
     );
@@ -83,21 +71,15 @@ export const generateFollowUpQuestions = async (
   if (!generatedAnswer || !openaiInstance) {
     return [];
   }
-
   console.log("[Util] Generating follow-up questions...");
-
   const systemPrompt = `You are an assistant that suggests relevant follow-up questions. Based on the original query and the provided answer, generate ${count} distinct and insightful follow-up questions a user might ask next. Focus on questions that explore related aspects, ask for more detail, or clarify points made in the answer. Do not repeat the original query. Return ONLY the questions, each on a new line.`;
-
-  const userPrompt = `Original Query: "${originalQuery}"
-
-Generated Answer:
-${generatedAnswer.substring(0, 1500)}...
-
-Suggest ${count} relevant follow-up questions:`;
-
+  const userPrompt = `Original Query: "${originalQuery}"\n\nGenerated Answer:\n${generatedAnswer.substring(
+    0,
+    1500
+  )}...\n\nSuggest ${count} relevant follow-up questions:`;
   try {
     const response = await openaiInstance.chat.completions.create({
-      model: "gpt-3.5-turbo", // Use a faster model for this potentially less critical task
+      model: "gpt-3.5-turbo",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
@@ -106,100 +88,111 @@ Suggest ${count} relevant follow-up questions:`;
       max_tokens: 150,
       n: 1,
     });
-
     const questionsText = response.choices[0].message.content;
     const questions = questionsText
       .split("\n")
-      .map((q) => q.trim().replace(/^\d+\.\s*/, "")) // Remove numbering
-      .filter((q) => q.length > 5); // Filter out empty or very short lines
-
+      .map((q) => q.trim().replace(/^\d+\.\s*/, ""))
+      .filter((q) => q.length > 5);
     console.log("[Util] Generated follow-up questions:", questions);
-    return questions.slice(0, count); // Ensure we return the requested count
+    return questions.slice(0, count);
   } catch (error) {
     console.error("[Util] Error generating follow-up questions:", error);
-    return []; // Return empty array on error
+    return [];
   }
 };
 
-// --- Format Search Result HTML ---
-export const formatSearchResultHTML = (responseData, query, sources) => {
-  if (!responseData || !responseData.answer) {
-    return `
-      <div class="search-results-container">
-        <div class="search-content-wrapper">
-          <div class="search-main-content">
-            <h2>Search Error</h2>
-            <p>There was an error processing your request.</p>
-            <p>Please try again or refine your search query.</p>
-          </div>
-        </div>
-      </div>
-    `;
+// --- UPDATED FUNCTION FOR FORMATTING SEARCH RESULTS ---
+export const formatSearchResultHTML = (result, query, searchSources) => {
+  // Ensure result and result.answer exist
+  const answer =
+    result && result.answer
+      ? String(result.answer).replace(/\n/g, "<br>")
+      : "No answer found.";
+  const sources = result && Array.isArray(result.sources) ? result.sources : [];
+  const relatedQuestions =
+    result && Array.isArray(result.relatedQuestions)
+      ? result.relatedQuestions
+      : [];
+
+  // Sanitize inputs to prevent XSS if they are directly embedded.
+  // For simplicity here, we assume they are safe or will be handled by DOMPurify on frontend if re-parsed.
+  const sanitizedQuery = query
+    ? String(query).replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    : "your query";
+
+  // Start the HTML structure with search-results-container
+  let html = `<div class="search-results-container">`;
+
+  // Add the main answer with proper styling
+  html += `<div class="gemini-answer">
+            ${answer || "<p>No answer found for your query.</p>"}
+          </div>`;
+
+  // Add sources section if there are any sources
+  if (sources.length > 0) {
+    html += `<div class="sources-section">
+               <h3 class="section-title">Sources</h3>
+               <div class="gemini-sources-grid">`;
+    sources.forEach((source) => {
+      const Surl = source.url || source.link || "#";
+      const Stitle = source.title || Surl;
+      const Ssnippet = source.snippet || "";
+      const Sfavicon = source.favicon || "";
+      let hostname = "N/A";
+      try {
+        hostname = new URL(Surl).hostname;
+      } catch (e) {
+        /* ignore invalid URL */
+      }
+
+      html += `<div class="source-card">
+                 <a href="${Surl}" target="_blank" rel="noopener noreferrer" class="source-card-link">
+                   <div class="source-card-title">${Stitle.replace(
+                     /</g,
+                     "&lt;"
+                   ).replace(/>/g, "&gt;")}</div>
+                   ${
+                     Ssnippet
+                       ? `<div class="source-card-snippet">${Ssnippet.replace(
+                           /</g,
+                           "&lt;"
+                         ).replace(/>/g, "&gt;")}</div>`
+                       : ""
+                   }
+                   <div class="source-card-footer">
+                     ${
+                       Sfavicon
+                         ? `<img src="${Sfavicon}" alt="favicon" class="source-favicon" />`
+                         : ""
+                     }
+                     <span class="source-url">${hostname}</span>
+                   </div>
+                 </a>
+               </div>`;
+    });
+    html += `    </div>
+             </div>`;
   }
 
-  // Extract the answer from the response data
-  const { answer } = responseData;
-
-  // Convert answer to HTML with simple markdown-like formatting
-  const formattedAnswer = answer
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') // Bold
-    .replace(/\*(.*?)\*/g, '<em>$1</em>') // Italic
-    .replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank">$1</a>') // Links
-    .replace(/^#{1}\s+(.*?)$/gm, '<h1>$1</h1>') // H1
-    .replace(/^#{2}\s+(.*?)$/gm, '<h2>$1</h2>') // H2
-    .replace(/^#{3}\s+(.*?)$/gm, '<h3>$1</h3>') // H3
-    .replace(/^#{4}\s+(.*?)$/gm, '<h4>$1</h4>') // H4
-    .replace(/^#{5}\s+(.*?)$/gm, '<h5>$1</h5>') // H5
-    .replace(/^#{6}\s+(.*?)$/gm, '<h6>$1</h6>') // H6
-    .replace(/\n\n/g, '</p><p>') // Paragraphs
-    .replace(/\n/g, '<br>'); // Line breaks
-
-  // Handle citation tags
-  const answeredHTML = formattedAnswer.replace(
-    /\[\[citation:(\d+)\]\]/g,
-    '<sup><a href="#source-$1" class="citation-link">[$1]</a></sup>'
-  );
-
-  // Build source citations HTML
-  let sourcesHTML = '';
-  if (sources && sources.length > 0) {
-    sourcesHTML = `
-      <div class="search-sources">
-        <h3>Sources</h3>
-        <ol>
-          ${sources.map((source, index) => `
-            <li id="source-${index + 1}">
-              <a href="${source}" target="_blank" rel="noopener noreferrer">${source}</a>
-            </li>
-          `).join('')}
-        </ol>
-      </div>
-    `;
+  // Add related questions section if there are any
+  if (relatedQuestions.length > 0) {
+    html += `<div class="related-questions-section">
+               <h3 class="section-title">Related Questions</h3>
+               <div class="gemini-chips-list">`;
+    relatedQuestions.forEach((q) => {
+      html += `<button class="gemini-chip">${String(q)
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")}</button>`;
+    });
+    html += `    </div>
+             </div>`;
   }
 
-  // Add sparkle animation
-  const sparkleAnimation = `
-    <div class="sparkle-container">
-      <div class="sparkle-animation">
-        <img src="/build/static/media/gemini_sparkle_blue_33c17e77c4ebbdd9490b683b9812247e257b6f70.svg" class="sparkle-blue" alt="" />
-        <img src="/build/static/media/gemini_sparkle_red_4ed1cbfcbc6c9e84c31b987da73fc4168aec8445.svg" class="sparkle-red" alt="" />
-      </div>
-    </div>
-  `;
+  // Close the main container
+  html += `</div>`; // Close search-results-container
 
-  // Construct full HTML
-  return `
-    <div class="search-results-container">
-      ${sparkleAnimation}
-      <div class="search-content-wrapper">
-        <div class="search-main-content">
-          <h2>Results for: ${query}</h2>
-          <div class="search-answer">
-            <p>${answeredHTML}</p>
-          </div>
-        </div>
-        ${sourcesHTML}
-      </div>
-    </div>
-  `;
+  // Add a console log for debugging if needed
+  console.log("Generated HTML:", html);
+
+  return html;
 };

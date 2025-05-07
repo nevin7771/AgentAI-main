@@ -2,687 +2,544 @@
 import { chatAction } from "./chat";
 import { uiAction } from "./ui-gemini";
 import { agentAction } from "./agent";
-import { getRecentChat } from "./chat-action";
+// import { getRecentChat } from "./chat-action"; // Not strictly needed here if chat history updates are handled by components or other actions
 
-// Get the server endpoint from environment variable or use default
-export const SERVER_ENDPOINT =
+const SERVER_ENDPOINT =
   process.env.REACT_APP_SERVER_ENDPOINT || "http://localhost:3030";
-// Always use proxy in development for direct API calls
-export const USE_PROXY = process.env.REACT_APP_USE_PROXY !== "false";
-// Base URL: empty string when using proxy, or explicit server endpoint
-export const BASE_URL = USE_PROXY ? "" : SERVER_ENDPOINT;
+const USE_PROXY = process.env.REACT_APP_USE_PROXY !== "false";
+const BASE_URL = USE_PROXY ? "" : SERVER_ENDPOINT;
 
-// Action creator for sending a question to selected agents
+const extractKeywords = (queryStr) => {
+  if (!queryStr || typeof queryStr !== "string") return [];
+  return queryStr
+    .toLowerCase()
+    .split(" ")
+    .filter((kw) => kw.trim().length > 1);
+};
+
+const parseFormattedHTML = (htmlString, queryKeywords) => {
+  let mainAnswer = htmlString;
+  const sources = [];
+  const relatedQuestions = [];
+  let parsingFailed = false;
+  if (typeof DOMParser === "undefined")
+    return { mainAnswer, sources, relatedQuestions, parsingFailed: true };
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(htmlString, "text/html");
+    const answerContainer =
+      doc.querySelector(".gemini-answer-container") || doc.body;
+    if (answerContainer) {
+      const answerClone = answerContainer.cloneNode(true);
+      answerClone
+        .querySelectorAll(
+          ".sources-section, .related-questions-section, .gemini-sources-grid, .gemini-chips-list, .source-card, .gemini-chip"
+        )
+        .forEach((el) => el.remove());
+      mainAnswer = answerClone.innerHTML || htmlString;
+    } else {
+      mainAnswer = htmlString;
+    }
+    doc
+      .querySelectorAll(".source-card a, .sources-section .search_source a")
+      .forEach((el) => {
+        const title = el
+          .querySelector(".source-card-title, .title")
+          ?.textContent.trim();
+        const url = el.href;
+        const snippet = el
+          .querySelector(".source-card-snippet, .snippet")
+          ?.textContent.trim();
+        const favicon = el.querySelector(".source-favicon, img")?.src;
+        if (title && url) sources.push({ title, url, snippet, favicon });
+      });
+    doc
+      .querySelectorAll(".gemini-chip, .related-questions-section .chip")
+      .forEach((el) => {
+        const questionText = el.textContent.trim();
+        if (questionText) relatedQuestions.push(questionText);
+      });
+  } catch (e) {
+    console.error(
+      "Error parsing HTML for structured data in agent-actions:",
+      e
+    );
+    parsingFailed = true;
+    return {
+      mainAnswer: htmlString,
+      sources: [],
+      relatedQuestions: [],
+      parsingFailed,
+    };
+  }
+  return { mainAnswer, sources, relatedQuestions, parsingFailed };
+};
+
 export const sendAgentQuestion = (questionData) => {
-  return async (dispatch) => {
+  return async (dispatch, getState) => {
+    const { question, agents, chatHistoryId, navigate } = questionData; // Assuming navigate is passed for explicit navigation
+    const selectedAgent = agents && agents.length > 0 ? agents[0] : "default";
+    const queryKeywords = extractKeywords(question);
+    let currentChatHistoryId = chatHistoryId || getState().chat.chatHistoryId;
+
+    // Navigate to the main chat page if navigate function is provided and not already on it
+    // This is a common pattern: initiate action, navigate, then action updates store for new page.
+    if (navigate && typeof navigate === "function") {
+      // Check current path if possible, or just navigate. For simplicity, we assume it_s called from a non-chat page.
+      // Or the component calling this handles the navigation to /app or /app/:chatId
+      // If a new chat is being created, navigate to /app, then chatHistoryId will be set.
+      // If an existing chat, it should already be on /app/:chatId or navigate there.
+      // For now, we assume the calling component (AgentChat.js) handles this navigation to /app.
+    }
+
+    dispatch(uiAction.setLoading(true));
+    dispatch(agentAction.setLoading(true));
+
+    // Dispatch initial loading message to the chat
+    dispatch(
+      chatAction.chatStart({
+        useInput: {
+          user: question,
+          gemini: "",
+          isLoader: "yes",
+          isSearch: true,
+          // CRITICAL: Set searchType for Jira/Confluence to ensure sparkle animation
+          searchType:
+            selectedAgent === "jira_ag" || selectedAgent === "conf_ag"
+              ? "agent"
+              : "polling_agent",
+          queryKeywords: queryKeywords,
+          sources: [],
+          relatedQuestions: [],
+          isPreformattedHTML: false,
+        },
+      })
+    );
+
     try {
-      // Start loading
-      dispatch(uiAction.setLoading(true));
-      dispatch(agentAction.setLoading(true));
-
-      const { question, agents, chatHistoryId } = questionData;
-
-      console.log(
-        `Sending agent question: "${question}" to agents: ${JSON.stringify(
-          agents
-        )}`
-      );
-
-      // First generate JWT token
       let token;
       try {
-        console.log("Generating JWT token for agent API");
-        const tokenResponse = await fetch(`${SERVER_ENDPOINT}/api/generate-jwt`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            agentId: agents[0] || "default"
-          }),
-        });
-        
-        if (!tokenResponse.ok) {
-          throw new Error(`Failed to generate token: ${tokenResponse.status}`);
-        }
-        
-        const tokenData = await tokenResponse.json();
-        token = tokenData.token;
-        console.log("Successfully generated JWT token");
-      } catch (tokenError) {
-        console.error("Failed to generate token:", tokenError);
-        // Continue without token
-      }
-      
-      // Then submit question to agent via proxy endpoint
-      let response;
-      try {
-        console.log("Submitting question to agent proxy API");
-        // Use the proxy-agent-poll endpoint which can handle initial requests too
-        const url = `${SERVER_ENDPOINT}/api/proxy-agent-poll`;
-        
-        response = await fetch(url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-            ...(token && { "Authorization": `Bearer ${token}` })
-          },
-          credentials: "include",
-          body: JSON.stringify({
-            question,
-            agentId: agents[0] || "local", // Use the first agent in the list
-            chatHistoryId,
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error(`Agent proxy request failed: ${response.status}`);
-        }
-      } catch (apiError) {
-        console.error("Agent proxy request failed:", apiError);
-
-        // Try direct agent request as a fallback
-        const fallbackUrl = `${SERVER_ENDPOINT}/api/agent-request`;
-        console.log(`Trying fallback URL for agent request: ${fallbackUrl}`);
-
-        response = await fetch(fallbackUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-          credentials: "include",
-          body: JSON.stringify({
-            question,
-            agentType: agents[0] || "search",
-            chatHistoryId,
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error(`Request failed with status: ${response.status}`);
-        }
-      }
-
-      const data = await response.json();
-
-      if (!data.success) {
-        throw new Error(data.error || "Failed to submit question");
-      }
-
-      // Check for missing taskId and provide a fallback
-      if (!data.taskId) {
-        console.warn(
-          "Server response missing taskId, creating fallback task ID"
+        const tokenResponse = await fetch(
+          `${SERVER_ENDPOINT}/api/generate-jwt`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ agentId: selectedAgent }),
+          }
         );
-        // Generate a fallback taskId
-        data.taskId = `fallback_${Date.now()}_${Math.random()
-          .toString(36)
-          .substring(2, 9)}`;
-
-        // Create empty agentTasks if missing
-        if (!data.agentTasks) {
-          data.agentTasks = {};
-          agents.forEach((agentId) => {
-            data.agentTasks[agentId] = {
-              taskId: data.taskId,
-              endpoint: null,
-            };
-          });
-        }
+        if (!tokenResponse.ok)
+          throw new Error(
+            `Token generation failed: ${
+              tokenResponse.status
+            } ${await tokenResponse.text()}`
+          );
+        token = (await tokenResponse.json()).token;
+      } catch (tokenError) {
+        console.error("Token generation failed for agent:", tokenError);
+        throw new Error(`Token generation failed: ${tokenError.message}`);
       }
 
-      // Add user question to chat with loading indicator
+      if (selectedAgent === "jira_ag" || selectedAgent === "conf_ag") {
+        const dataSource = selectedAgent === "jira_ag" ? "jira" : "confluence";
+        const orchestratedQueryUrl = `${SERVER_ENDPOINT}/api/orchestrated-query`;
+        const historyToPass = [];
+
+        const response = await fetch(orchestratedQueryUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+            ...(token && { Authorization: `Bearer ${token}` }),
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            query: question,
+            chatHistory: historyToPass,
+            options: { requestedDataSource: dataSource },
+            chatHistoryId: currentChatHistoryId,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(
+            `Orchestrated query failed for ${selectedAgent}: ${response.status} ${errorText}`
+          );
+        }
+        const data = await response.json();
+        if (!data.success) {
+          throw new Error(
+            data.error ||
+              `Orchestrated query for ${selectedAgent} was not successful.`
+          );
+        }
+
+        dispatch(chatAction.popChat());
+
+        const geminiContent = data.final_answer
+          ? data.final_answer.toString()
+          : "No answer received from agent.";
+        const sourcesData = data.sources || [];
+        const relatedQuestionsData = data.related_questions || [];
+
+        dispatch(
+          chatAction.chatStart({
+            useInput: {
+              user: question,
+              gemini: geminiContent,
+              sources: sourcesData,
+              relatedQuestions: relatedQuestionsData,
+              queryKeywords: queryKeywords,
+              isLoader: "no",
+              isSearch: true,
+              searchType: "agent", // Consistent searchType for the response
+              isPreformattedHTML: false,
+            },
+          })
+        );
+
+        let finalChatHistoryId = data.chatHistoryId;
+        if (!finalChatHistoryId && data.success) {
+          try {
+            const createHistoryUrl = `${BASE_URL}/api/create-chat-history`;
+            const historyResponse = await fetch(createHistoryUrl, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Accept: "application/json",
+              },
+              credentials: "include",
+              body: JSON.stringify({
+                title: question.substring(0, 50),
+                message: {
+                  user: question,
+                  gemini: geminiContent,
+                  sources: sourcesData,
+                  relatedQuestions: relatedQuestionsData,
+                  queryKeywords,
+                  isPreformattedHTML: false,
+                },
+                isSearch: true,
+                searchType: "agent",
+              }),
+            });
+            if (historyResponse.ok) {
+              const historyData = await historyResponse.json();
+              if (historyData.success && historyData.chatHistoryId)
+                finalChatHistoryId = historyData.chatHistoryId;
+            }
+          } catch (historyError) {
+            console.error(
+              "Error creating chat history for agent:",
+              historyError
+            );
+          }
+        }
+        if (finalChatHistoryId) {
+          dispatch(
+            chatAction.chatHistoryIdHandler({
+              chatHistoryId: finalChatHistoryId,
+            })
+          );
+          try {
+            const existingStorageHistory = JSON.parse(
+              localStorage.getItem("searchHistory") || "[]"
+            );
+            const historyItem = {
+              id: finalChatHistoryId,
+              title: question.substring(0, 50),
+              timestamp: new Date().toISOString(),
+              type: "agent",
+            };
+            if (
+              !existingStorageHistory.some(
+                (item) => item.id === finalChatHistoryId
+              )
+            ) {
+              existingStorageHistory.unshift(historyItem);
+              localStorage.setItem(
+                "searchHistory",
+                JSON.stringify(existingStorageHistory.slice(0, 50))
+              );
+              window.dispatchEvent(new Event("storage"));
+            }
+          } catch (err) {
+            console.error(
+              "Error saving agent chat history to localStorage:",
+              err
+            );
+          }
+        }
+        dispatch(chatAction.newChatHandler());
+      } else {
+        // Polling based agents
+        const pollUrl = `${SERVER_ENDPOINT}/api/proxy-agent-poll`;
+        const response = await fetch(pollUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+            ...(token && { Authorization: `Bearer ${token}` }),
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            question,
+            agentId: selectedAgent,
+            chatHistoryId: currentChatHistoryId,
+          }),
+        });
+        if (!response.ok)
+          throw new Error(
+            `Agent request failed: ${response.status} ${await response.text()}`
+          );
+
+        const data = await response.json();
+        if (!data.success || !data.taskId)
+          throw new Error(
+            data.error || "Failed to submit question to polling agent."
+          );
+
+        dispatch(agentAction.setActiveTask(data.taskId));
+        // The initial loading message (with searchType: "polling_agent") is already in chat.
+        // Polling will update it when complete.
+      }
+    } catch (error) {
+      console.error("Error in sendAgentQuestion:", error.message);
+      dispatch(chatAction.popChat());
       dispatch(
         chatAction.chatStart({
           useInput: {
             user: question,
-            gemini: "",
-            isLoader: "yes",
-            isSearch: true, // Mark as search result to show loading animation
-            searchType: "agent", // Mark as agent search
-          },
-        })
-      );
-
-      console.log("Starting agent task:", data.taskId); // Add logging
-      // Set active task
-      dispatch(agentAction.setActiveTask(data.taskId));
-
-      // Store task information for each agent
-      if (data.agentTasks) {
-        Object.entries(data.agentTasks).forEach(([agentId, agentTask]) => {
-          dispatch(
-            agentAction.addAgentTask({
-              agentId,
-              taskId: agentTask.taskId || data.taskId, // Use parent taskId as fallback
-              endpoint:
-                agentTask.endpoint ||
-                `https://dg01ai.zoom.us/open/api/v1/caic/general-ai/MRlQT_PPQM2nZVaQVflhFw?skillSettingId=${agentId}`,
-              token: data.token || localStorage.getItem("agent_token"),
-            })
-          );
-        });
-      } else {
-        // If no agent tasks are returned, create basic task entries for each agent
-        console.warn(
-          "No agent tasks in response, creating fallback task entries"
-        );
-        agents.forEach((agentId) => {
-          dispatch(
-            agentAction.addAgentTask({
-              agentId,
-              taskId: data.taskId,
-              endpoint: `https://dg01ai.zoom.us/open/api/v1/caic/general-ai/MRlQT_PPQM2nZVaQVflhFw?skillSettingId=${agentId}`,
-              token: data.token || localStorage.getItem("agent_token"),
-            })
-          );
-        });
-      }
-
-      // Return task data for polling
-      return data;
-    } catch (error) {
-      console.error("Error sending agent question:", error);
-
-      // Show error message
-      dispatch(
-        chatAction.chatStart({
-          useInput: {
-            user: questionData.question,
-            gemini: `<div class="simple-search-results error">
-            <h3>Agent Error</h3>
-            <p>Sorry, there was an error processing your request: ${error.message}</p>
-          </div>`,
+            gemini: `<p>Agent Error: ${error.message}</p>`,
             isLoader: "no",
             isSearch: true,
+            searchType:
+              selectedAgent === "jira_ag" || selectedAgent === "conf_ag"
+                ? "agent"
+                : "polling_agent",
+            queryKeywords: queryKeywords,
+            sources: [],
+            relatedQuestions: [],
+            error: true,
+            isPreformattedHTML: true,
           },
         })
       );
-
-      // End loading
+      dispatch(chatAction.newChatHandler());
+    } finally {
       dispatch(uiAction.setLoading(false));
       dispatch(agentAction.setLoading(false));
-      dispatch(agentAction.clearActiveTask());
-
-      // Return a fallback response object with taskId
-      return {
-        success: false,
-        error: error.message,
-        taskId: `error_${Date.now()}`,
-        agentTasks: questionData.agents.reduce((acc, agentId) => {
-          acc[agentId] = {
-            taskId: `error_${Date.now()}`,
-            endpoint: null,
-          };
-          return acc;
-        }, {}),
-      };
     }
   };
 };
 
-// Helper function to poll for agent response
-export const pollAgentResponse = (taskId) => {
-  return async (dispatch) => {
-    try {
-      console.log(`Polling for agent response with taskId: ${taskId}`);
+export const pollAgentResponse = (taskId, agentId) => {
+  return async (dispatch, getState) => {
+    // Use the searchType from the loading message if available
+    const loadingChatEntry = getState().chat.chats.find(
+      (c) =>
+        c.isLoader === "yes" &&
+        (c.searchType === "polling_agent" || c.searchType === "agent")
+    );
+    const originalQuestion = loadingChatEntry?.user || `Agent Task: ${taskId}`;
+    const originalSearchType = loadingChatEntry?.searchType || "agent"; // Default to agent if not found
+    const queryKeywords = extractKeywords(originalQuestion);
 
-      // Get a JWT token first (will need this for authenticated requests)
+    try {
       let token;
       try {
-        const tokenResponse = await fetch(`${SERVER_ENDPOINT}/api/generate-jwt`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            agentId: "default"
-          }),
-        });
-        
-        if (tokenResponse.ok) {
-          const tokenData = await tokenResponse.json();
-          token = tokenData.token;
-          console.log("Successfully generated JWT token for polling");
-        }
+        const tokenResponse = await fetch(
+          `${SERVER_ENDPOINT}/api/generate-jwt`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ agentId: agentId || "default" }),
+          }
+        );
+        if (tokenResponse.ok) token = (await tokenResponse.json()).token;
       } catch (tokenError) {
         console.error("Failed to generate token for polling:", tokenError);
-        // Continue without token
       }
 
-      // Use the proxy-agent-poll endpoint for polling too
       const url = `${SERVER_ENDPOINT}/api/proxy-agent-poll`;
-      console.log(`Polling agent response via proxy for taskId: ${taskId}`);
-      
-      // Send the request - use POST to match the proxy endpoint's expected format
       const response = await fetch(url, {
         method: "POST",
         credentials: "include",
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
-          ...(token && { "Authorization": `Bearer ${token}` })
+          ...(token && { Authorization: `Bearer ${token}` }),
         },
-        body: JSON.stringify({
-          taskId,
-          // Extract agent ID from taskId which should be in format agentId_timestamp_random
-          agentId: taskId.split('_')[0]
-        })
+        body: JSON.stringify({ taskId, agentId }),
       });
 
-      if (!response.ok) {
-        throw new Error(`Agent proxy poll failed with status: ${response.status}`);
-      }
-
+      if (!response.ok)
+        throw new Error(
+          `Agent poll failed: ${response.status} ${await response.text()}`
+        );
       const data = await response.json();
-      console.log("Agent poll response:", data);
 
       if (data.status === "complete") {
-        // Success! We have the response
-        dispatch(chatAction.popChat()); // Remove loading message
+        dispatch(chatAction.popChat());
 
-        // Log the response to aid in debugging
-        console.log("Agent response received:", data);
+        let geminiContent;
+        let sourcesData = [];
+        let relatedQuestionsData = [];
+        let isPreformattedHTML = false;
 
-        // Format the HTML for display
-        let formattedHtml = data.formattedHtml;
-
-        // Use simple formatting if no formatted HTML is available
-        if (!formattedHtml && data.result) {
-          console.log("Creating formatted HTML from result:", data.result);
-          const resultText =
-            typeof data.result === "object"
-              ? JSON.stringify(data.result, null, 2)
-              : String(data.result);
-
-          formattedHtml = `
-            <div class="simple-search-results">
-              <h3>Agent Response</h3>
-              <div class="simple-search-content">
-                <p>${resultText.replace(/\n/g, "<br>")}</p>
-              </div>
-            </div>
-          `;
+        if (data.result && typeof data.result.answer !== "undefined") {
+          geminiContent = data.result.answer;
+          sourcesData = data.result.sources || [];
+          relatedQuestionsData = data.result.relatedQuestions || [];
+          isPreformattedHTML = false;
+        } else if (data.formattedHtml) {
+          const parsed = parseFormattedHTML(data.formattedHtml, queryKeywords);
+          geminiContent = parsed.mainAnswer;
+          sourcesData = parsed.sources;
+          relatedQuestionsData = parsed.relatedQuestions;
+          isPreformattedHTML = parsed.parsingFailed;
+        } else {
+          geminiContent = data.result || "Agent response processed.";
+          isPreformattedHTML = typeof geminiContent !== "string";
         }
 
-        // Add the response to chat
         dispatch(
           chatAction.chatStart({
             useInput: {
-              user: data.question || "Agent query",
-              gemini: formattedHtml,
+              user: data.question || originalQuestion,
+              gemini: geminiContent,
+              sources: sourcesData,
+              relatedQuestions: relatedQuestionsData,
+              queryKeywords: queryKeywords,
               isLoader: "no",
               isSearch: true,
-              searchType: "agent", // Use agent type to apply correct styling
+              searchType: originalSearchType, // Use the original searchType for consistency
+              isPreformattedHTML: isPreformattedHTML,
             },
           })
         );
 
-        // Generate a chat history ID if not provided
-        const newChatHistoryId =
-          data.chatHistoryId ||
-          `agent_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-
-        // Update chat history ID
-        dispatch(
-          chatAction.chatHistoryIdHandler({
-            chatHistoryId: newChatHistoryId,
-          })
-        );
-
-        // Store in localStorage for sidebar history (similar to search results)
-        try {
-          console.log("Saving agent search to local storage history");
-          // Get existing history from localStorage or initialize empty array
-          const existingHistory = JSON.parse(
-            localStorage.getItem("searchHistory") || "[]"
-          );
-
-          // Add new item to history
-          const historyItem = {
-            id: newChatHistoryId,
-            title: data.question || "Agent Query",
-            timestamp: new Date().toISOString(),
-            type: "agent",
-          };
-
-          // Add to beginning of array (most recent first)
-          existingHistory.unshift(historyItem);
-
-          // Limit history to 50 items
-          const limitedHistory = existingHistory.slice(0, 50);
-
-          // Save back to localStorage
-          localStorage.setItem("searchHistory", JSON.stringify(limitedHistory));
-          console.log("Agent search saved to localStorage history");
-          
-          // Dispatch storage event to notify sidebar component
-          window.dispatchEvent(new Event('storage'));
-        } catch (err) {
-          console.error("Error saving agent search to localStorage:", err);
-        }
-
-        // Create chat history record if not already done
-        if (!data.chatHistoryId) {
-          console.log("Creating new chat history record on server");
-
+        let finalChatHistoryId = data.chatHistoryId;
+        if (!finalChatHistoryId && data.success) {
           try {
-            // First try with proxy approach
-            let url = `/api/create-chat-history`;
-            let historyResponse;
-
-            try {
-              console.log(
-                `Attempting to create chat history via proxy: ${url}`
-              );
-              // Create the chat history on the server via proxy
-              historyResponse = await fetch(url, {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Accept: "application/json",
+            const createHistoryUrl = `${BASE_URL}/api/create-chat-history`;
+            const historyResponse = await fetch(createHistoryUrl, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Accept: "application/json",
+              },
+              credentials: "include",
+              body: JSON.stringify({
+                title: (data.question || originalQuestion).substring(0, 50),
+                message: {
+                  user: data.question || originalQuestion,
+                  gemini: geminiContent,
+                  sources: sourcesData,
+                  relatedQuestions: relatedQuestionsData,
+                  queryKeywords,
+                  isPreformattedHTML,
                 },
-                credentials: "include",
-                body: JSON.stringify({
-                  title: data.question || "Agent response",
-                  message: {
-                    user: data.question || "Agent query",
-                    gemini: formattedHtml,
-                  },
-                  isSearch: true,
-                  searchType: "agent",
-                }),
-              });
-
-              // If fetch worked but returned an error, try the direct URL
-              if (!historyResponse.ok) {
-                const statusCode = historyResponse.status;
-                console.warn(
-                  `Proxy create history failed with status ${statusCode}, trying direct URL...`
-                );
-                throw new Error(`Server Error: ${statusCode}`);
-              }
-            } catch (proxyError) {
-              console.error("Proxy create history failed:", proxyError);
-
-              // Try direct URL as a fallback
-              url = `${SERVER_ENDPOINT}/api/create-chat-history`;
-              console.log(`Trying direct URL for create history: ${url}`);
-
-              historyResponse = await fetch(url, {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Accept: "application/json",
-                },
-                credentials: "include",
-                body: JSON.stringify({
-                  title: data.question || "Agent response",
-                  message: {
-                    user: data.question || "Agent query",
-                    gemini: formattedHtml,
-                  },
-                  isSearch: true,
-                  searchType: "agent",
-                }),
-              });
-            }
-
+                isSearch: true,
+                searchType: originalSearchType,
+              }),
+            });
             if (historyResponse.ok) {
               const historyData = await historyResponse.json();
-              if (historyData.success && historyData.chatHistoryId) {
-                console.log(
-                  "Chat history created on server with ID:",
-                  historyData.chatHistoryId
-                );
-
-                // Update chat history ID with the one from the server
-                dispatch(
-                  chatAction.chatHistoryIdHandler({
-                    chatHistoryId: historyData.chatHistoryId,
-                  })
-                );
-
-                // Update the localStorage entry to use the server ID
-                try {
-                  const existingHistory = JSON.parse(
-                    localStorage.getItem("searchHistory") || "[]"
-                  );
-
-                  // Find and update the temporary ID
-                  const updatedHistory = existingHistory.map((item) => {
-                    if (item.id === newChatHistoryId) {
-                      return { ...item, id: historyData.chatHistoryId };
-                    }
-                    return item;
-                  });
-
-                  localStorage.setItem(
-                    "searchHistory",
-                    JSON.stringify(updatedHistory)
-                  );
-                  console.log(
-                    "Updated localStorage with server chat history ID"
-                  );
-                } catch (err) {
-                  console.error("Error updating localStorage history ID:", err);
-                }
-              }
+              if (historyData.success && historyData.chatHistoryId)
+                finalChatHistoryId = historyData.chatHistoryId;
             }
-          } catch (error) {
-            console.error("Error creating chat history:", error);
+          } catch (historyError) {
+            console.error(
+              "Error creating chat history for polled agent:",
+              historyError
+            );
           }
         }
-
-        // End loading
-        dispatch(uiAction.setLoading(false));
-        dispatch(agentAction.setLoading(false));
+        if (finalChatHistoryId) {
+          dispatch(
+            chatAction.chatHistoryIdHandler({
+              chatHistoryId: finalChatHistoryId,
+            })
+          );
+          try {
+            const existingStorageHistory = JSON.parse(
+              localStorage.getItem("searchHistory") || "[]"
+            );
+            const historyItem = {
+              id: finalChatHistoryId,
+              title: (data.question || originalQuestion).substring(0, 50),
+              timestamp: new Date().toISOString(),
+              type: originalSearchType,
+            };
+            if (
+              !existingStorageHistory.some(
+                (item) => item.id === finalChatHistoryId
+              )
+            ) {
+              existingStorageHistory.unshift(historyItem);
+              localStorage.setItem(
+                "searchHistory",
+                JSON.stringify(existingStorageHistory.slice(0, 50))
+              );
+              window.dispatchEvent(new Event("storage"));
+            }
+          } catch (err) {
+            console.error(
+              "Error saving polled agent chat history to localStorage:",
+              err
+            );
+          }
+        }
+        dispatch(chatAction.newChatHandler());
         dispatch(agentAction.clearActiveTask());
-
-        // Return the data for further processing if needed
-        return { ...data, status: "complete" };
+        return { success: true, data, status: "complete" };
+      } else if (data.status === "error") {
+        dispatch(chatAction.popChat());
+        dispatch(
+          chatAction.chatStart({
+            useInput: {
+              user: originalQuestion,
+              gemini: `<p>Agent Error: ${
+                data.error || "Unknown error during polling"
+              }</p>`,
+              isLoader: "no",
+              isSearch: true,
+              searchType: originalSearchType,
+              error: true,
+              queryKeywords: queryKeywords,
+              sources: [],
+              relatedQuestions: [],
+              isPreformattedHTML: true,
+            },
+          })
+        );
+        dispatch(agentAction.clearActiveTask());
+        return { success: false, error: data.error, status: "error" };
+      } else {
+        return { success: false, status: data.status || "processing" };
       }
-
-      // Still pending - return status info
-      return data;
     } catch (error) {
-      console.error("Error polling for agent response:", error);
-
-      // Show error message
-      dispatch(chatAction.popChat()); // Remove loading message
+      console.error("Error in pollAgentResponse:", error.message);
+      dispatch(chatAction.popChat());
       dispatch(
         chatAction.chatStart({
           useInput: {
-            user: "",
-            gemini: `<div class="simple-search-results error">
-          <h3>Agent Response Error</h3>
-          <p>Sorry, there was an error retrieving the agent response: ${error.message}</p>
-        </div>`,
+            user: originalQuestion,
+            gemini: `<p>Polling Error: ${error.message}</p>`,
             isLoader: "no",
             isSearch: true,
+            searchType: originalSearchType,
+            error: true,
+            queryKeywords: queryKeywords,
+            sources: [],
+            relatedQuestions: [],
+            isPreformattedHTML: true,
           },
         })
       );
-
-      // End loading
-      dispatch(uiAction.setLoading(false));
-      dispatch(agentAction.setLoading(false));
       dispatch(agentAction.clearActiveTask());
-
-      throw error;
-    }
-  };
-};
-
-// Action creator for fetching available agents
-export const fetchAvailableAgents = () => {
-  return async (dispatch) => {
-    try {
-      dispatch(agentAction.setLoading(true));
-
-      // Get JWT token first (required for authenticated endpoints)
-      let token;
-      try {
-        const tokenResponse = await fetch(`${SERVER_ENDPOINT}/api/generate-jwt`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            agentId: "default"
-          }),
-        });
-        
-        if (tokenResponse.ok) {
-          const tokenData = await tokenResponse.json();
-          token = tokenData.token;
-          console.log("Successfully generated JWT token for fetching agents");
-        }
-      } catch (tokenError) {
-        console.error("Failed to generate token for fetching agents:", tokenError);
-        // Continue without token
-      }
-
-      // Fetch available agents
-      const url = `${SERVER_ENDPOINT}/api/available-agents`;
-      console.log(`Fetching available agents from: ${url}`);
-      
-      const response = await fetch(url, {
-        method: "GET",
-        credentials: "include",
-        headers: {
-          Accept: "application/json",
-          ...(token && { "Authorization": `Bearer ${token}` })
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch available agents: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      if (!data.success) {
-        throw new Error(data.error || "Failed to fetch agents");
-      }
-
-      dispatch(agentAction.setAgents(data.agents));
-      dispatch(agentAction.setLoading(false));
-
-      return data.agents;
-    } catch (error) {
-      console.error("Error fetching agents:", error);
-
-      dispatch(agentAction.setError(error.message));
-      dispatch(agentAction.setLoading(false));
-
-      // Set fallback agents that match the Python script IDs
-      const fallbackAgents = [
-        {
-          id: "client_agent",
-          name: "Client Agent",
-          description: "Client-related questions",
-        },
-        {
-          id: "zr_ag",
-          name: "ZR Agent",
-          description: "Zoom Room questions",
-        },
-        {
-          id: "jira_ag",
-          name: "Jira Agent",
-          description: "Jira tickets and issues",
-        },
-        {
-          id: "conf_ag",
-          name: "Confluence Agent",
-          description: "Knowledge base search",
-        },
-        {
-          id: "zp_ag",
-          name: "ZP Agent",
-          description: "Zoom Phone support",
-        },
-      ];
-
-      dispatch(agentAction.setAgents(fallbackAgents));
-
-      throw error;
-    }
-  };
-};
-
-// Action to delete agent chat history
-export const deleteAgentChatHistory = (chatHistoryId) => {
-  return async (dispatch) => {
-    try {
-      // First try with proxy approach
-      let url = `/api/chat-history/${chatHistoryId}`; // Use proxy path (relative)
-      let response;
-
-      try {
-        console.log(`Attempting to delete chat history via proxy: ${url}`);
-        // Send the request using proxy
-        response = await fetch(url, {
-          method: "DELETE",
-          credentials: "include",
-          headers: {
-            Accept: "application/json",
-          },
-        });
-
-        // If fetch worked but returned an error, try the direct URL
-        if (!response.ok) {
-          const statusCode = response.status;
-          console.warn(
-            `Proxy delete request failed with status ${statusCode}, trying direct URL...`
-          );
-          throw new Error(`Server Error: ${statusCode}`);
-        }
-      } catch (proxyError) {
-        console.error("Proxy delete request failed:", proxyError);
-
-        // Try direct URL as a fallback
-        url = `${SERVER_ENDPOINT}/api/chat-history/${chatHistoryId}`;
-        console.log(`Trying direct URL for delete request: ${url}`);
-
-        response = await fetch(url, {
-          method: "DELETE",
-          credentials: "include",
-          headers: {
-            Accept: "application/json",
-          },
-        });
-
-        if (!response.ok) {
-          throw new Error(
-            `Delete request failed with status: ${response.status}`
-          );
-        }
-      }
-
-      if (!response.ok) {
-        throw new Error(
-          `Delete request failed with status: ${response.status}`
-        );
-      }
-
-      // Parse the response
-      const data = await response.json();
-
-      if (!data.success) {
-        throw new Error(data.error || "Failed to delete chat history");
-      }
-
-      // Update recent chats after successful deletion
-      dispatch(getRecentChat());
-
-      return { success: true };
-    } catch (error) {
-      console.error("Error deleting chat history:", error);
-      throw error;
+      return { success: false, error: error.message, status: "error" };
     }
   };
 };

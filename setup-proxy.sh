@@ -46,11 +46,11 @@ HOSTNAME=vista.nklab.ltd
 NODE_ENV=development
 
 # Agent-specific configuration
-API_BASE_URL=https://dg01ai.zoom.us/open/api/v1/caic/general-ai/MRlQT_PPQM2nZVaQVflhFw
+API_BASE_URL=https://dg01ai.zoom.us/open/api/v1/caic/general-ai/tt6w7wNWQUOn5UBPCUi2mg
 
 # Confluence Agent
-CONF_AG_API_URL=https://dg01ai.zoom.us/open/api/v1/caic/general-ai/MRlQT_PPQM2nZVaQVflhFw?skillSettingId=conf_ag
-CONF_AG_JWT_SECRET=gzazjvdts768lelcbcyy5ecpkiguthmq
+CONF_AG_API_URL=https://dg01ai.zoom.us/open/api/v1/caic/general-ai/tt6w7wNWQUOn5UBPCUi2mg?skillSettingId=conf_ag
+CONF_AG_JWT_SECRET=xh94swe59q03xi1felkuxdntkn5gd9zt
 CONF_AG_JWT_ISSUER=yana.bao+AIStudio+DG01@test.zoom.us
 CONF_AG_JWT_AUDIENCE=zoom_caic
 CONF_AG_JWT_AID=3v8eT3vkQ1-PBQnN61MJog
@@ -61,7 +61,7 @@ JWT_ISSUER=yana.bao+AIStudio+DG01@test.zoom.us
 JWT_AUDIENCE=zoom_caic
 JWT_AID=3v8eT3vkQ1-PBQnN61MJog
 JWT_UID=NhiGO2feQEORV5Loghzx_Q
-JWT_SECRET_KEY=gzazjvdts768lelcbcyy5ecpkiguthmq
+JWT_SECRET_KEY=xh94swe59q03xi1felkuxdntkn5gd9zt
 
 # CORS Configuration
 CLIENT_REDIRECT_URL=https://vista.nklab.ltd

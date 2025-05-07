@@ -117,7 +117,8 @@ app.get("/api/health", (req, res) => {
 });
 
 // Routes
-app.use("/gemini", publicRoutes);
+app.use("/", publicRoutes); // Mount at root for /api/* routes
+app.use("/gemini", publicRoutes); // Mount at /gemini for backward compatibility
 app.use(authRoutes);
 app.use(agentRouter); // Add the agent router which includes deep-research endpoint
 app.use(agentApiRouter); // Add the agent API router for agent integration

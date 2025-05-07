@@ -92,9 +92,7 @@ const InputSection = () => {
     }
 
     // Check for error codes or messages in the result
-    const isErrorResult =
-      resultText.includes("error code") ||
-      resultText.includes("not explicitly");
+    // const isErrorResult = resultText.includes("error code") || resultText.includes("not explicitly"); // Commented out as it's currently unused
 
     // Format the text
     try {
@@ -270,7 +268,32 @@ const InputSection = () => {
           })
         );
 
-        // Check if the response is valid and contains a taskId
+        // Check for orchestrated responses (which have orchestrationComplete flag)
+        if (agentResponse && agentResponse.orchestrationComplete === true) {
+          console.log("Received direct orchestrated response, no polling needed");
+          
+          // Show proper loading and navigation for orchestrated responses
+          dispatch(uiAction.setLoading(true));
+          
+          // Add a small delay to ensure UI updates
+          setTimeout(() => {
+            // Turn off loading
+            dispatch(uiAction.setLoading(false));
+            
+            // If we have a chat history ID, navigate to it
+            if (agentResponse.data && agentResponse.data.chatHistoryId) {
+              navigate(`/app/${agentResponse.data.chatHistoryId}`);
+            } else if (chatHistoryId && chatHistoryId.length > 0) {
+              navigate(`/app/${chatHistoryId}`);
+            }
+            
+            console.log("Query sent:", userInput, ", Mode: Agent, Agents:", selectedAgents);
+          }, 800);
+          
+          return; // Exit early since we already have our answer
+        }
+        
+        // For standard agents, check if the response contains a taskId
         if (!agentResponse || !agentResponse.taskId) {
           console.error("Invalid agent response:", agentResponse);
           throw new Error("Failed to get a valid response from agent service");

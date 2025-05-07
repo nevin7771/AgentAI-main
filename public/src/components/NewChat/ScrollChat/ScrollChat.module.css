@@ -1,273 +1,278 @@
 /* public/src/components/NewChat/ScrollChat/ScrollChat.module.css */
-/* Updated for Gemini-like chat format */
 
+/* Base styles for the chat area */
 .scroll-chat-main {
+  font-family: 'Google Sans', Roboto, Arial, sans-serif; /* Consistent font */
   width: 100%;
   display: flex;
   flex-flow: nowrap column;
-  height: 78dvh; /* Adjust as needed */
-  overflow-y: scroll;
+  height: 78dvh; /* Consider adjusting based on viewport */
+  overflow-y: auto; /* Changed to auto for better scrollbar behavior */
   overflow-x: hidden;
-  padding: 20px 10px; /* Add some padding */
-  gap: 25px; /* Increase gap between messages */
+  padding: 20px 15px; /* Adjusted padding */
+  gap: 20px; /* Spacing between messages */
 }
 
-/* Scrollbar styling */
-.scroll-chat-main::-webkit-scrollbar {
-  width: 8px;
-}
-.scroll-chat-main::-webkit-scrollbar-track {
-  background-color: transparent;
-}
-.scroll-chat-main::-webkit-scrollbar-thumb {
-  background-color: #bdc1c6; /* Lighter scrollbar */
-  border-radius: 4px;
-}
-.scroll-chat-main::-webkit-scrollbar-thumb:hover {
-  background-color: #9aa0a6;
-}
+.scroll-chat-main::-webkit-scrollbar { width: 8px; }
+.scroll-chat-main::-webkit-scrollbar-track { background-color: transparent; }
+.scroll-chat-main::-webkit-scrollbar-thumb { background-color: #bdc1c6; border-radius: 4px; }
+.scroll-chat-main::-webkit-scrollbar-thumb:hover { background-color: #9aa0a6; }
 
-/* Container for each user/model turn */
 .single-chat {
   width: 100%;
-  max-width: 768px; /* Slightly wider max-width */
-  margin: 0 auto; /* Center align */
+  max-width: 780px; /* Slightly increased max-width for content */
+  margin: 0 auto;
   display: flex;
-  flex-direction: column; /* Stack icon/content vertically */
-  gap: 8px; /* Space between icon row and content */
+  flex-direction: column;
 }
 
-/* Row containing icon and sender name (optional) */
-.sender-info {
+/* User chat bubble - Aligned to the right */
+.user-chat-container {
   display: flex;
-  align-items: center;
+  justify-content: flex-end;
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+.user.message-bubble {
+  display: flex;
+  flex-direction: row-reverse; /* Icon on the right for user */
+  align-items: flex-start;
   gap: 10px;
+  max-width: 85%; /* Max width for user bubble */
+  background-color: #e8f0fe; /* Light blue background for user questions, as per Gemini */
+  padding: 12px 18px; /* Adjusted padding */
+  border-radius: 20px 20px 4px 20px; /* Gemini-like border radius */
+  color: #1f1f1f;
 }
 
-.sender-info img {
-  width: 32px;
-  height: 32px;
+.user .sender-info img {
+  width: 30px; /* Slightly smaller user avatar */
+  height: 30px;
   border-radius: 50%;
-  border: 1px solid #dadce0; /* Subtle border */
+  margin-left: 5px; /* Space between text and avatar */
 }
 
-[data-theme="dark"] .sender-info img {
-  border: 1px solid #5f6368;
-}
-
-.sender-name {
-  font-weight: 600;
-  font-size: 0.95em;
-  color: var(--chat-font-color);
-}
-
-/* Content block for both user and model */
-.message-content {
-  width: 100%;
-  padding-left: 42px; /* Indent content past icon */
-  word-break: break-word;
-  line-height: 1.7; /* Improve readability */
-  font-size: 1rem;
-  color: var(--chat-font-color);
-}
-
-/* Specific styling for user message content */
 .user .message-content {
-  /* User messages don't need special styling unless desired */
+  text-align: left; /* Text inside bubble is left-aligned */
+  font-size: 1rem; /* Standard font size */
+  line-height: 1.6;
+}
+.user .message-content p {
+    margin: 0;
+    font-family: 'Google Sans', Roboto, Arial, sans-serif;
 }
 
-/* Specific styling for model/agent message content */
-.gemini .message-content {
-  /* Model messages don't need special styling unless desired */
+/* Gemini/AI message bubble - Aligned to the left */
+.gemini-chat-container {
+  width: 100%;
+  display: flex;
+  justify-content: flex-start;
+  margin-bottom: 10px;
 }
 
-/* Style the search result block (already handled by GeminiResults.css) */
-.message-content .search-result {
-  /* Remove default padding/margins if GeminiResults.css handles it */
-  padding: 0;
-  margin: 0;
-  background: none; /* Let GeminiResults.css control background */
-  border: none; /* Let GeminiResults.css control border */
-}
-
-/* Ensure the dangerouslySetInnerHTML content takes full width */
-.message-content > div {
+.gemini.message-bubble {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 12px; /* Gap between icon and content */
   width: 100%;
 }
 
-/* Remove default paragraph margins within the message content if needed */
-.message-content p {
-  margin-top: 0;
-  margin-bottom: 1em; /* Keep bottom margin for paragraph spacing */
+.gemini .sender-info { 
+  flex-shrink: 0;
+  margin-top: 1px; /* Align icon nicely */
 }
-.message-content p:last-child {
+
+.gemini .sender-info img.ai-icon {
+  width: 26px; /* Standard AI icon size */
+  height: 26px;
+}
+
+.gemini .sender-info img.sparkleAnimation {
+    animation: sparkle 1.5s infinite ease-in-out;
+}
+
+@keyframes sparkle {
+  0%, 100% { opacity: 0.7; transform: scale(0.95); }
+  50% { opacity: 1; transform: scale(1.05); }
+}
+
+/* Wrapper for AI answer text AND the unified info card */
+.message-content-wrapper {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0; 
+}
+
+/* Message content for AI (Answer part) */
+.gemini .message-content { 
+  word-break: break-word;
+  line-height: 1.65; /* Slightly more line height for readability */
+  font-size: 1rem; /* Standard font size for AI answers */
+  color: var(--chat-font-color, #3c4043);
+  text-align: left;
+  width: 100%; 
+  background-color: var(--chat-bubble-background, #f8f9fa); 
+  padding: 12px 18px; /* Adjusted padding */
+  border-radius: 4px 20px 20px 20px; /* Gemini-like border radius for AI */
+  min-height: 20px;
+  display: block;
+}
+
+[data-theme="dark"] .gemini .message-content {
+    background-color: var(--dark-chat-bubble-background, #202124);
+    color: var(--dark-chat-font-color, #e8eaed);
+}
+
+[data-theme="dark"] .user.message-bubble {
+  background-color: #303857; /* Darker blue for user questions in dark mode */
+  color: #e8eaed;
+}
+
+/* Ensure global .gemini-answer class from gemini.results.css is used for actual answer text styling */
+.gemini .message-content .gemini-answer {
+    font-family: 'Google Sans', Roboto, Arial, sans-serif;
+    font-size: 1rem; /* Ensure consistency */
+    line-height: 1.65;
+}
+
+.gemini .message-content .gemini-answer > *:first-child,
+.gemini .message-content > div:first-child > *:first-child {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
+
+/* Loading state specific styles */
+.loading-container-gemini {
+    display: flex;
+    align-items: center;
+    gap: 8px; /* Gap between sparkle (now in sender-info) and text */
+    padding: 5px 0; /* Minimal padding for loading text */
+    min-height: 20px;
+}
+
+.loading-text {
+    font-size: 0.95rem; /* Slightly smaller loading text */
+    color: var(--text-secondary-color, #5f6368);
+    font-style: italic;
+}
+
+[data-theme="dark"] .loading-text {
+    color: var(--dark-text-secondary-color, #9aa0a6);
+}
+
+/* Unified Card for Sources and Related Questions */
+.unifiedInfoCard {
+  background-color: transparent; /* Remove specific background, rely on source card bg */
+  padding: 0; /* Remove padding, rely on source card padding */
+  margin-top: 15px;
+  border: none; /* Remove border, rely on source card border */
+  width: 100%; 
+}
+
+.unifiedCardSectionTitle {
+  font-size: 0.875rem; /* Smaller title for "Sources" / "Related" */
+  font-weight: 500;
+  color: var(--text-secondary-color, #5f6368);
+  margin-bottom: 10px;
+  padding-bottom: 0;
+  border-bottom: none;
+  text-transform: uppercase; /* As seen in some Gemini UIs */
+  letter-spacing: 0.5px;
+}
+
+[data-theme="dark"] .unifiedCardSectionTitle {
+    color: var(--dark-text-secondary-color, #9aa0a6);
+}
+
+.sourcesContainerInUnifiedCard,
+.relatedQuestionsContainerInUnifiedCard {
+  margin-bottom: 15px;
+}
+.relatedQuestionsContainerInUnifiedCard:last-child {
   margin-bottom: 0;
 }
 
-/* --- Keep Chat Actions and Indicators --- */
-
-/* Chat action buttons */
-.chat-actions {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 0px; /* Adjust padding */
-  margin: 0 auto;
-  width: 100%;
-  max-width: 768px; /* Match content width */
-  position: sticky; /* Keep indicators visible */
-  top: 0;
-  background-color: var(--background-color); /* Match page background */
-  z-index: 10;
-  border-bottom: 1px solid var(--border-color);
-  margin-bottom: 15px;
+/* Code block styling */
+.message-content pre {
+  background: #f1f3f4 !important; /* Lighter background for code blocks */
+  color: #202124 !important;
+  padding: 12px 15px !important;
+  border-radius: 8px !important;
+  overflow-x: auto;
+  font-family: 'Roboto Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+  font-size: 0.875em;
+  margin: 12px 0;
+  border: 1px solid #dadce0;
 }
 
-/* Keep delete button styling (though button is removed in JS) */
-.delete-chat-btn { 
-  /* ... existing styles ... */
+[data-theme="dark"] .message-content pre {
+  background: #282a2e !important; /* Darker background for code blocks */
+  color: #e8eaed !important;
+  border-color: #5f6368;
 }
 
-/* Keep Chat Type Indicators styling */
-.chat-type-indicator { /* ... existing styles ... */ }
-.agent-indicator, .search-indicator { /* ... existing styles ... */ }
-.agent-indicator { /* ... existing styles ... */ }
-[data-theme="dark"] .agent-indicator { /* ... existing styles ... */ }
-.search-indicator { /* ... existing styles ... */ }
-[data-theme="dark"] .search-indicator { /* ... existing styles ... */ }
-
-/* Sparkle Animation Styles */
-.sparkle-container {
-  position: relative;
-  width: 100%;
-  height: 24px;
-  margin-bottom: 16px;
+.message-content pre code {
+  background: none !important;
+  padding: 0 !important;
+  white-space: pre-wrap !important;
+  word-wrap: break-word !important;
 }
 
-.sparkle-animation {
-  position: absolute;
-  top: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  justify-content: center;
-  align-items: center;
+/* Message actions toolbar */
+.message-actions-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 0;
+    width: 100%; 
 }
 
-.sparkle-blue,
-.sparkle-red {
-  position: absolute;
-  width: 24px;
-  height: 24px;
+/* Error message styling */
+.error-message {
+  color: #d93025;
+  background-color: #fce8e6;
+  padding: 10px 15px;
+  border-radius: 8px;
+  border: 1px solid #d93025;
+  font-size: 0.9rem;
 }
 
-.sparkle-blue {
-  animation: rotateSparkle 2s infinite linear;
+[data-theme="dark"] .error-message {
+  color: #f28b82;
+  background-color: #2d1a1a;
+  border-color: #f28b82;
 }
 
-.sparkle-red {
-  animation: rotateSparkleReverse 2s infinite linear;
-}
-
-@keyframes rotateSparkle {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes rotateSparkleReverse {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(-360deg);
-  }
-}
-
-/* Search Results Styling */
-.search-results-container {
-  width: 100%;
-  position: relative;
-  padding-top: 24px;
-}
-
-.search-content-wrapper {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-}
-
-.search-main-content {
-  width: 100%;
-}
-
-.search-main-content h2 {
-  font-size: 1.3rem;
-  margin-bottom: 16px;
-  color: var(--heading-color);
-}
-
-.search-answer {
-  font-size: 1rem;
-  line-height: 1.7;
-}
-
-.search-sources {
-  margin-top: 24px;
-  border-top: 1px solid var(--border-color);
-  padding-top: 16px;
-}
-
-.search-sources h3 {
-  font-size: 1.1rem;
-  margin-bottom: 12px;
-  color: var(--heading-color);
-}
-
-.search-sources ol {
-  padding-left: 24px;
-}
-
-.search-sources li {
-  margin-bottom: 8px;
-}
-
-.search-sources a {
-  color: var(--link-color);
-  text-decoration: none;
-}
-
-.search-sources a:hover {
-  text-decoration: underline;
-}
-
-.citation-link {
-  color: var(--link-color);
-  text-decoration: none;
-  font-weight: 600;
-}
-
-/* --- Responsive Adjustments --- */
+/* Responsive adjustments */
 @media (max-width: 768px) {
   .scroll-chat-main {
-    padding: 15px 5px; /* Adjust padding */
+    padding: 15px 10px;
+    height: calc(100vh - 120px); /* Adjust based on header/footer */
+    gap: 15px;
   }
-  .single-chat {
-    max-width: 100%; /* Full width on smaller screens */
-  }
-  .message-content {
-    padding-left: 0; /* Remove indent on mobile */
-    margin-top: 8px; /* Add space below icon row */
-  }
-  .sender-info img {
-    width: 28px;
-    height: 28px;
-  }
-  .chat-actions {
-     padding: 8px 10px; /* Add horizontal padding */
-  }
+  .single-chat { max-width: 100%; }
+  .user.message-bubble { max-width: 90%; padding: 10px 15px; }
+  .gemini .message-content { padding: 10px 15px; }
+  .gemini .sender-info img.ai-icon { width: 24px; height: 24px; }
+  .message-actions-toolbar { padding: 8px 0px; }
+  .unifiedCardSectionTitle { font-size: 0.8rem; }
 }
+
+/* Keyword Highlighting is now expected to be handled by a global CSS file (e.g., gemini.results.css) */
+
+/* Styles for gemini-sources-grid, source-card, gemini-chip are expected from gemini.results.css */
+/* Example of how source cards might be styled if not fully covered by gemini.results.css */
+/* Ensure these align with the reference image if gemini.results.css is not sufficient */
+
+/* .gemini-sources-grid { ... } */
+/* .source-card { ... } */
+/* .source-card-title { font-size: 0.9rem; font-weight: 500; } */
+/* .source-card-snippet { font-size: 0.8rem; } */
+/* .source-url { font-size: 0.75rem; } */
+
 

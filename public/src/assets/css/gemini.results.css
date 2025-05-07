@@ -1,0 +1,194 @@
+/* Suggested content for gemini.results.css */
+
+/* Global styles for Gemini results, including fonts and keyword highlighting */
+body {
+  font-family: 'Google Sans', Roboto, Arial, sans-serif;
+}
+
+.gemini-answer {
+  font-family: 'Google Sans', Roboto, Arial, sans-serif;
+  line-height: 1.75;
+  color: #3c4043; /* Standard text color, adjust as per your theme */
+}
+
+[data-theme="dark"] .gemini-answer {
+    color: #e8eaed; /* Dark theme text color */
+}
+
+.highlighted-keyword {
+  background-color: #fff2ab; /* Yellow highlight, similar to Google Search */
+  padding: 0.1em 0.2em;
+  border-radius: 3px;
+  font-weight: 600; /* Make highlighted keywords slightly bolder */
+  color: #202124; /* Darker text for highlighted keyword for better contrast */
+}
+
+[data-theme="dark"] .highlighted-keyword {
+  background-color: #fdd663; /* A slightly different yellow for dark mode if needed */
+  color: #202124;
+}
+
+/* --- Source Card Styling --- */
+.sources-section .section-title,
+.related-questions-section .section-title {
+  font-size: 1em; /* Match reference */
+  font-weight: 500;
+  color: #5f6368;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #dadce0;
+}
+
+[data-theme="dark"] .sources-section .section-title,
+[data-theme="dark"] .related-questions-section .section-title {
+  color: #9aa0a6;
+  border-bottom-color: #3c4043;
+}
+
+.gemini-sources-grid {
+  display: flex; /* Use flexbox for horizontal layout */
+  gap: 16px;
+  overflow-x: auto; /* Allow horizontal scrolling if items exceed width */
+  padding-bottom: 10px; /* Space for scrollbar if it appears */
+  margin-bottom: 10px;
+}
+
+.source-card {
+  background-color: #f8f9fa; /* Light grey background for cards */
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  padding: 12px;
+  width: 280px; /* Fixed width for cards, adjust as needed */
+  flex-shrink: 0; /* Prevent cards from shrinking */
+  box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
+  transition: box-shadow 0.2s ease-in-out;
+}
+
+.source-card:hover {
+  box-shadow: 0 1px 3px 0 rgba(60,64,67,0.3), 0 4px 8px 3px rgba(60,64,67,0.15);
+}
+
+[data-theme="dark"] .source-card {
+  background-color: #202124; /* Dark background for cards */
+  border-color: #3c4043;
+}
+
+.source-card-link {
+  text-decoration: none;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  height: 100%; /* Make link fill the card */
+}
+
+.source-card-content {
+  flex-grow: 1;
+}
+
+.source-card-title {
+  font-size: 0.95em;
+  font-weight: 500;
+  color: #202124;
+  margin-bottom: 4px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2; /* Limit to 2 lines */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+}
+
+[data-theme="dark"] .source-card-title {
+  color: #e8eaed;
+}
+
+.source-card-snippet {
+  font-size: 0.8em;
+  color: #5f6368;
+  margin-bottom: 8px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3; /* Limit to 3 lines */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.5;
+}
+
+[data-theme="dark"] .source-card-snippet {
+  color: #9aa0a6;
+}
+
+.source-card-footer {
+  display: flex;
+  align-items: center;
+  margin-top: auto; /* Push footer to the bottom */
+}
+
+.source-favicon {
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
+  border-radius: 2px;
+}
+
+.source-url {
+  font-size: 0.75em;
+  color: #5f6368;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+[data-theme="dark"] .source-url {
+  color: #9aa0a6;
+}
+
+/* --- Related Questions (Chips) Styling --- */
+.gemini-chips-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.gemini-chip {
+  background-color: #e8f0fe; /* Light blue background for chips */
+  border: 1px solid #d2e3fc;
+  color: #1967d2; /* Blue text for chips */
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 0.85em;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
+  display: inline-flex;
+  align-items: center;
+  text-align: left;
+}
+
+.gemini-chip:hover {
+  background-color: #d2e3fc;
+  border-color: #aecbfa;
+}
+
+[data-theme="dark"] .gemini-chip {
+  background-color: #283142; /* Dark theme chip background */
+  border-color: #374969;
+  color: #8ab4f8; /* Dark theme chip text color */
+}
+
+[data-theme="dark"] .gemini-chip:hover {
+  background-color: #374969;
+  border-color: #4a5f88;
+}
+
+.gemini-chip-text {
+  /* Styles for text within chip, if needed, but usually inherited */
+}
+
+/* Ensure the unifiedInfoCard in ScrollChat.module.css has a compatible background or remove its background if these cards are used inside it */
+/* From ScrollChat.module.css: .unifiedInfoCard { background-color: #e3f2fd; ... } */
+/* If .source-card and .gemini-chip are inside .unifiedInfoCard, their backgrounds will override. */
+/* Consider making .unifiedInfoCard background transparent or a very light neutral if it only serves as a container for these styled elements. */
+
+

@@ -84,7 +84,7 @@ export const proxyAgentPoll = async (req, res) => {
     const agentSecret =
       process.env[`${agentId.toUpperCase()}_JWT_SECRET`] ||
       process.env.JWT_SECRET_KEY ||
-      "gzazjvdts768lelcbcyy5ecpkiguthmq"; // Add fallback default
+      "xh94swe59q03xi1felkuxdntkn5gd9zt"; // Add fallback default
 
     console.log(
       `Using secret for agent ${agentId}: ${
@@ -224,7 +224,7 @@ const handleDirectAgentRequest = async (req, res) => {
     const agentSecret =
       process.env[`${agentId.toUpperCase()}_JWT_SECRET`] ||
       process.env.JWT_SECRET_KEY ||
-      "gzazjvdts768lelcbcyy5ecpkiguthmq"; // Add fallback default
+      "xh94swe59q03xi1felkuxdntkn5gd9zt"; // Add fallback default
 
     console.log(
       `Using secret for agent ${agentId}: ${
@@ -334,7 +334,7 @@ const handleLocalAgentRequest = async (req, res) => {
         const agentSecret =
           process.env[`${agentId.toUpperCase()}_JWT_SECRET`] ||
           process.env.JWT_SECRET_KEY ||
-          "gzazjvdts768lelcbcyy5ecpkiguthmq"; // Add fallback default
+          "xh94swe59q03xi1felkuxdntkn5gd9zt"; // Add fallback default
 
         console.log(
           `Using secret for agent ${agentId}: ${

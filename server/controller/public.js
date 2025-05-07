@@ -294,10 +294,10 @@ export const postChat = async (req, res, next) => {
           chats: agentChatDoc.chat?.messages || []
         });
       } else {
-        // For agent chats, rather than returning 403, return empty
-        return res.status(200).json({
-          chatHistory: chatHistoryId,
-          message: "Agent chat not found in database",
+        // For agent chats, return 404 to handle properly
+        return res.status(404).json({
+          success: false,
+          error: `Agent chat not found: ${chatHistoryId}`,
           chats: []
         });
       }
@@ -328,12 +328,8 @@ export const postChat = async (req, res, next) => {
             const allowedIds = histories.map(h => h._id.toString());
             if (!allowedIds.includes(chatHistoryId)) {
               console.log("ChatHistoryId not in allowed list:", chatHistoryId, "Allowed:", allowedIds);
-              // Instead of failing, just return the most recent chat if available
-              if (histories.length > 0) {
-                return chatHistory.findOne({ _id: histories[0]._id }).populate('chat');
-              } else {
-                return null;
-              }
+              // Return 404 to handle properly on client
+              return null;
             }
             return chatHistory.findOne({ _id: chatHistoryId, user: userId }).populate('chat');
           }
@@ -371,50 +367,107 @@ export const postChat = async (req, res, next) => {
     const chatData = await query;
     
     if (!chatData) {
-      // Don't throw error, just return empty result
+      // Return 404 to handle properly on client
       console.log("No chat data found for ID:", chatHistoryId);
-      return res.status(200).json({
-        success: true,
-        message: "No chat history found",
-        chatHistory: chatHistoryId,
+      return res.status(404).json({
+        success: false,
+        error: `Chat history not found: ${chatHistoryId}`,
         chats: []
       });
     }
 
     a += 1;
-    console.log("Old chats ", a);
+    console.log("Found chat history:", a, chatData._id);
 
     // Check if chat exists and has messages
     if (chatData.chat && chatData.chat.messages) {
       console.log("Found chat with messages:", chatData.chat.messages.length);
-      return res.status(200).json({
-        chatHistory: chatData._id,
-        chats: chatData.chat.messages,
-      });
+      try {
+        // Convert MongoDB documents to plain objects for JSON response
+        const messagesArray = chatData.chat.messages.map(msg => {
+          try {
+            const msgObj = msg.toObject ? msg.toObject() : msg;
+            return {
+              ...msgObj,
+              _id: msg._id.toString(),
+              timestamp: msg.timestamp,
+              isSearch: msg.isSearch || false,
+              searchType: msg.searchType || null
+            };
+          } catch (err) {
+            console.error("Error converting message to object:", err);
+            return msg;
+          }
+        });
+        
+        return res.status(200).json({
+          success: true,
+          chatHistory: chatData._id.toString(),
+          chats: messagesArray
+        });
+      } catch (err) {
+        console.error("Error serializing chat data:", err);
+        return res.status(500).json({
+          success: false,
+          error: "Error processing chat data",
+          chatHistory: chatData._id.toString()
+        });
+      }
     } else {
       // Handle case where chat or messages might not exist
       console.log("No messages found for chat history:", chatData._id);
-      return res.status(200).json({
-        chatHistory: chatData._id,
-        chats: [],
+      return res.status(404).json({
+        success: false,
+        error: `Chat exists but has no messages: ${chatData._id}`,
+        chats: []
       });
     }
   } catch (innerErr) {
     console.error("Error retrieving chat data:", innerErr);
-    return res.status(200).json({
+    return res.status(500).json({
       success: false,
-      message: innerErr.message || "Error retrieving chat data",
+      error: innerErr.message || "Error retrieving chat data",
       chatHistory: chatHistoryId,
       chats: []
     });
     }
   } catch (err) {
     console.error("Error retrieving chat:", err);
-    // Return empty result instead of error
-    return res.status(200).json({
+    return res.status(500).json({
       success: false,
-      message: err.message || "Error retrieving chat",
+      error: err.message || "Error retrieving chat",
       chatHistory: chatHistoryId,
+      chats: []
+    });
+  }
+};
+
+// Add a dedicated GET route endpoint for backward compatibility
+export const getSingleChat = async (req, res, next) => {
+  try {
+    const chatId = req.params.id;
+    
+    if (!chatId) {
+      return res.status(400).json({
+        success: false,
+        error: "Chat ID is required"
+      });
+    }
+    
+    // Use the same logic as postChat but for a GET endpoint
+    // This is to support the legacy /getsinglechat/:id endpoint
+    console.log(`Redirecting getSingleChat ${chatId} to postChat logic`);
+    
+    // Call the same function but with the params in the request body
+    req.body = { chatHistoryId: chatId };
+    return postChat(req, res, next);
+    
+  } catch (err) {
+    console.error("Error in getSingleChat:", err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || "Error retrieving chat",
+      chatHistory: req.params.id,
       chats: []
     });
   }

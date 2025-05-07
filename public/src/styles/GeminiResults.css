@@ -1,270 +1,245 @@
-/* public/src/styles/GeminiResults.css */
+/* GeminiResults.css - Merged and Optimized */
 
-/* Sparkle Animation Styles */
-.sparkle-container {
-  position: relative;
-  width: 100%;
-  height: 32px;
-  margin-bottom: 12px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
+/* ========== THEME VARIABLES ========== */
+:root {
+  --chat-bubble-background: #ffffff;
+  --chat-font-color: #202124;
+  --border-color: #dadce0;
+  --link-color: #1a73e8;
+  --highlight-text-color: #1a73e8; /* For general strong/b tags */
+  --highlight-background-color: rgba(26, 115, 232, 0.1); /* For general strong/b tags */
+  
+  /* Keyword specific highlighting */
+  --highlight-bg-keyword: #fff352; /* Yellow background for search keywords */
+  --highlight-text-keyword: #333333; /* Dark text for search keywords */
+
+  --text-secondary-color: #5f6368;
+  --text-tertiary-color: #70757a;
+  --chip-background-color: #f1f3f4;
+  --chip-background-hover-color: #e8eaed;
+  --chip-border-color: #dadce0;
+  --chip-border-hover-color: #d2d5d8;
+  --chip-text-color: #3c4043;
+  --loading-bar-color1: #8ab4f8;
+  --loading-bar-color2: #c6d0f0;
 }
 
-.sparkle-animation {
-  position: relative;
-  width: 32px;
-  height: 32px;
+[data-theme="dark"] {
+  --chat-bubble-background: #202124;
+  --chat-font-color: #e8eaed;
+  --border-color: #3c4043;
+  --link-color: #8ab4f8;
+  --highlight-text-color: #8ab4f8;
+  --highlight-background-color: rgba(138, 180, 248, 0.15);
+  
+  /* Keyword specific highlighting - Dark Theme */
+  --highlight-bg-keyword: #786a00; /* Dark yellow for dark theme keywords */
+  --highlight-text-keyword: #fffde7; /* Light text for dark theme keywords */
+
+  --text-secondary-color: #9aa0a6;
+  --text-tertiary-color: #bdc1c6;
+  --chip-background-color: #2d2e30;
+  --chip-background-hover-color: #3c4043;
+  --chip-border-color: #5f6368;
+  --chip-border-hover-color: #5f6368;
+  --chip-text-color: #e8eaed;
 }
 
-.sparkle-blue,
-.sparkle-red {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 32px;
-  height: 32px;
-}
-
-.sparkle-blue {
-  animation: rotateSparkle 2s infinite linear;
-}
-
-.sparkle-red {
-  animation: rotateSparkleReverse 2s infinite linear;
-}
-
-@keyframes rotateSparkle {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes rotateSparkleReverse {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(-360deg);
-  }
-}
-
-/* Main container for Gemini-style results */
+/* Container identified in user screenshot with padding */
+/* Also targeting .gemini-results-container for consistency */
+.search-results-container,
 .gemini-results-container {
+  padding: 0; /* Removed !important to allow overrides if needed */
+  margin: 0; 
+  gap: 10px; /* Added some gap for spacing between sections */
+  background-color: transparent; 
+  border: none; 
+  border-radius: 0;
+  /* Keep other properties like font-family if they are meant for the content within */
+  color: var(--chat-font-color);
+  font-family: 'Google Sans', Arial, sans-serif;
   display: flex;
-  flex-direction: row;
-  gap: 20px;
-  padding: 15px;
-  border-radius: 8px;
-  background-color: #f8f9fa; /* Light background */
-  font-family: sans-serif;
-  color: #3c4043; /* Default text color */
-  margin-bottom: 20px;
-  position: relative; /* For cache indicator positioning */
+  flex-direction: column;
+  width: 100%;
 }
 
-/* Cache indicator */
-.cache-indicator {
-  position: absolute;
-  top: 5px;
-  right: 10px;
-  font-size: 0.75em;
-  color: #80868b; /* Grey text */
-}
-
-/* Main content area (answer + follow-up) */
-.gemini-results-main {
-  flex: 2; /* Takes up more space */
-  min-width: 0; /* Prevent overflow issues */
-}
-
-/* Answer section */
+/* ========== ANSWER SECTION ========== */
 .gemini-answer {
-  line-height: 1.6;
+  line-height: 1.65;
+  font-size: 0.95rem;
+  padding: 10px; /* Added full padding */
+  margin-bottom: 15px; /* Space after the answer, before other sections */
+  color: var(--chat-font-color);
+  background-color: var(--chat-bubble-background); /* Uncommented to ensure visibility */
+  border-radius: 8px;
+  display: block; /* Ensure it's displayed */
+  width: 100%;
+  min-height: 30px; /* Minimum height for empty answers */
 }
 
-.gemini-answer h1,
-.gemini-answer h2,
-.gemini-answer h3 {
-  color: #1a73e8; /* Blue headings */
-  margin-top: 1.2em;
-  margin-bottom: 0.6em;
+/* New class for the answer display in the UI */
+.gemini-answer-display {
+  line-height: 1.65;
+  font-size: 0.95rem;
+  width: 100%;
+  display: block;
+  color: var(--chat-font-color);
+  margin: 0;
+  padding: 0;
 }
 
-.gemini-answer p {
-  margin-bottom: 1em;
-}
-
-.gemini-answer ul,
-.gemini-answer ol {
-  margin-left: 20px;
-  margin-bottom: 1em;
-}
-
-.gemini-answer li {
+.gemini-answer h1, .gemini-answer h2, .gemini-answer h3 {
+  color: var(--link-color);
+  margin-top: 1em;
   margin-bottom: 0.5em;
 }
+.gemini-answer p { margin-bottom: 0.8em; }
+.gemini-answer ul, .gemini-answer ol {
+  margin-left: 20px;
+  padding-left: 15px;
+  margin-bottom: 0.8em;
+}
+.gemini-answer li { margin-bottom: 0.4em; }
 
-.gemini-answer strong,
-.gemini-answer b {
+.gemini-answer strong, .gemini-answer b, .gemini-answer .key-point {
   font-weight: 600;
+  color: var(--highlight-text-color);
 }
 
-/* Keyword highlighting */
+/* ========== KEYWORD HIGHLIGHTING (for search terms) ========== */
 .highlighted-keyword {
-  background-color: #e8f0fe; /* Light blue highlight */
+  background-color: var(--highlight-bg-keyword);
   padding: 0.1em 0.2em;
   border-radius: 3px;
-  font-weight: 600;
-  color: #174ea6; /* Darker blue text for highlight */
+  font-weight: normal;
+  color: var(--highlight-text-keyword);
+  box-shadow: 0 0 0 1px var(--highlight-bg-keyword);
 }
 
-/* Sidebar for sources */
-.gemini-results-sidebar {
-  flex: 1; /* Takes up less space */
-  min-width: 250px; /* Minimum width for sidebar */
-  border-left: 1px solid #dadce0; /* Separator line */
-  padding-left: 20px;
+/* ========== SOURCES ========== */
+.gemini-sources-title { 
+  font-size: 1rem;
+  font-weight: 500;
+  margin-bottom: 12px;
+  color: var(--text-secondary-color);
 }
 
-.gemini-sources h4 {
-  font-size: 1.1em;
-  margin-bottom: 10px;
-  color: #5f6368; /* Grey heading */
+.gemini-sources-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 12px;
 }
 
-.gemini-sources ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-.source-item {
-  margin-bottom: 15px;
-}
-
-.source-link {
+.source-card {
+  background-color: var(--chat-bubble-background);
+  border-radius: 8px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
   display: flex;
-  align-items: flex-start;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 100px;
+}
+
+[data-theme="dark"] .source-card {
+  background-color: var(--chip-background-color);
+}
+
+.source-card:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  transform: translateY(-2px);
+}
+
+.source-card-link {
   text-decoration: none;
   color: inherit;
-  padding: 5px;
-  border-radius: 4px;
-  transition: background-color 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 
-.source-link:hover {
-  background-color: #e8f0fe; /* Light blue background on hover */
+.source-card-title {
+  font-weight: 500;
+  color: var(--link-color);
+  font-size: 0.9em;
+  margin-bottom: 6px;
+  line-height: 1.3;
+}
+
+.source-card-snippet {
+  font-size: 0.8em;
+  color: var(--text-tertiary-color);
+  line-height: 1.4;
+  margin-bottom: 8px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;  
+  overflow: hidden;
+}
+
+.source-card-footer {
+  display: flex;
+  align-items: center;
+  margin-top: auto;
 }
 
 .source-favicon {
-  width: 16px;
-  height: 16px;
-  margin-right: 8px;
-  margin-top: 3px;
-  background-color: #dadce0; /* Placeholder color */
-  border-radius: 2px;
-  /* TODO: Add actual favicon fetching or default icon */
-  background-image: url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\'%3E%3Cpath fill=\'%235f6368\' d=\'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z\'/%3E%3C/svg%3E");
-  background-size: cover;
-}
-
-.source-details {
-  display: flex;
-  flex-direction: column;
-}
-
-.source-title {
-  font-weight: 500;
-  color: #1a0dab; /* Google blue link color */
-  font-size: 0.95em;
-  margin-bottom: 2px;
+    width: 16px;
+    height: 16px;
+    margin-right: 6px;
+    border-radius: 2px;
 }
 
 .source-url {
-  font-size: 0.8em;
-  color: #5f6368; /* Grey URL */
-  margin-bottom: 4px;
+  font-size: 0.75em;
+  color: var(--text-secondary-color);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-grow: 1;
 }
 
-.source-snippet {
-  font-size: 0.85em;
-  color: #4d5156;
-  line-height: 1.4;
-}
-
-.source-snippet .highlighted-keyword {
-  background-color: #fff8e1; /* Lighter yellow highlight for snippets */
-  color: #795548; /* Brownish text for snippet highlight */
-  font-weight: 500;
-}
-
-/* Follow-up questions section */
-.gemini-chips-container {
-  margin-top: 20px;
-  padding-top: 15px;
-  border-top: 1px solid #dadce0;
-}
-
-.gemini-chips-container h4 {
-  font-size: 1.1em;
-  margin-bottom: 10px;
-  color: #5f6368;
-}
-
-.gemini-chips {
+/* ========== RELATED QUESTIONS (CHIPS) ========== */
+.gemini-chips-list {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+  padding-top: 5px;
 }
 
 .gemini-chip {
   display: inline-flex;
   align-items: center;
-  padding: 6px 12px;
-  border: 1px solid #dadce0;
-  border-radius: 16px;
-  background-color: #fff;
-  color: #3c4043;
+  padding: 8px 14px;
+  border: 1px solid var(--chip-border-color);
+  border-radius: 18px;
+  background-color: var(--chip-background-color);
+  color: var(--chip-text-color);
   font-size: 0.9em;
   cursor: pointer;
-  transition: background-color 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.1s ease;
+  text-align: left;
 }
 
 .gemini-chip:hover {
-  background-color: #f1f3f4;
-}
-
-.gemini-chip-icon {
-  margin-right: 6px;
-  /* Basic icon styling - replace with actual SVG or font icon */
-  width: 16px;
-  height: 16px;
-  display: inline-block;
-  line-height: 16px;
-  text-align: center;
-  font-weight: bold;
-  color: #1a73e8;
+  background-color: var(--chip-background-hover-color);
+  border-color: var(--chip-border-hover-color);
+  transform: translateY(-1px);
 }
 
 .gemini-chip-text {
-  white-space: nowrap;
+    line-height: 1.4;
 }
 
-/* Responsive adjustments (optional example) */
+/* ========== RESPONSIVE ========== */
 @media (max-width: 768px) {
-  .gemini-results-container {
-    flex-direction: column;
+  .gemini-sources-grid {
+    grid-template-columns: 1fr;
   }
-  .gemini-results-sidebar {
-    border-left: none;
-    border-top: 1px solid #dadce0;
-    padding-left: 0;
-    padding-top: 20px;
-    min-width: unset;
+  .gemini-chip {
+    font-size: 0.85em;
+    padding: 7px 12px;
   }
 }
 

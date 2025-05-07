@@ -1,0 +1,86 @@
+/* Styles for UI elements like CopyBtn and ShareBtn */
+
+.action-button {
+    background-color: transparent;
+    border: 1px solid var(--chip-border-color, #dadce0);
+    color: var(--text-secondary-color, #5f6368);
+    padding: 6px 10px;
+    border-radius: 16px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.85em;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+    margin-left: 8px; /* Add some spacing if multiple buttons are in a row */
+}
+
+.action-button:hover {
+    background-color: var(--chip-background-color, #f1f3f4);
+    border-color: var(--chip-border-hover-color, #d2d5d8);
+}
+
+/* Dark theme adjustments for action buttons */
+[data-theme="dark"] .action-button {
+    border: 1px solid var(--chip-border-color-dark, #5f6368);
+    color: var(--text-secondary-color-dark, #9aa0a6);
+}
+
+[data-theme="dark"] .action-button:hover {
+    background-color: var(--chip-background-color-dark, #303134);
+    border-color: var(--chip-border-hover-color-dark, #5f6368);
+}
+
+.action-button svg {
+    width: 14px;
+    height: 14px;
+    margin-right: 6px;
+    fill: currentColor;
+}
+
+/* Specific styling for the share button if needed, otherwise it inherits from action-button */
+.share-button {
+    /* Add any share-button specific styles here if they differ from generic action-button */
+}
+
+/* Styles for CopyBtn.js - if it uses its own module or specific classes */
+.copy-icon {
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    padding: 4px;
+    border-radius: 50%; /* Make it circular if desired */
+    transition: background-color 0.2s ease;
+}
+
+.copy-icon:hover {
+    background-color: var(--chip-background-color, #f1f3f4);
+}
+
+[data-theme="dark"] .copy-icon:hover {
+    background-color: var(--chip-background-color-dark, #303134);
+}
+
+.copy-icon img {
+    width: 16px;
+    height: 16px;
+    opacity: 0.7;
+}
+
+.copy-icon:hover img {
+    opacity: 1;
+}
+
+.copy-message {
+    font-size: 0.75em;
+    margin-left: 6px;
+    color: var(--text-secondary-color, #5f6368);
+    background-color: var(--chip-background-color, #f1f3f4);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+[data-theme="dark"] .copy-message {
+    color: var(--text-secondary-color-dark, #9aa0a6);
+    background-color: var(--chip-background-color-dark, #303134);
+}
+

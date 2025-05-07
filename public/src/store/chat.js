@@ -27,6 +27,9 @@ const chatSlice = createSlice({
     replaceChat(state, action) {
       state.chats = action.payload.chats;
     },
+    getChatHandler(state, action) {
+      state.chats = action.payload.chat || [];
+    },
     recentChatHandler(state, action) {
       state.recentChat = action.payload.recentChat;
     },
@@ -64,10 +67,10 @@ const chatSlice = createSlice({
       state.chats.pop();
     },
     previousChatHandler(state, action) {
-      state.previousChat.push(
-        action.payload.previousChat[0],
-        action.payload.previousChat[1]
-      );
+      // Handle array of chat messages from history
+      if (Array.isArray(action.payload.previousChat)) {
+        state.previousChat = action.payload.previousChat;
+      }
     },
     replacePreviousChat(state, action) {
       state.previousChat = action.payload.previousChat;

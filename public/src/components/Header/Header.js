@@ -3,7 +3,6 @@ import styles from "./Header.module.css";
 import { useDispatch, useSelector } from "react-redux";
 import { uiAction } from "../../store/ui-gemini";
 import { themeIcon } from "../../asset";
-import { commonIcon } from "../../asset";
 import { useNavigate } from "react-router-dom";
 import { chatAction } from "../../store/chat";
 import { continueWithOktaOauth } from "../../utils/getOktaAuthUrl";

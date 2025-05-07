@@ -32,8 +32,7 @@ const CopyBtn = (props) => {
         onClick={copyHandler}
         className={`${styles["copy-icon"]} ${
           !copied && styles["copy-icon-one"]
-        }`}
-      >
+        }`}>
         <img src={icon.copyIcon} alt="copy icon"></img>
         {copied && <span className={styles["copy-message"]}>Copied!</span>}
       </div>

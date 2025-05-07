@@ -10,62 +10,137 @@ const SERVER_ENDPOINT = process.env.SERVER_ENDPOINT || "http://localhost:3030";
 
 /**
  * Submits a question to the specified AI Studio Agent and returns a task ID.
+ * Includes retry logic for authentication failures.
+ * 
  * @param {string} agentId - The ID of the target agent (e.g., jira_ag, conf_ag).
  * @param {string} query - The question to ask the agent.
  * @param {Array} chatHistory - Optional conversation history.
+ * @param {number} maxRetries - Maximum number of retries for 403 errors (default: 2)
  * @returns {Promise<string>} - A promise resolving to the task ID.
  */
-const submitAgentQuestion = async (agentId, query, chatHistory = []) => {
-  try {
-    console.log(
-      `[aiStudioClient] Submitting question to agent ${agentId}: "${query}"`
-    );
-    const agentConf = getAgentConfig(agentId);
-    const agentToken = generateAgentToken(agentId, agentConf.secretKey);
-
-    // Use the base URL from config for the initial submission
-    const submitUrl = agentConf.baseUrl;
-    console.log(`[aiStudioClient] Submit URL: ${submitUrl}`);
-
-    const response = await axios.post(
-      submitUrl,
-      {
-        query: query,
-        // Include chat history if the agent supports it (optional)
-        // chat_history: chatHistory,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${agentToken}`,
-          "Content-Type": "application/json",
-        },
-        timeout: 15000, // 15 seconds timeout for submission
-      }
-    );
-
-    // Assuming the response body contains the task ID, e.g., { body: { taskId: "..." } }
-    const taskId = response.data?.body?.taskId;
-    if (!taskId) {
-      console.error(
-        "[aiStudioClient] Failed to get taskId from agent submission response:",
-        response.data
+const submitAgentQuestion = async (agentId, query, chatHistory = [], maxRetries = 2) => {
+  let retryCount = 0;
+  let lastError = null;
+  
+  // Log environment info (for debugging)
+  console.log(`[aiStudioClient] Environment JWT variables for agent ${agentId}:`);
+  console.log(`[aiStudioClient] JWT_ISSUER: ${process.env.JWT_ISSUER || 'Not set'}`);
+  console.log(`[aiStudioClient] JWT_AUDIENCE: ${process.env.JWT_AUDIENCE || 'Not set'}`);
+  
+  // Exponential backoff retry loop for authentication issues
+  while (retryCount <= maxRetries) {
+    try {
+      console.log(
+        `[aiStudioClient] Submitting question to agent ${agentId} (attempt ${retryCount + 1}/${maxRetries + 1}): "${query}"`
       );
-      throw new Error(`Agent ${agentId} did not return a valid task ID.`);
-    }
+      
+      // Get agent configuration
+      const agentConf = getAgentConfig(agentId);
+      
+      // For retry attempts, regenerate token with longer expiry
+      const tokenExpiry = 30 + (retryCount * 10); // Increase expiry time with each retry
+      const agentToken = generateAgentToken(agentId, agentConf.secretKey, tokenExpiry);
 
-    console.log(
-      `[aiStudioClient] Submitted question to agent ${agentId}, received taskId: ${taskId}`
-    );
-    return taskId;
-  } catch (error) {
-    console.error(
-      `[aiStudioClient] Error submitting question to agent ${agentId}:`,
-      error.response?.data || error.message
-    );
-    throw new Error(
-      `Failed to submit question to agent ${agentId}: ${error.message}`
-    );
+      // Use the base URL from config for the initial submission
+      const submitUrl = agentConf.baseUrl;
+      console.log(`[aiStudioClient] Submit URL: ${submitUrl}`);
+
+      // Fallback logic: Try a different agent when we get auth errors
+      let effectiveAgentId = agentId;
+      
+      // After the first retry, try an alternate agent if we're targeting jira_ag
+      if (agentId === 'jira_ag' && retryCount >= 1) {
+        effectiveAgentId = 'conf_ag'; // First fallback: Try Confluence agent
+      }
+      
+      // For the final retry, always fall back to the default agent
+      if (retryCount === maxRetries) {
+        effectiveAgentId = 'default';
+      }
+      
+      // Log fallback behavior
+      if (effectiveAgentId !== agentId) {
+        console.log(`[aiStudioClient] Trying fallback agent ${effectiveAgentId} for attempt ${retryCount + 1}`);
+      }
+        
+      // If falling back, regenerate config and token
+      const effectiveAgentConf = (effectiveAgentId !== agentId) 
+        ? getAgentConfig(effectiveAgentId)
+        : agentConf;
+      
+      // Generate a new token for the fallback agent with shorter expiry
+      const effectiveAgentToken = (effectiveAgentId !== agentId)
+        ? generateAgentToken(effectiveAgentId, effectiveAgentConf.secretKey, 15) // Shorter expiry for fallback
+        : agentToken;
+      
+      const effectiveSubmitUrl = (effectiveAgentId !== agentId)
+        ? effectiveAgentConf.baseUrl
+        : submitUrl;
+        
+      if (effectiveAgentId !== agentId) {
+        console.log(`[aiStudioClient] Falling back to agent ${effectiveAgentId} with URL ${effectiveSubmitUrl}`);
+      }
+
+      const response = await axios.post(
+        effectiveSubmitUrl,
+        {
+          question: query, // AI Studio expects "question" not "query"
+          chat_history: chatHistory || [], // Include chat history in expected format
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${effectiveAgentToken}`,
+            "Content-Type": "application/json",
+          },
+          timeout: 15000 + (retryCount * 5000), // Increase timeout with each retry
+        }
+      );
+
+      // Assuming the response body contains the task ID, e.g., { body: { taskId: "..." } }
+      const taskId = response.data?.body?.taskId;
+      if (!taskId) {
+        console.error(
+          "[aiStudioClient] Failed to get taskId from agent submission response:",
+          response.data
+        );
+        throw new Error(`Agent ${effectiveAgentId} did not return a valid task ID.`);
+      }
+
+      console.log(
+        `[aiStudioClient] Successfully submitted question to agent ${effectiveAgentId}, received taskId: ${taskId}`
+      );
+      return taskId;
+      
+    } catch (error) {
+      lastError = error;
+      const status = error.response?.status;
+      
+      // Retry for auth errors (401 or 403) and other specific errors
+      const authErrorCodes = [401, 403];
+      const tokenErrorMessage = error.response?.data?.message?.toLowerCase().includes('token');
+      
+      if ((authErrorCodes.includes(status) || tokenErrorMessage) && retryCount < maxRetries) {
+        const backoffTime = Math.pow(2, retryCount) * 1000; // Exponential backoff: 1s, 2s, 4s, etc.
+        console.warn(
+          `[aiStudioClient] Authentication failed (${status || 'unknown'}) for agent ${agentId}: ${error.response?.data?.message || error.message}, retrying in ${backoffTime/1000}s... (attempt ${retryCount + 1}/${maxRetries})`
+        );
+        await new Promise(resolve => setTimeout(resolve, backoffTime));
+        retryCount++;
+      } else {
+        // For non-auth errors or if we've exhausted retries, throw the error
+        console.error(
+          `[aiStudioClient] Error submitting question to agent ${agentId}:`,
+          error.response?.data || error.message
+        );
+        throw new Error(
+          `Failed to submit question to agent ${agentId}: ${error.message}`
+        );
+      }
+    }
   }
+  
+  // If we've exhausted retries and still have an error
+  throw lastError || new Error(`Failed to submit question to agent ${agentId} after ${maxRetries} retries`);
 };
 
 /**
@@ -160,33 +235,50 @@ const pollAgentResult = async (
  * @param {string[]} searchQueries - List of queries (using the first one for now).
  * @param {string} originalQuery - The original user query.
  * @param {Array} chatHistory - Conversation history.
+ * @param {string} forceAgentId - Optional specific agent ID to use.
  * @returns {Promise<Array<object>>} - A promise resolving to an array containing the agent's result.
  */
-const queryAgent = async (searchQueries, originalQuery, chatHistory = []) => {
+const queryAgent = async (searchQueries, originalQuery, chatHistory = [], forceAgentId = null) => {
   // Determine the target agent based on query or default
-  // This logic might need refinement based on how agents are selected
-  let agentId = "default"; // Fallback agent ID
-  if (originalQuery.toLowerCase().includes("jira")) {
-    agentId = "jira_ag";
-  } else if (originalQuery.toLowerCase().includes("confluence")) {
-    agentId = "conf_ag";
-  } else if (originalQuery.toLowerCase().includes("client")) {
-    agentId = "MRlQT_lhFw"; // Example client agent ID
-  } else if (originalQuery.toLowerCase().includes("zr")) {
-    agentId = "zr_ag";
+  let agentId = forceAgentId || "default"; // Use forced ID or fallback
+  
+  // Only determine agent from query if not forced
+  if (!forceAgentId) {
+    if (originalQuery.toLowerCase().includes("jira") || 
+        originalQuery.toLowerCase().includes("ticket") ||
+        originalQuery.toLowerCase().includes("zsee")) {
+      agentId = "jira_ag";
+    } else if (originalQuery.toLowerCase().includes("confluence") || 
+               originalQuery.toLowerCase().includes("wiki") ||
+               originalQuery.toLowerCase().includes("document")) {
+      agentId = "conf_ag";
+    } else if (originalQuery.toLowerCase().includes("client") || 
+               originalQuery.toLowerCase().includes("zoom client")) {
+      agentId = "MRlQT_lhFw"; // Client agent ID
+    } else if (originalQuery.toLowerCase().includes("zr") ||
+               originalQuery.toLowerCase().includes("zoom rooms")) {
+      agentId = "zr_ag";
+    }
   }
-  // Add more rules as needed
 
   console.log(`[aiStudioClient] Determined target agent: ${agentId}`);
 
   const queryToSubmit = searchQueries[0] || originalQuery; // Use the first generated query or the original
+  console.log(`[aiStudioClient] Using query: "${queryToSubmit}"`);
+
+  // Format chat history for AI Studio API if provided
+  const formattedChatHistory = Array.isArray(chatHistory) ? 
+    chatHistory.map(entry => ({
+      human: entry.user || entry.human || "",
+      ai: entry.assistant || entry.ai || entry.gemini || ""
+    })) : [];
 
   try {
-    // 1. Submit the question to get the task ID
+    // 1. Submit the question to get the task ID with properly formatted chat history
     const taskId = await submitAgentQuestion(
       agentId,
       queryToSubmit,
-      chatHistory
+      formattedChatHistory
     );
 
     // 2. Poll for the result using the task ID

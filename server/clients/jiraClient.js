@@ -23,6 +23,48 @@ const AUTH_TOKEN =
 console.log(`[jiraClient] Auth token generated: ${AUTH_TOKEN ? 'Yes' : 'No'}`);
 
 /**
+ * Fetches all comments for a specific Jira issue
+ * 
+ * @param {string} issueKey - The Jira issue key (e.g., ZSEE-166382)
+ * @returns {Promise<Array<object>>} - A promise resolving to an array of comments
+ */
+const fetchAllComments = async (issueKey) => {
+  if (!JIRA_URL || !AUTH_TOKEN) {
+    console.error("[jiraClient] Jira API not configured. Cannot fetch comments.");
+    return [];
+  }
+  
+  try {
+    console.log(`[jiraClient] Fetching all comments for issue ${issueKey}`);
+    const commentsUrl = `${JIRA_URL}/rest/api/3/issue/${issueKey}/comment`;
+    const response = await axios.get(commentsUrl, {
+      headers: {
+        Authorization: AUTH_TOKEN,
+        Accept: "application/json",
+      },
+      params: {
+        maxResults: 100, // Get up to 100 comments
+        expand: "renderedBody", // Get rendered HTML version
+      }
+    });
+    
+    const comments = response.data?.comments || [];
+    console.log(`[jiraClient] Found ${comments.length} comments for issue ${issueKey}`);
+    
+    return comments.map(comment => ({
+      author: comment.author?.displayName || "Unknown",
+      created: comment.created,
+      text: comment.body?.content
+        ?.map(c => c.content?.map(t => t.text).join(" ") || "")
+        .join("\n") || "No content"
+    }));
+  } catch (error) {
+    console.error(`[jiraClient] Error fetching comments for ${issueKey}:`, error.message);
+    return [];
+  }
+};
+
+/**
  * Searches Jira issues based on a natural language query.
  * Converts the query to JQL first, then calls the Jira API.
  *
@@ -93,29 +135,42 @@ const searchIssues = async (naturalLanguageQuery, maxResults = 5) => {
     const issues = response.data?.issues || [];
     console.log(`[jiraClient] Found ${issues.length} issues.`);
 
-    const formattedResults = issues.map((issue) => ({
-      title: `${issue.key}: ${issue.fields.summary}`,
-      summary:
-        issue.fields.description?.content
-          ?.map((c) => c.content?.map((t) => t.text).join(" ") || "")
-          .join("\n") || issue.fields.summary, // Attempt to extract text from description ADF
-      url: `${JIRA_URL}/browse/${issue.key}`,
-      search_engine: "Jira Direct API",
-      chunks:
-        issue.fields.comment?.comments?.map((c) =>
+    // Process each issue, with special handling for ZSEE tickets
+    const formattedResults = await Promise.all(issues.map(async (issue) => {
+      let commentChunks = [];
+      
+      // Special handling for ZSEE tickets - fetch all comments separately
+      if (issue.key.includes("ZSEE-")) {
+        console.log(`[jiraClient] ZSEE ticket detected: ${issue.key} - fetching all comments`);
+        commentChunks = await fetchAllComments(issue.key);
+      } else {
+        // Standard comment extraction for non-ZSEE tickets
+        commentChunks = issue.fields.comment?.comments?.map((c) =>
           c.body?.content
             ?.map((c2) => c2.content?.map((t) => t.text).join(" ") || "")
             .join("\n")
-        ) || [], // Extract comment text
-      extra: {
-        key: issue.key,
-        status: issue.fields.status?.name,
-        assignee: issue.fields.assignee?.displayName,
-        reporter: issue.fields.reporter?.displayName,
-        priority: issue.fields.priority?.name,
-        created: issue.fields.created,
-        updated: issue.fields.updated,
-      },
+        ) || [];
+      }
+      
+      return {
+        title: `${issue.key}: ${issue.fields.summary}`,
+        summary:
+          issue.fields.description?.content
+            ?.map((c) => c.content?.map((t) => t.text).join(" ") || "")
+            .join("\n") || issue.fields.summary, // Attempt to extract text from description ADF
+        url: `${JIRA_URL}/browse/${issue.key}`,
+        search_engine: "Jira Direct API",
+        chunks: commentChunks, // Use enhanced comments for ZSEE tickets
+        extra: {
+          key: issue.key,
+          status: issue.fields.status?.name,
+          assignee: issue.fields.assignee?.displayName,
+          reporter: issue.fields.reporter?.displayName,
+          priority: issue.fields.priority?.name,
+          created: issue.fields.created,
+          updated: issue.fields.updated,
+        },
+      };
     }));
 
     return formattedResults;
@@ -159,4 +214,5 @@ const searchIssues = async (naturalLanguageQuery, maxResults = 5) => {
 
 export default {
   searchIssues,
+  fetchAllComments,
 };

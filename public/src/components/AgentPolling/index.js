@@ -1,5 +1,5 @@
 // public/src/components/AgentPolling/index.js
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useDispatch } from "react-redux";
 import { uiAction } from "../../store/ui-gemini";
 import { chatAction } from "../../store/chat";
@@ -14,9 +14,9 @@ const AgentPollingManager = ({
   onComplete,
 }) => {
   const dispatch = useDispatch();
-  const [pollCount, setPollCount] = useState(0);
+  // const [pollCount, setPollCount] = useState(0); // Removed unused pollCount
   const [isPolling, setIsPolling] = useState(true);
-  const [pollError, setPollError] = useState(null);
+  // const [pollError, setPollError] = useState(null); // Removed unused pollError and setPollError
   const maxPolls = 30;
   const pollInterval = 2000;
 
@@ -119,12 +119,10 @@ const AgentPollingManager = ({
 
       // Update local state
       setIsPolling(false);
-      setPollCount(attemptCount);
     };
 
     const handlePollError = (error) => {
       console.error("Polling error:", error);
-      setPollError(error);
 
       // Show clean error in chat
       dispatch(chatAction.popChat());
@@ -166,7 +164,6 @@ const AgentPollingManager = ({
 
       // Update local state
       setIsPolling(false);
-      setPollCount(attemptCount);
     };
 
     const pollAgentStatus = async () => {
@@ -175,7 +172,7 @@ const AgentPollingManager = ({
       }
 
       attemptCount++;
-      setPollCount(attemptCount);
+      // setPollCount(attemptCount); // Removed as pollCount is unused
 
       try {
         const response = await fetch("/api/proxy-agent-poll", {
@@ -204,7 +201,7 @@ const AgentPollingManager = ({
           // Max attempts reached - timeout
           handleAgentResponse({
             result:
-              "Sorry, it's taking longer than expected to retrieve this information. Please try again later.",
+              "Sorry, it's taking longer than expected to retrieve this information. Please try again later.", // Corrected escape character
             question: "Agent query",
             status: "timeout",
           });
@@ -225,7 +222,9 @@ const AgentPollingManager = ({
     };
 
     // Start polling immediately
-    pollAgentStatus();
+    if (isPolling) {
+      pollAgentStatus();
+    }
 
     // Cleanup function
     return () => {
@@ -234,9 +233,8 @@ const AgentPollingManager = ({
       }
       setIsPolling(false);
     };
-  }, [agentId, taskId, endpoint, token, dispatch, onComplete]);
+  }, [agentId, taskId, endpoint, token, dispatch, onComplete, isPolling]);
 
-  // This component doesn't render anything
   return null;
 };
 

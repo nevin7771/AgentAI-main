@@ -51,7 +51,9 @@ export const apiFetch = (path, options = {}) => {
   return fetch(url, fetchOptions);
 };
 
-export default {
+const apiHelper = {
   getApiUrl,
   apiFetch,
 };
+
+export default apiHelper;

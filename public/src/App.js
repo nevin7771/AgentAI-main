@@ -8,7 +8,7 @@ import SettingSection from "./components/SettingSection/SettingSecion";
 import Sidebar from "./components/Sidebar/Sidebar";
 import { useSelector, useDispatch } from "react-redux";
 import { uiAction } from "./store/ui-gemini";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { getRecentChat } from "./store/chat-action";
 import UserDetails from "./components/UserDetails/UserDetails";
 import { refreshToken } from "./store/auth-action";

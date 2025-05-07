@@ -62,43 +62,43 @@ NODE_ENV=development
 
 # Agent-specific configuration
 # For each agent, configure its own URL and JWT credentials
-API_BASE_URL=https://dg01ai.zoom.us/open/api/v1/caic/general-ai/MRlQT_PPQM2nZVaQVflhFw
+API_BASE_URL=https://dg01ai.zoom.us/open/api/v1/caic/general-ai/tt6w7wNWQUOn5UBPCUi2mg
 
 # Confluence Agent
-CONF_AG_API_URL=https://dg01ai.zoom.us/open/api/v1/caic/general-ai/MRlQT_PPQM2nZVaQVflhFw?skillSettingId=conf_ag
-CONF_AG_JWT_SECRET=gzazjvdts768lelcbcyy5ecpkiguthmq
+CONF_AG_API_URL=https://dg01ai.zoom.us/open/api/v1/caic/general-ai/tt6w7wNWQUOn5UBPCUi2mg?skillSettingId=conf_ag
+CONF_AG_JWT_SECRET=xh94swe59q03xi1felkuxdntkn5gd9zt
 CONF_AG_JWT_ISSUER=yana.bao+AIStudio+DG01@test.zoom.us
 CONF_AG_JWT_AUDIENCE=zoom_caic
 CONF_AG_JWT_AID=3v8eT3vkQ1-PBQnN61MJog
 CONF_AG_JWT_UID=NhiGO2feQEORV5Loghzx_Q
 
 # Jira Agent
-JIRA_AG_API_URL=https://dg01ai.zoom.us/open/api/v1/caic/general-ai/MRlQT_PPQM2nZVaQVflhFw?skillSettingId=jira_ag
-JIRA_AG_JWT_SECRET=gzazjvdts768lelcbcyy5ecpkiguthmq
+JIRA_AG_API_URL=https://dg01ai.zoom.us/open/api/v1/caic/general-ai/tt6w7wNWQUOn5UBPCUi2mg?skillSettingId=jira_ag
+JIRA_AG_JWT_SECRET=xh94swe59q03xi1felkuxdntkn5gd9zt
 JIRA_AG_JWT_ISSUER=yana.bao+AIStudio+DG01@test.zoom.us
 JIRA_AG_JWT_AUDIENCE=zoom_caic
 JIRA_AG_JWT_AID=3v8eT3vkQ1-PBQnN61MJog
 JIRA_AG_JWT_UID=NhiGO2feQEORV5Loghzx_Q
 
 # Client Agent
-CLIENT_AGENT_API_URL=https://dg01ai.zoom.us/open/api/v1/caic/general-ai/MRlQT_PPQM2nZVaQVflhFw?skillSettingId=client_agent
-CLIENT_AGENT_JWT_SECRET=gzazjvdts768lelcbcyy5ecpkiguthmq
+CLIENT_AGENT_API_URL=https://dg01ai.zoom.us/open/api/v1/caic/general-ai/tt6w7wNWQUOn5UBPCUi2mg?skillSettingId=client_agent
+CLIENT_AGENT_JWT_SECRET=xh94swe59q03xi1felkuxdntkn5gd9zt
 CLIENT_AGENT_JWT_ISSUER=yana.bao+AIStudio+DG01@test.zoom.us
 CLIENT_AGENT_JWT_AUDIENCE=zoom_caic
 CLIENT_AGENT_JWT_AID=3v8eT3vkQ1-PBQnN61MJog
 CLIENT_AGENT_JWT_UID=NhiGO2feQEORV5Loghzx_Q
 
 # ZR Agent
-ZR_AG_API_URL=https://dg01ai.zoom.us/open/api/v1/caic/general-ai/MRlQT_PPQM2nZVaQVflhFw?skillSettingId=zr_ag
-ZR_AG_JWT_SECRET=gzazjvdts768lelcbcyy5ecpkiguthmq
+ZR_AG_API_URL=https://dg01ai.zoom.us/open/api/v1/caic/general-ai/tt6w7wNWQUOn5UBPCUi2mg?skillSettingId=zr_ag
+ZR_AG_JWT_SECRET=xh94swe59q03xi1felkuxdntkn5gd9zt
 ZR_AG_JWT_ISSUER=yana.bao+AIStudio+DG01@test.zoom.us
 ZR_AG_JWT_AUDIENCE=zoom_caic
 ZR_AG_JWT_AID=3v8eT3vkQ1-PBQnN61MJog
 ZR_AG_JWT_UID=NhiGO2feQEORV5Loghzx_Q
 
 # ZP Agent
-ZP_AG_API_URL=https://dg01ai.zoom.us/open/api/v1/caic/general-ai/MRlQT_PPQM2nZVaQVflhFw?skillSettingId=zp_ag
-ZP_AG_JWT_SECRET=gzazjvdts768lelcbcyy5ecpkiguthmq
+ZP_AG_API_URL=https://dg01ai.zoom.us/open/api/v1/caic/general-ai/tt6w7wNWQUOn5UBPCUi2mg?skillSettingId=zp_ag
+ZP_AG_JWT_SECRET=xh94swe59q03xi1felkuxdntkn5gd9zt
 ZP_AG_JWT_ISSUER=yana.bao+AIStudio+DG01@test.zoom.us
 ZP_AG_JWT_AUDIENCE=zoom_caic
 ZP_AG_JWT_AID=3v8eT3vkQ1-PBQnN61MJog
@@ -109,7 +109,7 @@ JWT_ISSUER=yana.bao+AIStudio+DG01@test.zoom.us
 JWT_AUDIENCE=zoom_caic
 JWT_AID=3v8eT3vkQ1-PBQnN61MJog
 JWT_UID=NhiGO2feQEORV5Loghzx_Q
-JWT_SECRET_KEY=gzazjvdts768lelcbcyy5ecpkiguthmq
+JWT_SECRET_KEY=xh94swe59q03xi1felkuxdntkn5gd9zt
 
 # CORS Configuration
 CLIENT_REDIRECT_URL=https://vista.nklab.ltd:3000
