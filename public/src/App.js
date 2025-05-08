@@ -3,6 +3,7 @@ import "./App.css";
 import "./DeepSearch.css";
 import "./DeepResearch.css";
 import "./AgentStyles.css"; // For our Agent components styling
+import "../../public/src/styles/GeminiResults.css";
 import ChatSection from "./components/ChatSection/ChatSection";
 import SettingSection from "./components/SettingSection/SettingSecion";
 import Sidebar from "./components/Sidebar/Sidebar";

@@ -1,7 +1,9 @@
 // public/src/store/chat-action.js
 // Combined and reviewed version based on user feedback and previous iterations.
+// Ensures markdown rendering and keyword highlighting for historical chats.
 import { chatAction } from "./chat";
 import { userAction } from "./user";
+import { marked } from "marked"; // Ensure marked is imported
 
 const SERVER_ENDPOINT =
   process.env.REACT_APP_SERVER_ENDPOINT || "http://localhost:3030";
@@ -13,18 +15,148 @@ const extractKeywords = (queryStr) => {
   return queryStr
     .toLowerCase()
     .split(" ")
-    .filter((kw) => kw.trim().length > 1);
+    .filter((kw) => kw.trim().length > 1); // User's version had > 1, keeping it
+};
+
+const filterReasonActLines = (text) => {
+  if (!text || typeof text !== "string") return text;
+  
+  // First, remove any REASON/ACT patterns with ** markers
+  let filteredText = text.replace(/\*\*REASON:\*\*.*?(?=\n\*\*ACT:|$)/gs, '');
+  filteredText = filteredText.replace(/\*\*ACT:\*\*.*?(?=\n\*\*REASON:|$)/gs, '');
+  
+  // Next, filter lines that start with REASON: or ACT:
+  const lines = filteredText.split("\n");
+  const filteredLines = lines.filter(
+    (line) => {
+      const trimmed = line.trim();
+      return !trimmed.startsWith("REASON:") && 
+             !trimmed.startsWith("ACT:") &&
+             !trimmed.match(/^#+\s+##\s*$/); // Also filter "# ##" pattern
+    }
+  );
+  
+  return filteredLines.join("\n");
+};
+
+// Centralized content processing: markdown parsing and keyword highlighting
+const processContentForDisplay = (
+  content,
+  queryKeywords,
+  isAlreadyHTML = false
+) => {
+  if (!content || typeof content !== "string") {
+    return { processedContent: content || "", isHTML: isAlreadyHTML };
+  }
+
+  let currentContent = content;
+  let htmlContent;
+
+  // Always parse with marked if not already HTML, to ensure markdown is rendered.
+  if (isAlreadyHTML) {
+    htmlContent = currentContent;
+  } else {
+    const filteredContent = filterReasonActLines(currentContent);
+    htmlContent = marked.parse(filteredContent.toString());
+  }
+
+  if (
+    queryKeywords &&
+    queryKeywords.length > 0 &&
+    typeof DOMParser !== "undefined" &&
+    typeof XMLSerializer !== "undefined"
+  ) {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(htmlContent, "text/html");
+      const walker = document.createTreeWalker(
+        doc.body,
+        NodeFilter.SHOW_TEXT,
+        null,
+        false
+      );
+      let node;
+      const nodesToProcess = [];
+      while ((node = walker.nextNode())) {
+        if (
+          node.parentElement &&
+          node.parentElement.tagName.toLowerCase() !== "script" &&
+          node.parentElement.tagName.toLowerCase() !== "style" &&
+          !node.parentElement.classList.contains("highlighted-keyword")
+        ) {
+          nodesToProcess.push(node);
+        }
+      }
+
+      nodesToProcess.forEach((textNode) => {
+        let text = textNode.nodeValue;
+        queryKeywords.forEach((keyword) => {
+          if (keyword && keyword.trim() !== "") {
+            const escapedKeyword = keyword.replace(
+              /[.*+?^${}()|[\\]\\]/g,
+              "\\$&"
+            );
+            const regex = new RegExp(`\\b(${escapedKeyword})\\b`, "gi");
+            let match;
+            let lastIndex = 0;
+            const fragment = document.createDocumentFragment();
+            let replaced = false;
+
+            while ((match = regex.exec(text)) !== null) {
+              replaced = true;
+              if (match.index > lastIndex) {
+                fragment.appendChild(
+                  document.createTextNode(
+                    text.substring(lastIndex, match.index)
+                  )
+                );
+              }
+              const span = document.createElement("span");
+              span.className = "highlighted-keyword";
+              span.textContent = match[0];
+              fragment.appendChild(span);
+              lastIndex = regex.lastIndex;
+            }
+            if (lastIndex < text.length) {
+              fragment.appendChild(
+                document.createTextNode(text.substring(lastIndex))
+              );
+            }
+
+            if (replaced && textNode.parentNode) {
+              textNode.parentNode.replaceChild(fragment, textNode);
+            }
+          }
+        });
+      });
+
+      const serializer = new XMLSerializer();
+      let newHtmlContent = serializer.serializeToString(doc.body);
+      if (newHtmlContent.startsWith("<body>")) {
+        newHtmlContent = newHtmlContent.substring("<body>".length);
+      }
+      if (newHtmlContent.endsWith("</body>")) {
+        newHtmlContent = newHtmlContent.substring(
+          0,
+          newHtmlContent.length - "</body>".length
+        );
+      }
+      htmlContent = newHtmlContent;
+    } catch (e) {
+      console.error("DOM manipulation error during highlighting:", e);
+    }
+  }
+  return { processedContent: htmlContent, isHTML: true }; // Always return isHTML: true after processing
 };
 
 // Helper to parse HTML and extract structured data (enhanced for robustness)
-const parseFormattedHTML = (htmlString, queryKeywords) => {
+const parseFormattedHTML = (htmlString) => {
   let mainAnswer = htmlString;
   const sources = [];
   const relatedQuestions = [];
   let parsingFailed = false;
 
   if (typeof DOMParser === "undefined") {
-    // Fallback for environments without DOMParser (e.g., some test runners)
     return { mainAnswer, sources, relatedQuestions, parsingFailed: true };
   }
 
@@ -32,9 +164,8 @@ const parseFormattedHTML = (htmlString, queryKeywords) => {
     const parser = new DOMParser();
     const doc = parser.parseFromString(htmlString, "text/html");
 
-    // Attempt to extract main answer (content outside sources/RQs)
     const answerContainer =
-      doc.querySelector(".gemini-answer-container") || doc.body; // A more specific container if available
+      doc.querySelector(".gemini-answer-container") || doc.body;
     if (answerContainer) {
       const answerClone = answerContainer.cloneNode(true);
       answerClone
@@ -44,10 +175,9 @@ const parseFormattedHTML = (htmlString, queryKeywords) => {
         .forEach((el) => el.remove());
       mainAnswer = answerClone.innerHTML || htmlString;
     } else {
-      mainAnswer = htmlString; // Fallback to full HTML if no specific container
+      mainAnswer = htmlString;
     }
 
-    // Extract sources
     doc
       .querySelectorAll(".source-card a, .sources-section .search_source a")
       .forEach((el) => {
@@ -64,7 +194,6 @@ const parseFormattedHTML = (htmlString, queryKeywords) => {
         }
       });
 
-    // Extract related questions
     doc
       .querySelectorAll(".gemini-chip, .related-questions-section .chip")
       .forEach((el) => {
@@ -75,8 +204,7 @@ const parseFormattedHTML = (htmlString, queryKeywords) => {
       });
   } catch (e) {
     console.error("Error parsing HTML for structured data:", e);
-    parsingFailed = true; // Mark as failed, so ScrollChat can treat as preformatted HTML
-    // Return original HTML as mainAnswer, and empty sources/RQs
+    parsingFailed = true;
     return {
       mainAnswer: htmlString,
       sources: [],
@@ -107,7 +235,6 @@ export const getRecentChat = () => {
         dispatch({ type: "GET_RECENT_CHAT_SUCCESS" });
         const formattedRecentChats = (data.chatHistory || []).map((chat) => ({
           ...chat,
-          // Ensure essential fields for sidebar display are present
           _id: chat._id || chat.id,
           title: chat.title || "Untitled Chat",
           searchType: chat.searchType || (chat.isSearch ? "search" : "chat"),
@@ -142,8 +269,8 @@ export const sendChatData = (useInput) => {
           queryKeywords,
           sources: [],
           relatedQuestions: [],
-          isPreformattedHTML: false, // Standard Gemini API response is not preformatted HTML
-          isLoader: "yes", // Show loader immediately
+          isPreformattedHTML: false,
+          isLoader: "yes",
         },
       })
     );
@@ -178,17 +305,21 @@ export const sendChatData = (useInput) => {
             ],
           })
         );
-        dispatch(chatAction.popChat()); // Remove loader
+        dispatch(chatAction.popChat());
+
+        const { processedContent: finalGeminiContent, isHTML: finalIsHTML } =
+          processContentForDisplay(data.gemini, queryKeywords, false);
+
         dispatch(
           chatAction.chatStart({
             useInput: {
               user: data.user,
-              gemini: data.gemini,
+              gemini: finalGeminiContent,
               isLoader: "no",
-              queryKeywords: queryKeywords, // Pass keywords for the response
+              queryKeywords: queryKeywords,
               sources: [],
               relatedQuestions: [],
-              isPreformattedHTML: false, // Standard chat is plain text/markdown
+              isPreformattedHTML: finalIsHTML, // Use the flag from processing
             },
           })
         );
@@ -204,7 +335,7 @@ export const sendChatData = (useInput) => {
       })
       .catch((err) => {
         const statusCode = err.statusCode || 500;
-        dispatch(chatAction.popChat()); // Remove loader
+        dispatch(chatAction.popChat());
         const errorMessage =
           statusCode === 429
             ? "Rate Limit Exceeded. Please wait before trying again."
@@ -219,7 +350,7 @@ export const sendChatData = (useInput) => {
               sources: [],
               relatedQuestions: [],
               error: true,
-              isPreformattedHTML: true, // Error message is HTML
+              isPreformattedHTML: true,
             },
           })
         );
@@ -241,7 +372,7 @@ export const sendDeepSearchRequest = (searchRequest) => {
       chatAction.chatStart({
         useInput: {
           user: searchRequest.query,
-          gemini: "", // Placeholder for loader
+          gemini: "",
           isLoader: "yes",
           isSearch: true,
           searchType: searchType,
@@ -285,45 +416,51 @@ export const sendDeepSearchRequest = (searchRequest) => {
       }
 
       const data = await response.json();
-      dispatch(chatAction.popChat()); // Remove loader
+      dispatch(chatAction.popChat());
 
-      let geminiContent = "Search processed.";
+      let geminiContentToProcess = "Search processed.";
       let sources = [];
       let relatedQuestions = [];
-      let isPreformattedHTML = false; // Default to false, let ScrollChat handle markdown
+      let isContentPreformattedByAgent = false;
 
       if (data.success) {
         if (data.result && typeof data.result.answer !== "undefined") {
-          // Prefer structured data
-          geminiContent = data.result.answer;
+          geminiContentToProcess = data.result.answer;
           sources = data.result.sources || [];
           relatedQuestions = data.result.relatedQuestions || [];
-          isPreformattedHTML = false; // ScrollChat will process this for highlighting etc.
+          isContentPreformattedByAgent = false;
         } else if (data.formattedHtml) {
-          // Fallback to HTML blob from agentUtils.formatSearchResultHTML
-          const parsed = parseFormattedHTML(data.formattedHtml, queryKeywords);
-          geminiContent = parsed.mainAnswer;
+          const parsed = parseFormattedHTML(data.formattedHtml);
+          geminiContentToProcess = parsed.mainAnswer;
           sources = parsed.sources;
           relatedQuestions = parsed.relatedQuestions;
-          // If parsing fails, it means the HTML is complex, so let ScrollChat render as is.
-          // If parsing succeeds, ScrollChat can still process the mainAnswer for markdown & highlighting.
-          isPreformattedHTML = parsed.parsingFailed;
+          isContentPreformattedByAgent = !parsed.parsingFailed;
+        } else if (typeof data.answerHtml === "string") {
+          geminiContentToProcess = data.answerHtml;
+          isContentPreformattedByAgent = true;
         } else {
-          geminiContent = "No answer content found.";
-          isPreformattedHTML = false;
+          geminiContentToProcess = "No answer content found.";
+          isContentPreformattedByAgent = false;
         }
       } else {
-        geminiContent = `<p>Search failed: ${
+        geminiContentToProcess = `<p>Search failed: ${
           data.error || "Unknown error"
         }</p>`;
-        isPreformattedHTML = true; // Error messages are HTML
+        isContentPreformattedByAgent = true;
       }
+
+      const { processedContent: finalGeminiContent, isHTML: finalIsHTML } =
+        processContentForDisplay(
+          geminiContentToProcess,
+          queryKeywords,
+          isContentPreformattedByAgent
+        );
 
       dispatch(
         chatAction.chatStart({
           useInput: {
             user: searchRequest.query,
-            gemini: geminiContent,
+            gemini: finalGeminiContent,
             isLoader: "no",
             isSearch: true,
             searchType,
@@ -331,14 +468,13 @@ export const sendDeepSearchRequest = (searchRequest) => {
             queryKeywords: queryKeywords,
             sources: sources,
             relatedQuestions: relatedQuestions,
-            isPreformattedHTML: isPreformattedHTML,
+            isPreformattedHTML: finalIsHTML, // Use the flag from processing
           },
         })
       );
 
       let finalChatHistoryId = data.chatHistoryId;
       if (!finalChatHistoryId && data.success) {
-        // If backend didn't return an ID but search was successful
         try {
           const createHistoryUrl = `${BASE_URL}/api/create-chat-history`;
           const historyResponse = await fetch(createHistoryUrl, {
@@ -353,11 +489,11 @@ export const sendDeepSearchRequest = (searchRequest) => {
                 searchRequest.query.substring(0, 50) || `${searchType} Search`,
               message: {
                 user: searchRequest.query,
-                gemini: geminiContent,
+                gemini: finalGeminiContent, // Store the processed content
                 sources,
                 relatedQuestions,
                 queryKeywords,
-                isPreformattedHTML,
+                isPreformattedHTML: finalIsHTML, // Store this flag
               },
               isSearch: true,
               searchType: searchType,
@@ -381,7 +517,6 @@ export const sendDeepSearchRequest = (searchRequest) => {
         dispatch(
           chatAction.chatHistoryIdHandler({ chatHistoryId: finalChatHistoryId })
         );
-        // Save to localStorage
         try {
           const existingStorageHistory = JSON.parse(
             localStorage.getItem("searchHistory") || "[]"
@@ -402,13 +537,13 @@ export const sendDeepSearchRequest = (searchRequest) => {
               "searchHistory",
               JSON.stringify(existingStorageHistory.slice(0, 50))
             );
-            window.dispatchEvent(new Event("storage")); // Notify sidebar
+            window.dispatchEvent(new Event("storage"));
           }
         } catch (err) {
           console.error("Error saving search history to localStorage:", err);
         }
       }
-      dispatch(chatAction.newChatHandler()); // Reset for new input
+      dispatch(chatAction.newChatHandler());
     } catch (error) {
       console.error(`Error in sendDeepSearchRequest (${searchType}):`, error);
       dispatch(chatAction.popChat());
@@ -435,192 +570,215 @@ export const sendDeepSearchRequest = (searchRequest) => {
 
 export const getChat = (chatId) => {
   return (dispatch) => {
-    dispatch({ type: "GET_CHAT_REQUEST" });
+    console.log("[getChat] Attempting to fetch chat with ID:", chatId);
+    if (!chatId) {
+      console.error("[getChat] Error: chatId is undefined or null.");
+      dispatch(
+        chatAction.chatStart({
+          useInput: {
+            user: "",
+            gemini: "<p>Error: Could not load chat. Chat ID is missing.</p>",
+            isLoader: "no",
+            isPreformattedHTML: true,
+            error: true,
+          },
+        })
+      );
+      return;
+    }
+
+    dispatch(chatAction.getChatHandler({ chats: [] }));
+    dispatch(
+      chatAction.chatStart({
+        useInput: {
+          user: "",
+          gemini: "Gathering previous conversation...",
+          isLoader: "yes",
+          isSearch: false,
+          queryKeywords: [],
+          sources: [],
+          relatedQuestions: [],
+          isPreformattedHTML: true,
+        },
+      })
+    );
+
     const url = `${BASE_URL}/api/chatdata`;
-    fetch(url, { 
-      method: "POST", 
+    console.log("[getChat] Fetching from URL:", url, "with chatId:", chatId);
+    fetch(url, {
+      method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chatHistoryId: chatId }) 
+      body: JSON.stringify({ chatHistoryId: chatId }),
     })
       .then(async (response) => {
+        console.log("[getChat] Received response status:", response.status);
         if (!response.ok) {
           let errorMessage = `Server error: ${response.status} ${response.statusText}`;
           if (response.status === 404) {
-            errorMessage = `Chat history not found (404): The requested chat with ID ${chatId} could not be found. It may have been deleted or the ID is incorrect.`;
+            errorMessage = `Chat history not found (404): The requested chat with ID ${chatId} could not be found.`;
+            console.warn(
+              "[getChat] Chat ID not found (404), clearing chatHistoryId from store."
+            );
+            dispatch(chatAction.chatHistoryIdHandler({ chatHistoryId: null }));
+            dispatch(chatAction.newChatHandler());
           } else {
             try {
               const errorBody = await response.text();
               errorMessage += `. Details: ${errorBody}`;
-            } catch (e) {
-              /* ignore */
-            }
+            } catch (e) {}
           }
           const error = new Error(errorMessage);
           error.status = response.status;
+          console.error("[getChat] Fetch error:", error);
           throw error;
         }
         return response.json();
       })
       .then((data) => {
-        dispatch({ type: "GET_CHAT_SUCCESS" });
-        console.log("Chat data received:", data);
-        
-        // Handle the response format from /api/chatdata
-        const chatMessages = data.chats || [];
-        const formattedChats = [];
-        
-        for (const chatMessage of chatMessages) {
-          try {
-            // Extract the message content
-            const message = chatMessage.message || {};
-            
-            // Get user query and response
-            const userQuery = typeof message === 'object' ? message.user || "" : "";
-            const geminiResponse = typeof message === 'object' ? message.gemini || "" : "";
-            
-            const queryKeywords = extractKeywords(userQuery);
-            let sources = [];
-            let relatedQuestions = [];
-            
-            // Try to get sources and related questions from message object
-            if (typeof message === 'object') {
-              sources = message.sources || [];
-              relatedQuestions = message.relatedQuestions || [];
-            }
-            
-            let geminiContent = geminiResponse;
-            let isPreformattedHTML = false;
-            
-            // Determine if content is preformatted HTML
-            if (typeof message === 'object' && message.isPreformattedHTML) {
-              isPreformattedHTML = true;
-            } else if (chatMessage.isSearch) {
-              isPreformattedHTML = true;
-            }
-            
-            // If it was a search result, was stored as HTML, and we need to re-parse for display
-            if (
-              (chatMessage.isSearch || (typeof message === 'object' && message.isSearch)) &&
-              typeof geminiContent === "string" &&
-              isPreformattedHTML
-            ) {
-              const parsed = parseFormattedHTML(geminiContent, queryKeywords);
-              // If parsing is successful, we now have structured data.
-              if (!parsed.parsingFailed) {
-                geminiContent = parsed.mainAnswer;
-                sources = parsed.sources.length ? parsed.sources : sources; // Use parsed if available
-                relatedQuestions = parsed.relatedQuestions.length
-                  ? parsed.relatedQuestions
-                  : relatedQuestions;
-                isPreformattedHTML = false; // Now that we have structured data, ScrollChat can format it.
-              }
-              // If parsingFailed is true, isPreformattedHTML remains true, and ScrollChat will render geminiContent as HTML.
-            }
-            
-            formattedChats.push({
-              id: chatMessage._id || Math.random().toString(36).substring(2, 15),
-              user: userQuery,
-              gemini: geminiContent,
-              timestamp: chatMessage.timestamp || new Date().toISOString(),
-              isSearch: chatMessage.isSearch || false,
-              searchType: chatMessage.searchType || null,
-              queryKeywords,
-              sources,
-              relatedQuestions,
-              isPreformattedHTML,
-            });
-          } catch (err) {
-            console.error("Error processing chat message:", err, chatMessage);
-          }
+        console.log("[getChat] Received data:", data);
+        dispatch(chatAction.popChat());
+
+        const chatMessages =
+          (data.chatHistory && data.chatHistory.chats) || data.chats || [];
+        console.log("[getChat] Processing chatMessages:", chatMessages);
+
+        if (chatMessages.length === 0) {
+          console.log(
+            "[getChat] No messages found in history for chatId:",
+            chatId
+          );
+          dispatch(
+            chatAction.chatStart({
+              useInput: {
+                user: "",
+                gemini: "<p>No messages found in this chat history.</p>",
+                isLoader: "no",
+                isPreformattedHTML: true,
+              },
+            })
+          );
+          return;
         }
-        
-        dispatch(chatAction.getChatHandler({ chat: formattedChats }));
-        
-        // Create previous chat format for context
-        const previousChat = [];
-        for (const msg of chatMessages) {
-          try {
-            const message = msg.message || {};
-            
-            if (typeof message === 'object') {
-              if (message.user) {
-                previousChat.push({ role: "user", parts: message.user });
-              }
-              if (message.gemini) {
-                previousChat.push({ role: "model", parts: message.gemini });
-              }
-            }
-          } catch (err) {
-            console.error("Error processing previous chat:", err, msg);
+
+        const formattedChats = chatMessages.map((chatItem) => {
+          const userMessageContent =
+            chatItem.message && chatItem.message.user
+              ? chatItem.message.user
+              : "";
+          let geminiMessageContent =
+            chatItem.message && chatItem.message.gemini
+              ? chatItem.message.gemini
+              : "";
+          // For historical chats, isPreformattedHTML might be stored. If not, assume it's raw markdown.
+          let isContentAlreadyHTML =
+            chatItem.message &&
+            typeof chatItem.message.isPreformattedHTML === "boolean"
+              ? chatItem.message.isPreformattedHTML
+              : false;
+          let currentQueryKeywords =
+            (chatItem.message && chatItem.message.queryKeywords) ||
+            extractKeywords(userMessageContent);
+
+          let finalProcessedContent = geminiMessageContent;
+          let finalIsHTML = isContentAlreadyHTML;
+
+          // Always process historical Gemini content to ensure markdown rendering and highlighting
+          if (geminiMessageContent) {
+            const { processedContent, isHTML } = processContentForDisplay(
+              geminiMessageContent,
+              currentQueryKeywords,
+              isContentAlreadyHTML // Pass the flag indicating if it's already HTML
+            );
+            finalProcessedContent = processedContent;
+            finalIsHTML = isHTML; // This will now be true after processing
           }
-        }
-        
-        dispatch(
-          chatAction.previousChatHandler({
-            previousChat: previousChat || [],
-          })
+
+          console.log(
+            `[getChat] Message ID ${
+              chatItem._id || chatItem.id
+            } processed. User: ${
+              userMessageContent
+                ? userMessageContent.substring(0, 50)
+                : "<empty>"
+            }, Gemini (first 100 chars): ${
+              finalProcessedContent
+                ? finalProcessedContent.substring(0, 100)
+                : "<empty>"
+            }`
+          );
+          return {
+            id: chatItem._id || chatItem.id || Math.random().toString(),
+            user: userMessageContent,
+            gemini: finalProcessedContent,
+            isLoader: "no",
+            isSearch: chatItem.isSearch || false,
+            searchType: chatItem.searchType,
+            queryKeywords: currentQueryKeywords,
+            sources: (chatItem.message && chatItem.message.sources) || [],
+            relatedQuestions:
+              (chatItem.message && chatItem.message.relatedQuestions) || [],
+            isPreformattedHTML: finalIsHTML, // Crucially, this is now true
+            error: chatItem.error || null,
+            timestamp: chatItem.timestamp || new Date().toISOString(),
+          };
+        });
+        console.log(
+          "[getChat] Dispatching getChatHandler with formattedChats:",
+          formattedChats
         );
+        dispatch(chatAction.getChatHandler({ chats: formattedChats }));
       })
       .catch((err) => {
-        dispatch({
-          type: "GET_CHAT_FAILURE",
-          error: {
-            message: err.message,
-            name: err.name,
-            status: err.status || 500,
-          },
-        });
-        console.error("Error in getChat:", err);
-        
-        // Show a more user-friendly error message
-        dispatch(chatAction.getChatHandler({ chat: [] })); // Clear chat on error
-        
-        // Check if this is likely a chat history not found error
-        const isNotFoundError = err.status === 404 || 
-                               err.message.includes("not found") || 
-                               err.message.includes("404");
-        
-        const errorMessage = isNotFoundError
-          ? `<p>Chat history not found. This chat may have been deleted or the ID ${chatId} is invalid.</p>`
-          : `<p>Error loading chat: ${err.message}</p><p>Please try refreshing the page.</p>`;
-        
+        dispatch(chatAction.popChat());
         dispatch(
           chatAction.chatStart({
             useInput: {
-              user: `Error loading chat`,
-              gemini: errorMessage,
+              user: "",
+              gemini: `<p>Error loading chat: ${err.message}</p>`,
               isLoader: "no",
-              error: true,
               isPreformattedHTML: true,
+              error: true,
             },
           })
         );
-        
-        // If not found, we might want to redirect to a new chat
-        if (isNotFoundError) {
-          // Give a short delay before redirecting
-          setTimeout(() => {
-            dispatch(chatAction.newChatHandler());
-            dispatch(chatAction.chatHistoryIdHandler({ chatHistoryId: "" }));
-          }, 3000);
-        }
+        console.error("Error in getChat catch block:", err);
       });
   };
 };
 
-// Placeholder for deleteChatHistory to allow compilation
 export const deleteChatHistory = (chatId) => {
   return async (dispatch) => {
-    console.log(
-      `Placeholder: Attempting to delete chat history for ID: ${chatId}`
-    );
-    // Actual API call to delete on backend would go here.
-    // On success, remove from recentChat list and potentially navigate away.
-    // For now, this is a stub.
-    // Example of optimistic update (remove from UI then call API):
-    // dispatch(chatAction.removeRecentChat({ chatId }));
-    // try { ... fetch ... } catch { ... re-add if failed ... }
-    return Promise.resolve({ success: true }); // Simulate success
+    dispatch({ type: "DELETE_CHAT_HISTORY_REQUEST", payload: chatId });
+    const url = `${BASE_URL}/gemini/api/deletechathistory`;
+    try {
+      const response = await fetch(url, {
+        method: "DELETE",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chatHistoryId: chatId }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response
+          .json()
+          .catch(() => ({ message: "Failed to delete chat history" }));
+        throw new Error(
+          errorData.message || `Server error: ${response.status}`
+        );
+      }
+
+      await response.json();
+
+      dispatch({ type: "DELETE_CHAT_HISTORY_SUCCESS", payload: chatId });
+      dispatch(chatAction.removeChatHistory({ chatId }));
+      dispatch(getRecentChat());
+    } catch (error) {
+      console.error("Error deleting chat history:", error);
+      dispatch({
+        type: "DELETE_CHAT_HISTORY_FAILURE",
+        payload: { chatId, error: error.message },
+      });
+    }
   };
 };

@@ -293,6 +293,7 @@ const AgentPollingManager = ({
                   </div>`,
                   isLoader: "no",
                   isSearch: true,
+                  searchType: "agent", // Always use "agent" for consistent behavior
                 },
               })
             );
@@ -324,6 +325,7 @@ const AgentPollingManager = ({
               </div>`,
               isLoader: "no",
               isSearch: true,
+              searchType: "agent", // Always use "agent" for consistent behavior
             },
           })
         );

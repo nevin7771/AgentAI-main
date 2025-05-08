@@ -2,16 +2,16 @@
 
 /* ========== THEME VARIABLES ========== */
 :root {
-  --chat-bubble-background: #ffffff;
-  --chat-font-color: #202124;
+  --chat-bubble-background: #f0f4f9; /* Light blue-grey, or use #ffffff for plain white */
+  --chat-font-color: #202124; /* Standard dark grey/black for text */
   --border-color: #dadce0;
   --link-color: #1a73e8;
-  --highlight-text-color: #1a73e8; /* For general strong/b tags */
-  --highlight-background-color: rgba(26, 115, 232, 0.1); /* For general strong/b tags */
+  --highlight-text-color: #202124; /* Black for general strong/b tags */
+  --highlight-background-color: rgba(26, 115, 232, 0.1); /* Subtle blue for general strong/b tags */
   
   /* Keyword specific highlighting */
-  --highlight-bg-keyword: #fff352; /* Yellow background for search keywords */
-  --highlight-text-keyword: #333333; /* Dark text for search keywords */
+  --highlight-bg-keyword: transparent; /* No background for search keywords */
+  --highlight-text-keyword: #202124; /* Black text for search keywords */
 
   --text-secondary-color: #5f6368;
   --text-tertiary-color: #70757a;
@@ -25,16 +25,16 @@
 }
 
 [data-theme="dark"] {
-  --chat-bubble-background: #202124;
+  --chat-bubble-background: #2a2b2e; /* Darker background for answer area in dark mode */
   --chat-font-color: #e8eaed;
   --border-color: #3c4043;
   --link-color: #8ab4f8;
-  --highlight-text-color: #8ab4f8;
+  --highlight-text-color: #e8eaed; /* Light text for general strong/b tags in dark mode */
   --highlight-background-color: rgba(138, 180, 248, 0.15);
   
   /* Keyword specific highlighting - Dark Theme */
-  --highlight-bg-keyword: #786a00; /* Dark yellow for dark theme keywords */
-  --highlight-text-keyword: #fffde7; /* Light text for dark theme keywords */
+  --highlight-bg-keyword: transparent; /* No background for search keywords */
+  --highlight-text-keyword: #e8eaed; /* Light text for search keywords in dark mode */
 
   --text-secondary-color: #9aa0a6;
   --text-tertiary-color: #bdc1c6;
@@ -49,13 +49,12 @@
 /* Also targeting .gemini-results-container for consistency */
 .search-results-container,
 .gemini-results-container {
-  padding: 0; /* Removed !important to allow overrides if needed */
+  padding: 0;
   margin: 0; 
-  gap: 10px; /* Added some gap for spacing between sections */
+  gap: 10px;
   background-color: transparent; 
   border: none; 
   border-radius: 0;
-  /* Keep other properties like font-family if they are meant for the content within */
   color: var(--chat-font-color);
   font-family: 'Google Sans', Arial, sans-serif;
   display: flex;
@@ -67,14 +66,15 @@
 .gemini-answer {
   line-height: 1.65;
   font-size: 0.95rem;
-  padding: 10px; /* Added full padding */
-  margin-bottom: 15px; /* Space after the answer, before other sections */
+  padding: 15px; /* Added more padding */
+  margin-bottom: 15px;
   color: var(--chat-font-color);
-  background-color: var(--chat-bubble-background); /* Uncommented to ensure visibility */
+  background-color: var(--chat-bubble-background); /* Ensure this is applied */
+  border: none; /* Removed border */
   border-radius: 8px;
-  display: block; /* Ensure it's displayed */
+  display: block;
   width: 100%;
-  min-height: 30px; /* Minimum height for empty answers */
+  min-height: 30px;
 }
 
 /* New class for the answer display in the UI */
@@ -88,10 +88,37 @@
   padding: 0;
 }
 
-.gemini-answer h1, .gemini-answer h2, .gemini-answer h3 {
-  color: var(--link-color);
+.gemini-answer h1, .gemini-answer h2, .gemini-answer h3,
+.deep-research-results h1, .deep-research-results h2, .deep-research-results h3,
+.simple-search-results h1, .simple-search-results h2, .simple-search-results h3 {
+  color: var(--chat-font-color) !important; /* Changed to chat-font-color (black/dark grey) */
   margin-top: 1em;
   margin-bottom: 0.5em;
+  font-size: 1.1rem !important;
+  font-weight: 600 !important;
+}
+
+/* Title heading should be larger */
+.gemini-answer h1, 
+.deep-research-results h1, 
+.simple-search-results h1,
+.agent-answer h1 {
+  font-size: 1.15rem !important;
+  font-weight: 700 !important;
+  color: var(--chat-font-color) !important; /* Ensure main titles are also black/dark grey */
+}
+
+/* Section headings should be normal size */
+.search-sources h2,
+.search-key-points h2,
+.search-related-section h2,
+.search-follow-up h2,
+.research-sources h2 {
+  font-size: 1.0rem;
+  font-weight: 600;
+  margin-top: 1.2em;
+  margin-bottom: 0.6em;
+  color: var(--chat-font-color) !important; /* Ensure these are also black/dark grey */
 }
 .gemini-answer p { margin-bottom: 0.8em; }
 .gemini-answer ul, .gemini-answer ol {
@@ -103,17 +130,17 @@
 
 .gemini-answer strong, .gemini-answer b, .gemini-answer .key-point {
   font-weight: 600;
-  color: var(--highlight-text-color);
+  color: var(--highlight-text-color); /* Uses black or light text depending on theme */
 }
 
 /* ========== KEYWORD HIGHLIGHTING (for search terms) ========== */
 .highlighted-keyword {
-  background-color: var(--highlight-bg-keyword);
-  padding: 0.1em 0.2em;
-  border-radius: 3px;
-  font-weight: normal;
-  color: var(--highlight-text-keyword);
-  box-shadow: 0 0 0 1px var(--highlight-bg-keyword);
+  font-weight: bold !important; /* Ensure bold is applied */
+  color: var(--highlight-text-keyword) !important; /* Ensure text color is applied */
+  background-color: var(--highlight-bg-keyword) !important; /* Ensure transparent background */
+  padding: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 /* ========== SOURCES ========== */

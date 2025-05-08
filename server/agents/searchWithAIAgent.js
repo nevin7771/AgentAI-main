@@ -167,7 +167,12 @@ export default class SearchWithAIAgent extends BaseAgent {
 Use Markdown for formatting (headings, lists, bold text). 
 Identify the main topic and key steps or points. 
 Cite sources using [[citation:X]]. 
-If the context is insufficient, state that clearly.`;
+If the context is insufficient, state that clearly.
+
+IMPORTANT: DO NOT include any lines starting with "REASON:" or "ACT:" in your response. 
+DO NOT include any internal reasoning or thought process markers.
+DO NOT use "# ##" or similar headings in your response.
+DO NOT include "**REASON:**" or "**ACT:**" sequences in your response.`;
 
     const userPrompt = `Question: ${query}\n\nSearch Results:\n${context}`;
 
@@ -256,7 +261,12 @@ If the context is insufficient, state that clearly.`;
 Use Markdown for clear formatting (headings, lists, bold text). 
 Structure the answer logically (e.g., introduction, key points/steps, conclusion). 
 Cite sources using [[citation:X]]. 
-If the context is insufficient, state that clearly.`;
+If the context is insufficient, state that clearly.
+
+IMPORTANT: DO NOT include any lines starting with "REASON:" or "ACT:" in your response. 
+DO NOT include any internal reasoning or thought process markers.
+DO NOT use "# ##" or similar headings in your response.
+DO NOT include "**REASON:**" or "**ACT:**" sequences in your response.`;
 
     const userPrompt = `Question: ${query}\n\nSearch Results and Content Summaries:\n${context}`;
 
@@ -362,7 +372,12 @@ If the context is insufficient, state that clearly.`;
 Use Markdown for clear formatting (headings, lists, bold text). 
 Structure the report logically (e.g., summary, key findings by theme, details, conclusion). 
 Cite sources using [[citation:X]]. 
-Focus on accuracy and clarity, using ONLY the provided context.`;
+Focus on accuracy and clarity, using ONLY the provided context.
+
+IMPORTANT: DO NOT include any lines starting with "REASON:" or "ACT:" in your response. 
+DO NOT include any internal reasoning or thought process markers.
+DO NOT use "# ##" or similar headings in your response.
+DO NOT include "**REASON:**" or "**ACT:**" sequences in your response.`;
 
     const userPrompt = `Main research question: ${query}\n\nResearch findings:\n${researchContext}`;
 

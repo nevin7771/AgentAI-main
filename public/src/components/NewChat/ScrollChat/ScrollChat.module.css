@@ -2,15 +2,15 @@
 
 /* Base styles for the chat area */
 .scroll-chat-main {
-  font-family: 'Google Sans', Roboto, Arial, sans-serif; /* Consistent font */
+  font-family: 'Google Sans', Roboto, Arial, sans-serif;
   width: 100%;
   display: flex;
   flex-flow: nowrap column;
-  height: 78dvh; /* Consider adjusting based on viewport */
-  overflow-y: auto; /* Changed to auto for better scrollbar behavior */
+  height: 78dvh;
+  overflow-y: auto;
   overflow-x: hidden;
-  padding: 20px 15px; /* Adjusted padding */
-  gap: 20px; /* Spacing between messages */
+  padding: 20px 15px;
+  gap: 20px;
 }
 
 .scroll-chat-main::-webkit-scrollbar { width: 8px; }
@@ -20,13 +20,12 @@
 
 .single-chat {
   width: 100%;
-  max-width: 780px; /* Slightly increased max-width for content */
+  max-width: 780px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
 }
 
-/* User chat bubble - Aligned to the right */
 .user-chat-container {
   display: flex;
   justify-content: flex-end;
@@ -36,34 +35,33 @@
 
 .user.message-bubble {
   display: flex;
-  flex-direction: row-reverse; /* Icon on the right for user */
+  flex-direction: row-reverse;
   align-items: flex-start;
   gap: 10px;
-  max-width: 85%; /* Max width for user bubble */
-  background-color: #e8f0fe; /* Light blue background for user questions, as per Gemini */
-  padding: 12px 18px; /* Adjusted padding */
-  border-radius: 20px 20px 4px 20px; /* Gemini-like border radius */
+  max-width: 85%;
+  background-color: #e8f0fe;
+  padding: 12px 18px;
+  border-radius: 20px 20px 4px 20px;
   color: #1f1f1f;
 }
 
 .user .sender-info img {
-  width: 30px; /* Slightly smaller user avatar */
+  width: 30px;
   height: 30px;
   border-radius: 50%;
-  margin-left: 5px; /* Space between text and avatar */
+  margin-left: 5px;
 }
 
 .user .message-content {
-  text-align: left; /* Text inside bubble is left-aligned */
-  font-size: 1rem; /* Standard font size */
+  text-align: left;
+  font-size: 1rem;
   line-height: 1.6;
 }
 .user .message-content p {
-    margin: 0;
-    font-family: 'Google Sans', Roboto, Arial, sans-serif;
+  margin: 0;
+  font-family: 'Google Sans', Roboto, Arial, sans-serif;
 }
 
-/* Gemini/AI message bubble - Aligned to the left */
 .gemini-chat-container {
   width: 100%;
   display: flex;
@@ -75,67 +73,63 @@
   display: flex;
   flex-direction: row;
   align-items: flex-start;
-  gap: 12px; /* Gap between icon and content */
+  gap: 12px;
   width: 100%;
 }
 
-.gemini .sender-info { 
+.gemini .sender-info {
   flex-shrink: 0;
-  margin-top: 1px; /* Align icon nicely */
+  margin-top: 1px;
 }
 
 .gemini .sender-info img.ai-icon {
-  width: 26px; /* Standard AI icon size */
+  width: 26px;
   height: 26px;
+  object-fit: contain;
 }
 
-.gemini .sender-info img.sparkleAnimation {
-    animation: sparkle 1.5s infinite ease-in-out;
+.gemini .sender-info img[src*="loader.gif"],
+.gemini .sender-info img[src*="processing"] {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
 }
 
-@keyframes sparkle {
-  0%, 100% { opacity: 0.7; transform: scale(0.95); }
-  50% { opacity: 1; transform: scale(1.05); }
-}
-
-/* Wrapper for AI answer text AND the unified info card */
 .message-content-wrapper {
   flex-grow: 1;
   display: flex;
   flex-direction: column;
-  min-width: 0; 
+  min-width: 0;
 }
 
-/* Message content for AI (Answer part) */
-.gemini .message-content { 
+.gemini .message-content {
   word-break: break-word;
-  line-height: 1.65; /* Slightly more line height for readability */
-  font-size: 1rem; /* Standard font size for AI answers */
+  line-height: 1.65;
+  font-size: 1rem;
   color: var(--chat-font-color, #3c4043);
   text-align: left;
-  width: 100%; 
-  background-color: var(--chat-bubble-background, #f8f9fa); 
-  padding: 12px 18px; /* Adjusted padding */
-  border-radius: 4px 20px 20px 20px; /* Gemini-like border radius for AI */
+  width: 100%;
+  background-color: var(--chat-bubble-background, #f8f9fa);
+  padding: 12px 18px;
+  border-radius: 4px 20px 20px 20px;
   min-height: 20px;
   display: block;
 }
 
 [data-theme="dark"] .gemini .message-content {
-    background-color: var(--dark-chat-bubble-background, #202124);
-    color: var(--dark-chat-font-color, #e8eaed);
+  background-color: var(--dark-chat-bubble-background, #202124);
+  color: var(--dark-chat-font-color, #e8eaed);
 }
 
 [data-theme="dark"] .user.message-bubble {
-  background-color: #303857; /* Darker blue for user questions in dark mode */
+  background-color: #303857;
   color: #e8eaed;
 }
 
-/* Ensure global .gemini-answer class from gemini.results.css is used for actual answer text styling */
 .gemini .message-content .gemini-answer {
-    font-family: 'Google Sans', Roboto, Arial, sans-serif;
-    font-size: 1rem; /* Ensure consistency */
-    line-height: 1.65;
+  font-family: 'Google Sans', Roboto, Arial, sans-serif;
+  font-size: 1rem;
+  line-height: 1.65;
 }
 
 .gemini .message-content .gemini-answer > *:first-child,
@@ -144,47 +138,57 @@
   padding-top: 0 !important;
 }
 
-/* Loading state specific styles */
+/* Animation styles for the loading indicator */
+.loader-animation {
+  animation: pulse 1.5s infinite ease-in-out;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
 .loading-container-gemini {
-    display: flex;
-    align-items: center;
-    gap: 8px; /* Gap between sparkle (now in sender-info) and text */
-    padding: 5px 0; /* Minimal padding for loading text */
-    min-height: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  min-height: 20px;
+  width: 100%;
 }
 
 .loading-text {
-    font-size: 0.95rem; /* Slightly smaller loading text */
-    color: var(--text-secondary-color, #5f6368);
-    font-style: italic;
+  font-size: 0.95rem;
+  color: var(--text-secondary-color, #5f6368);
+  font-style: italic;
+  animation: pulse 2s infinite ease-in-out;
 }
 
 [data-theme="dark"] .loading-text {
-    color: var(--dark-text-secondary-color, #9aa0a6);
+  color: var(--dark-text-secondary-color, #9aa0a6);
 }
 
-/* Unified Card for Sources and Related Questions */
 .unifiedInfoCard {
-  background-color: transparent; /* Remove specific background, rely on source card bg */
-  padding: 0; /* Remove padding, rely on source card padding */
+  background-color: transparent;
+  padding: 0;
   margin-top: 15px;
-  border: none; /* Remove border, rely on source card border */
-  width: 100%; 
+  border: none;
+  width: 100%;
 }
 
 .unifiedCardSectionTitle {
-  font-size: 0.875rem; /* Smaller title for "Sources" / "Related" */
-  font-weight: 500;
+  font-size: 0.8rem;
+  font-weight: 400;
   color: var(--text-secondary-color, #5f6368);
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   padding-bottom: 0;
   border-bottom: none;
-  text-transform: uppercase; /* As seen in some Gemini UIs */
-  letter-spacing: 0.5px;
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 [data-theme="dark"] .unifiedCardSectionTitle {
-    color: var(--dark-text-secondary-color, #9aa0a6);
+  color: var(--dark-text-secondary-color, #9aa0a6);
 }
 
 .sourcesContainerInUnifiedCard,
@@ -195,9 +199,8 @@
   margin-bottom: 0;
 }
 
-/* Code block styling */
 .message-content pre {
-  background: #f1f3f4 !important; /* Lighter background for code blocks */
+  background: #f1f3f4 !important;
   color: #202124 !important;
   padding: 12px 15px !important;
   border-radius: 8px !important;
@@ -209,7 +212,7 @@
 }
 
 [data-theme="dark"] .message-content pre {
-  background: #282a2e !important; /* Darker background for code blocks */
+  background: #282a2e !important;
   color: #e8eaed !important;
   border-color: #5f6368;
 }
@@ -221,18 +224,16 @@
   word-wrap: break-word !important;
 }
 
-/* Message actions toolbar */
 .message-actions-toolbar {
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    gap: 8px;
-    margin-top: 12px;
-    padding-top: 0;
-    width: 100%; 
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 0;
+  width: 100%;
 }
 
-/* Error message styling */
 .error-message {
   color: #d93025;
   background-color: #fce8e6;
@@ -248,11 +249,10 @@
   border-color: #f28b82;
 }
 
-/* Responsive adjustments */
 @media (max-width: 768px) {
   .scroll-chat-main {
     padding: 15px 10px;
-    height: calc(100vh - 120px); /* Adjust based on header/footer */
+    height: calc(100vh - 120px);
     gap: 15px;
   }
   .single-chat { max-width: 100%; }
@@ -263,16 +263,60 @@
   .unifiedCardSectionTitle { font-size: 0.8rem; }
 }
 
-/* Keyword Highlighting is now expected to be handled by a global CSS file (e.g., gemini.results.css) */
+.relatedQuestionsList {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 8px;
+}
 
-/* Styles for gemini-sources-grid, source-card, gemini-chip are expected from gemini.results.css */
-/* Example of how source cards might be styled if not fully covered by gemini.results.css */
-/* Ensure these align with the reference image if gemini.results.css is not sufficient */
+.relatedQuestionItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-color, #e0e0e0);
+  cursor: pointer;
+  transition: background-color 0.2s ease-in-out;
+}
 
-/* .gemini-sources-grid { ... } */
-/* .source-card { ... } */
-/* .source-card-title { font-size: 0.9rem; font-weight: 500; } */
-/* .source-card-snippet { font-size: 0.8rem; } */
-/* .source-url { font-size: 0.75rem; } */
+.relatedQuestionItem:last-child {
+  border-bottom: none;
+}
 
+.relatedQuestionItem:hover {
+  background-color: var(--hover-background-color, #f5f5f5);
+}
 
+[data-theme="dark"] .relatedQuestionItem {
+  border-bottom-color: var(--dark-border-color, #3c4043);
+}
+
+[data-theme="dark"] .relatedQuestionItem:hover {
+  background-color: var(--dark-hover-background-color, #2a2b2e);
+}
+
+.relatedQuestionText {
+  font-size: 0.9rem;
+  color: var(--text-primary-color, #202124);
+  flex-grow: 1;
+  margin-right: 10px;
+}
+
+[data-theme="dark"] .relatedQuestionText {
+  color: var(--dark-text-primary-color, #e8eaed);
+}
+
+.relatedQuestionPlusIcon {
+  font-size: 1.2rem;
+  color: var(--icon-color, #5f6368);
+  font-weight: 300;
+}
+
+[data-theme="dark"] .relatedQuestionPlusIcon {
+  color: var(--dark-icon-color, #9aa0a6);
+}
+
+.relatedQuestionsContainerInUnifiedCard .unifiedCardSectionTitle {
+  /* Optional overrides for Related section title */
+}

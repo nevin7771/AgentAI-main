@@ -16,16 +16,13 @@ body {
 }
 
 .highlighted-keyword {
-  background-color: #fff2ab; /* Yellow highlight, similar to Google Search */
-  padding: 0.1em 0.2em;
-  border-radius: 3px;
-  font-weight: 600; /* Make highlighted keywords slightly bolder */
-  color: #202124; /* Darker text for highlighted keyword for better contrast */
+  font-weight: bold; /* Bold only, no background */
+  color: inherit; /* Inherit color from parent */
 }
 
 [data-theme="dark"] .highlighted-keyword {
-  background-color: #fdd663; /* A slightly different yellow for dark mode if needed */
-  color: #202124;
+  font-weight: bold; /* Bold only, no background */
+  color: inherit; /* Inherit color from parent */
 }
 
 /* --- Source Card Styling --- */

@@ -246,7 +246,10 @@ const InputSection = () => {
               gemini: "",
               isLoader: "yes",
               isSearch: true,
-              searchType: "agent",
+              searchType: "agent", // Always use "agent" for consistent loading animation
+              queryKeywords: userInput
+                .split(/\s+/)
+                .filter((word) => word.length > 3),
             },
           })
         );
@@ -259,40 +262,51 @@ const InputSection = () => {
           selectedAgents
         );
 
-        // Send the question and get the task ID
+        // Send the question and get the task ID or direct response
         const agentResponse = await dispatch(
           sendAgentQuestion({
             question: userInput,
             agents: selectedAgents,
             chatHistoryId,
+            navigate, // Pass navigate for potential routing in the action
           })
         );
 
         // Check for orchestrated responses (which have orchestrationComplete flag)
         if (agentResponse && agentResponse.orchestrationComplete === true) {
-          console.log("Received direct orchestrated response, no polling needed");
-          
+          console.log(
+            "Received direct orchestrated response, no polling needed"
+          );
+
           // Show proper loading and navigation for orchestrated responses
           dispatch(uiAction.setLoading(true));
-          
+
           // Add a small delay to ensure UI updates
           setTimeout(() => {
             // Turn off loading
             dispatch(uiAction.setLoading(false));
-            
+
             // If we have a chat history ID, navigate to it
             if (agentResponse.data && agentResponse.data.chatHistoryId) {
               navigate(`/app/${agentResponse.data.chatHistoryId}`);
             } else if (chatHistoryId && chatHistoryId.length > 0) {
               navigate(`/app/${chatHistoryId}`);
+            } else {
+              // As a fallback, navigate to the app page
+              navigate("/app");
             }
-            
-            console.log("Query sent:", userInput, ", Mode: Agent, Agents:", selectedAgents);
+
+            console.log(
+              "Query sent:",
+              userInput,
+              ", Mode: Agent, Agents:",
+              selectedAgents
+            );
           }, 800);
-          
+
           return; // Exit early since we already have our answer
         }
-        
+
         // For standard agents, check if the response contains a taskId
         if (!agentResponse || !agentResponse.taskId) {
           console.error("Invalid agent response:", agentResponse);
@@ -456,11 +470,16 @@ const InputSection = () => {
               </div>`,
               isLoader: "no",
               isSearch: true,
+              searchType: "agent",
+              queryKeywords: userInput
+                .split(/\s+/)
+                .filter((word) => word.length > 3),
             },
           })
         );
 
         dispatch(uiAction.setLoading(false));
+        navigate("/app"); // Navigate to app to ensure error is visible
       }
     } else {
       // No agents selected, use the normal search paths

@@ -11,6 +11,7 @@ import {
 import { chatAction } from "../../../store/chat";
 import CopyBtn from "../../Ui/CopyBtn";
 import ShareBtn from "../../Ui/ShareBtn";
+import { getLoadingIconUrl } from "../../../utils/agentLoadingHelper";
 
 const highlightTextReturningHTML = (
   text,
@@ -37,12 +38,8 @@ const highlightTextReturningHTML = (
 
   const result = text.replace(regex, `<span class="${className}">$1</span>`);
 
-  // For debugging: Log if keywords were provided but no replacements were made
-  // This might indicate an issue with keyword matching or the text content itself.
   if (text === result && validKeywords.length > 0) {
     // console.warn("[highlightText] Keywords provided but no matches found in text:", { text, keywords: validKeywords });
-    // This console.warn can be very noisy if keywords often don't match parts of titles/snippets.
-    // It's better to rely on visual inspection and correct queryKeywords in the store.
   }
   return result;
 };
@@ -76,33 +73,40 @@ const ScrollChat = () => {
     }
   }, [dispatch, historyId, chatHistoryId, navigate]);
 
+  // Effect to handle scrolling when chat updates
   useEffect(() => {
     if (chatRef.current) {
       chatRef.current.scrollTop = chatRef.current.scrollHeight;
     }
+
+    const newLoaderItems = document.querySelectorAll(".loader-animation");
+    newLoaderItems.forEach((img) => {
+      const originalSrc = img.src;
+      setTimeout(() => {
+        img.src =
+          "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+        setTimeout(() => {
+          img.src = originalSrc;
+        }, 10);
+      }, 0);
+    });
   }, [chat]);
 
   useEffect(() => {
-    const isLoading = chat.some(
-      (c) =>
-        c.isLoader === "yes" &&
-        (c.searchType === "agent" ||
-          c.searchType === "deep" ||
-          c.searchType === "simple")
-    );
+    const isLoading = chat.some((c) => c.isLoader === "yes");
     let intervalId;
     if (isLoading) {
-      setCurrentLoadingText(loadingTexts[0]); // Reset to first message when loading starts
+      setCurrentLoadingText(loadingTexts[0]);
       intervalId = setInterval(() => {
         setCurrentLoadingText((prevText) => {
           const currentIndex = loadingTexts.indexOf(prevText);
           const nextIndex = (currentIndex + 1) % loadingTexts.length;
           return loadingTexts[nextIndex];
         });
-      }, 2500); // Change text every 2.5 seconds
+      }, 2500);
     }
     return () => clearInterval(intervalId);
-  }, [chat]);
+  }, [chat, loadingTexts]); // Merged: Added loadingTexts to dependency array
 
   const processMessageContent = (
     text,
@@ -130,15 +134,13 @@ const ScrollChat = () => {
       );
       processedText = processedText.replace(/\*(.*?)\*/g, "<em>$1</em>");
       processedText = processedText.replace(/^### (.*$)/gim, "<h3>$1</h3>");
-      processedText = processedText.replace(/^## (.*$)/gim, "<h2>$1</h2>");
-      processedText = processedText.replace(/^# (.*$)/gim, "<h1>$1</h1>");
+      processedText = processedText.replace(/^## (.*$)/gim, "<h3>$1</h3>");
+      processedText = processedText.replace(/^# (.*$)/gim, "<h3>$1</h3>");
       processedText = processedText.replace(/^\s*[-*+] (.*)/gim, "<li>$1</li>");
       processedText = processedText.replace(
         /(<li>.*<\/li>\s*)+/g,
         "<ul>$&</ul>"
       );
-      // Convert newlines to <br /> only if they are not part of the above structures or already <br>
-      // This is a simplification; a full markdown parser would be more robust.
       processedText = processedText.replace(
         /\n(?!<\/?(ul|li|h[1-6]|pre|code|strong|em|br))/g,
         "<br />"
@@ -202,7 +204,6 @@ const ScrollChat = () => {
                   <img src={userLogo} alt="User" />
                 </div>
                 <div className={styles["message-content"]}>
-                  {/* User messages are typically plain text, no need for dangerouslySetInnerHTML unless they can contain HTML */}
                   <p>{c.user}</p>
                 </div>
               </div>
@@ -215,11 +216,8 @@ const ScrollChat = () => {
                 <div className={styles["sender-info"]}>
                   <img
                     src={
-                      c?.isLoader === "yes" &&
-                      (c?.searchType === "agent" ||
-                        c?.searchType === "deep" ||
-                        c?.searchType === "simple")
-                        ? commonIcon.geminiSparkle
+                      c?.isLoader === "yes"
+                        ? getLoadingIconUrl()
                         : c?.isSearch || c?.searchType === "agent"
                         ? agentLogo
                         : geminiLogo
@@ -232,18 +230,11 @@ const ScrollChat = () => {
                         : "AI"
                     }
                     className={`${styles["ai-icon"]} ${
-                      c?.isLoader === "yes" &&
-                      (c?.searchType === "agent" ||
-                        c?.searchType === "deep" ||
-                        c?.searchType === "simple")
-                        ? styles.sparkleAnimation
-                        : ""
+                      c?.isLoader === "yes" ? "loader-animation" : ""
                     }`}
                   />
                 </div>
                 <div className={styles["message-content-wrapper"]}>
-                  {" "}
-                  {/* Added wrapper */}
                   <div
                     className={`${styles["message-content"]} ${
                       c?.isSearch ? styles["search-message-content"] : ""
@@ -259,10 +250,12 @@ const ScrollChat = () => {
                         className="gemini-answer"
                         dangerouslySetInnerHTML={{
                           __html:
-                            processMessageContent(
-                              c?.gemini,
-                              c?.queryKeywords
-                            ) || "",
+                            c.isPreformattedHTML === true
+                              ? c.gemini // Merged: Added isPreformattedHTML check
+                              : processMessageContent(
+                                  c?.gemini,
+                                  c?.queryKeywords
+                                ) || "",
                         }}
                       />
                     )}
@@ -276,8 +269,7 @@ const ScrollChat = () => {
                           <div className={styles.sourcesContainerInUnifiedCard}>
                             <h3 className={styles.unifiedCardSectionTitle}>
                               Sources and related content
-                            </h3>{" "}
-                            {/* Updated title based on image */}
+                            </h3>
                             <div className="gemini-sources-grid">
                               {c.sources.map((source, idx) => (
                                 <div className="source-card" key={idx}>
@@ -321,8 +313,6 @@ const ScrollChat = () => {
                                           ? new URL(source.url).hostname
                                           : ""}
                                       </span>
-                                      {/* Add three-dot menu icon if needed, requires additional logic and styling */}
-                                      {/* <span className={styles.sourceCardMenu}>&#8942;</span> */}
                                     </div>
                                   </a>
                                 </div>
@@ -336,14 +326,14 @@ const ScrollChat = () => {
                               className={
                                 styles.relatedQuestionsContainerInUnifiedCard
                               }>
-                              <h3 className={styles.unifiedCardSectionTitle}>
+                              <h2 className={styles.unifiedCardSectionTitle}>
                                 Related Questions
-                              </h3>
-                              <div className="gemini-chips-list">
+                              </h2>
+                              <div className={styles.relatedQuestionsList}>
                                 {c.relatedQuestions.map((question, idx) => (
-                                  <button
+                                  <div
                                     key={idx}
-                                    className="gemini-chip"
+                                    className={styles.relatedQuestionItem}
                                     onClick={() =>
                                       handleRelatedQuestionClick(
                                         question,
@@ -352,7 +342,7 @@ const ScrollChat = () => {
                                       )
                                     }>
                                     <span
-                                      className="gemini-chip-text"
+                                      className={styles.relatedQuestionText}
                                       dangerouslySetInnerHTML={{
                                         __html: processMessageContent(
                                           question,
@@ -360,7 +350,13 @@ const ScrollChat = () => {
                                         ),
                                       }}
                                     />
-                                  </button>
+                                    <span
+                                      className={
+                                        styles.relatedQuestionPlusIcon
+                                      }>
+                                      +
+                                    </span>
+                                  </div>
                                 ))}
                               </div>
                             </div>
@@ -404,7 +400,7 @@ const ScrollChat = () => {
   ));
 
   return (
-    <div className={styles["scroll-chat-main"]} ref={chatRef}>
+    <div className={styles.chat} ref={chatRef}>
       {chatSection}
     </div>
   );

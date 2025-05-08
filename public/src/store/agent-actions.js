@@ -82,20 +82,10 @@ export const sendAgentQuestion = (questionData) => {
     const queryKeywords = extractKeywords(question);
     let currentChatHistoryId = chatHistoryId || getState().chat.chatHistoryId;
 
-    // Navigate to the main chat page if navigate function is provided and not already on it
-    // This is a common pattern: initiate action, navigate, then action updates store for new page.
-    if (navigate && typeof navigate === "function") {
-      // Check current path if possible, or just navigate. For simplicity, we assume it_s called from a non-chat page.
-      // Or the component calling this handles the navigation to /app or /app/:chatId
-      // If a new chat is being created, navigate to /app, then chatHistoryId will be set.
-      // If an existing chat, it should already be on /app/:chatId or navigate there.
-      // For now, we assume the calling component (AgentChat.js) handles this navigation to /app.
-    }
-
     dispatch(uiAction.setLoading(true));
     dispatch(agentAction.setLoading(true));
 
-    // Dispatch initial loading message to the chat
+    // Dispatch initial loading message to the chat FIRST, before any API calls
     dispatch(
       chatAction.chatStart({
         useInput: {
@@ -103,11 +93,8 @@ export const sendAgentQuestion = (questionData) => {
           gemini: "",
           isLoader: "yes",
           isSearch: true,
-          // CRITICAL: Set searchType for Jira/Confluence to ensure sparkle animation
-          searchType:
-            selectedAgent === "jira_ag" || selectedAgent === "conf_ag"
-              ? "agent"
-              : "polling_agent",
+          // Always use agent type for Jira/Confluence
+          searchType: "agent",
           queryKeywords: queryKeywords,
           sources: [],
           relatedQuestions: [],
@@ -115,6 +102,16 @@ export const sendAgentQuestion = (questionData) => {
         },
       })
     );
+
+    // For orchestrated agents (Jira, Confluence), navigate to /app with a slight delay
+    // to ensure the loading message is rendered first
+    if (selectedAgent === "jira_ag" || selectedAgent === "conf_ag") {
+      setTimeout(() => {
+        if (navigate && typeof navigate === "function") {
+          navigate("/app");
+        }
+      }, 100);
+    }
 
     try {
       let token;
@@ -144,133 +141,192 @@ export const sendAgentQuestion = (questionData) => {
         const orchestratedQueryUrl = `${SERVER_ENDPOINT}/api/orchestrated-query`;
         const historyToPass = [];
 
-        const response = await fetch(orchestratedQueryUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-            ...(token && { Authorization: `Bearer ${token}` }),
-          },
-          credentials: "include",
-          body: JSON.stringify({
-            query: question,
-            chatHistory: historyToPass,
-            options: { requestedDataSource: dataSource },
-            chatHistoryId: currentChatHistoryId,
-          }),
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(
-            `Orchestrated query failed for ${selectedAgent}: ${response.status} ${errorText}`
-          );
-        }
-        const data = await response.json();
-        if (!data.success) {
-          throw new Error(
-            data.error ||
-              `Orchestrated query for ${selectedAgent} was not successful.`
-          );
-        }
-
-        dispatch(chatAction.popChat());
-
-        const geminiContent = data.final_answer
-          ? data.final_answer.toString()
-          : "No answer received from agent.";
-        const sourcesData = data.sources || [];
-        const relatedQuestionsData = data.related_questions || [];
-
-        dispatch(
-          chatAction.chatStart({
-            useInput: {
-              user: question,
-              gemini: geminiContent,
-              sources: sourcesData,
-              relatedQuestions: relatedQuestionsData,
-              queryKeywords: queryKeywords,
-              isLoader: "no",
-              isSearch: true,
-              searchType: "agent", // Consistent searchType for the response
-              isPreformattedHTML: false,
+        try {
+          const response = await fetch(orchestratedQueryUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+              ...(token && { Authorization: `Bearer ${token}` }),
             },
-          })
-        );
+            credentials: "include",
+            body: JSON.stringify({
+              query: question,
+              chatHistory: historyToPass,
+              options: { requestedDataSource: dataSource },
+              chatHistoryId: currentChatHistoryId,
+            }),
+          });
 
-        let finalChatHistoryId = data.chatHistoryId;
-        if (!finalChatHistoryId && data.success) {
-          try {
-            const createHistoryUrl = `${BASE_URL}/api/create-chat-history`;
-            const historyResponse = await fetch(createHistoryUrl, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Accept: "application/json",
-              },
-              credentials: "include",
-              body: JSON.stringify({
-                title: question.substring(0, 50),
-                message: {
-                  user: question,
-                  gemini: geminiContent,
-                  sources: sourcesData,
-                  relatedQuestions: relatedQuestionsData,
-                  queryKeywords,
-                  isPreformattedHTML: false,
-                },
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(
+              `Orchestrated query failed for ${selectedAgent}: ${response.status} ${errorText}`
+            );
+          }
+
+          const data = await response.json();
+
+          // Handle success/failure responses appropriately
+          if (!data.success) {
+            throw new Error(
+              data.error ||
+                `Orchestrated query for ${selectedAgent} was not successful.`
+            );
+          }
+
+          // Remove loading message
+          dispatch(chatAction.popChat());
+
+          // Use final_answer from OrchestrationService
+          const geminiContent = data.final_answer
+            ? data.final_answer.toString()
+            : "No answer received from agent.";
+
+          // Extract sources from response if available
+          const sourcesData = data.retrieved_sources || data.sources || [];
+          const relatedQuestionsData = data.related_questions || [];
+
+          // Add the agent's answer to chat
+          dispatch(
+            chatAction.chatStart({
+              useInput: {
+                user: question,
+                gemini: geminiContent,
+                sources: sourcesData,
+                relatedQuestions: relatedQuestionsData,
+                queryKeywords: queryKeywords,
+                isLoader: "no",
                 isSearch: true,
                 searchType: "agent",
-              }),
-            });
-            if (historyResponse.ok) {
-              const historyData = await historyResponse.json();
-              if (historyData.success && historyData.chatHistoryId)
-                finalChatHistoryId = historyData.chatHistoryId;
-            }
-          } catch (historyError) {
-            console.error(
-              "Error creating chat history for agent:",
-              historyError
-            );
-          }
-        }
-        if (finalChatHistoryId) {
-          dispatch(
-            chatAction.chatHistoryIdHandler({
-              chatHistoryId: finalChatHistoryId,
+                isPreformattedHTML: false,
+              },
             })
           );
-          try {
-            const existingStorageHistory = JSON.parse(
-              localStorage.getItem("searchHistory") || "[]"
-            );
-            const historyItem = {
-              id: finalChatHistoryId,
-              title: question.substring(0, 50),
-              timestamp: new Date().toISOString(),
-              type: "agent",
-            };
-            if (
-              !existingStorageHistory.some(
-                (item) => item.id === finalChatHistoryId
-              )
-            ) {
-              existingStorageHistory.unshift(historyItem);
-              localStorage.setItem(
-                "searchHistory",
-                JSON.stringify(existingStorageHistory.slice(0, 50))
+
+          let finalChatHistoryId = data.chatHistoryId;
+          if (!finalChatHistoryId && data.success) {
+            try {
+              const createHistoryUrl = `${BASE_URL}/api/create-chat-history`;
+              const historyResponse = await fetch(createHistoryUrl, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Accept: "application/json",
+                },
+                credentials: "include",
+                body: JSON.stringify({
+                  title: question.substring(0, 50),
+                  message: {
+                    user: question,
+                    gemini: geminiContent,
+                    sources: sourcesData,
+                    relatedQuestions: relatedQuestionsData,
+                    queryKeywords,
+                    isPreformattedHTML: false,
+                  },
+                  isSearch: true,
+                  searchType: "agent",
+                }),
+              });
+              if (historyResponse.ok) {
+                const historyData = await historyResponse.json();
+                if (historyData.success && historyData.chatHistoryId)
+                  finalChatHistoryId = historyData.chatHistoryId;
+              }
+            } catch (historyError) {
+              console.error(
+                "Error creating chat history for agent:",
+                historyError
               );
-              window.dispatchEvent(new Event("storage"));
             }
-          } catch (err) {
-            console.error(
-              "Error saving agent chat history to localStorage:",
-              err
-            );
           }
+
+          if (finalChatHistoryId) {
+            dispatch(
+              chatAction.chatHistoryIdHandler({
+                chatHistoryId: finalChatHistoryId,
+              })
+            );
+            try {
+              const existingStorageHistory = JSON.parse(
+                localStorage.getItem("searchHistory") || "[]"
+              );
+              const historyItem = {
+                id: finalChatHistoryId,
+                title: question.substring(0, 50),
+                timestamp: new Date().toISOString(),
+                type: "agent",
+              };
+              if (
+                !existingStorageHistory.some(
+                  (item) => item.id === finalChatHistoryId
+                )
+              ) {
+                existingStorageHistory.unshift(historyItem);
+                localStorage.setItem(
+                  "searchHistory",
+                  JSON.stringify(existingStorageHistory.slice(0, 50))
+                );
+                window.dispatchEvent(new Event("storage"));
+              }
+            } catch (err) {
+              console.error(
+                "Error saving agent chat history to localStorage:",
+                err
+              );
+            }
+          }
+
+          dispatch(chatAction.newChatHandler());
+
+          // Return a properly structured response object with the orchestrationComplete flag
+          return {
+            success: true,
+            orchestrationComplete: true, // Flag to indicate direct handling
+            data: {
+              chatHistoryId: finalChatHistoryId,
+            },
+          };
+        } catch (error) {
+          console.error(
+            `Error in orchestrated query for ${selectedAgent}:`,
+            error
+          );
+
+          // Remove loading indicator
+          dispatch(chatAction.popChat());
+
+          // Show error message
+          dispatch(
+            chatAction.chatStart({
+              useInput: {
+                user: question,
+                gemini: `<p>Agent Error: ${error.message}</p>`,
+                isLoader: "no",
+                isSearch: true,
+                searchType: "agent",
+                queryKeywords: queryKeywords,
+                sources: [],
+                relatedQuestions: [],
+                error: true,
+                isPreformattedHTML: true,
+              },
+            })
+          );
+
+          dispatch(chatAction.newChatHandler());
+
+          // Return a properly structured error response
+          return {
+            success: false,
+            orchestrationComplete: true, // Flag to indicate direct handling
+            error: error.message,
+          };
+        } finally {
+          dispatch(uiAction.setLoading(false));
+          dispatch(agentAction.setLoading(false));
         }
-        dispatch(chatAction.newChatHandler());
       } else {
         // Polling based agents
         const pollUrl = `${SERVER_ENDPOINT}/api/proxy-agent-poll`;
@@ -300,8 +356,14 @@ export const sendAgentQuestion = (questionData) => {
           );
 
         dispatch(agentAction.setActiveTask(data.taskId));
-        // The initial loading message (with searchType: "polling_agent") is already in chat.
+        // The initial loading message is already in chat
         // Polling will update it when complete.
+
+        return {
+          success: true,
+          taskId: data.taskId,
+          agentTasks: { [selectedAgent]: { taskId: data.taskId } },
+        };
       }
     } catch (error) {
       console.error("Error in sendAgentQuestion:", error.message);
@@ -313,10 +375,7 @@ export const sendAgentQuestion = (questionData) => {
             gemini: `<p>Agent Error: ${error.message}</p>`,
             isLoader: "no",
             isSearch: true,
-            searchType:
-              selectedAgent === "jira_ag" || selectedAgent === "conf_ag"
-                ? "agent"
-                : "polling_agent",
+            searchType: "agent",
             queryKeywords: queryKeywords,
             sources: [],
             relatedQuestions: [],
@@ -326,6 +385,12 @@ export const sendAgentQuestion = (questionData) => {
         })
       );
       dispatch(chatAction.newChatHandler());
+
+      return {
+        success: false,
+        error: error.message,
+        orchestrationComplete: true,
+      };
     } finally {
       dispatch(uiAction.setLoading(false));
       dispatch(agentAction.setLoading(false));
