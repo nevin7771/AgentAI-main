@@ -11,20 +11,109 @@ export const highlightKeywords = (text, query) => {
 
   try {
     // Extract keywords from the query (words with 4+ characters)
+    // Filter out common words and prepositions
+    const stopWords = [
+      "about",
+      "above",
+      "after",
+      "again",
+      "against",
+      "all",
+      "and",
+      "any",
+      "are",
+      "because",
+      "been",
+      "before",
+      "being",
+      "below",
+      "between",
+      "both",
+      "but",
+      "does",
+      "doing",
+      "down",
+      "during",
+      "each",
+      "few",
+      "for",
+      "from",
+      "further",
+      "had",
+      "has",
+      "have",
+      "having",
+      "here",
+      "how",
+      "into",
+      "itself",
+      "just",
+      "more",
+      "most",
+      "once",
+      "only",
+      "other",
+      "over",
+      "same",
+      "should",
+      "some",
+      "such",
+      "than",
+      "that",
+      "the",
+      "their",
+      "them",
+      "then",
+      "there",
+      "these",
+      "they",
+      "this",
+      "those",
+      "through",
+      "under",
+      "until",
+      "very",
+      "what",
+      "when",
+      "where",
+      "which",
+      "while",
+      "who",
+      "whom",
+      "why",
+      "will",
+      "with",
+      "your",
+    ];
+
     const keywords = query
       .toLowerCase()
       .split(/\s+/)
-      .filter((word) => word.length >= 4)
+      .filter(
+        (word) => word.length >= 4 && !stopWords.includes(word.toLowerCase())
+      )
       .map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")); // Escape special regex chars
 
     if (keywords.length === 0) return text;
 
     // Create regex to find all instances of these keywords (case insensitive)
-    // But avoid highlighting within existing HTML tags
-    const regex = new RegExp(`(${keywords.join("|")})(?![^<>]*>)`, "gi");
+    // But avoid highlighting within existing HTML tags, headers, or Markdown syntax
+    const regex = new RegExp(
+      `(${keywords.join("|")})(?![^<>]*>|[^#]*#|[^*]*\\*\\*|[^\\[]*\\])`,
+      "gi"
+    );
 
     // Replace with highlighted version
-    return text.replace(regex, "<strong>$1</strong>");
+    const highlightedText = text.replace(regex, "<strong>$1</strong>");
+
+    // Log debugging info for more severe cases
+    if (highlightedText.split("<strong>").length > 15) {
+      console.warn(
+        "Too many highlights detected, original text might be overly highlighted"
+      );
+    }
+
+    return highlightedText;
   } catch (error) {
     console.error("Error highlighting keywords:", error);
     return text; // Return original text if error occurs

@@ -20,7 +20,7 @@ const chatSlice = createSlice({
       state.isLoader = !state.isLoader;
     },
     newChatHandler(state) {
-      state.chats.length > 0 ? (state.newChat = true) : (state.newChat = false);
+      state.newChat = false;
     },
     replaceChat(state, action) {
       state.chats = action.payload.chats;

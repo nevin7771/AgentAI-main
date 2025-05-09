@@ -252,19 +252,12 @@ const Sidebar = () => {
       </div>
 
       <div className={styles["recent-chat-section"]}>
-        {isNewChat ? (
-          <div
-            onClick={newChatHandler}
-            className={`${styles["pluc-icon"]} ${styles["new-plus-icon"]}`}>
-            <img src={icon.plusIcon} alt="plus icon"></img>
-            {isSidebarLong && <p>New chat</p>}
-          </div>
-        ) : (
-          <div className={`${styles["pluc-icon"]} ${styles["old-plus-icon"]}`}>
-            <img src={icon.plusIcon} alt="plus icon"></img>
-            {isSidebarLong && <p>New chat</p>}
-          </div>
-        )}
+        <div
+          onClick={newChatHandler}
+          className={`${styles["pluc-icon"]} ${styles["new-plus-icon"]}`}>
+          <img src={icon.plusIcon} alt="plus icon"></img>
+          {isSidebarLong && <p>New chat</p>}
+        </div>
         {isSidebarLong && (
           <div className={styles["recent-chat-main"]}>
             {allChats.length > 0 && <p>Recent</p>}

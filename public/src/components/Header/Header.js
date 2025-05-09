@@ -1,3 +1,5 @@
+// public/src/components/Header/Header.js - Update the logo click handler
+
 import React from "react";
 import styles from "./Header.module.css";
 import { useDispatch, useSelector } from "react-redux";
@@ -21,6 +23,18 @@ const Header = () => {
 
   const toggleAadvanceGeminiHandler = () => {
     dispatch(uiAction.toggleAdvanceShow());
+  };
+
+  // Updated to handle both clicking the logo AND toggling advanced settings
+  const handleLogoClick = () => {
+    // First toggle the advanced settings if needed
+    dispatch(uiAction.toggleAdvanceShow());
+
+    // Then create a new chat and navigate to home page
+    dispatch(chatAction.replaceChat({ chats: [] }));
+    dispatch(chatAction.newChatHandler());
+    dispatch(chatAction.chatHistoryIdHandler({ chatHistoryId: "" }));
+    navigate("/");
   };
 
   const icon = themeIcon();
@@ -50,7 +64,8 @@ const Header = () => {
         <div className={styles["menu-icon"]} onClick={toggleSideBarHandler}>
           <img src={icon.menuIcon} alt="menu icon"></img>
         </div>
-        <div className={styles["name"]} onClick={toggleAadvanceGeminiHandler}>
+        {/* Updated to use the new function for logo click */}
+        <div className={styles["name"]} onClick={handleLogoClick}>
           <p>Vista</p>
           <img src={icon.dropIconSmall} alt="drop down button"></img>
         </div>
