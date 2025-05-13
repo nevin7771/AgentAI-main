@@ -8,3 +8,5 @@ node_modules/
 
 logs/
 **/.claude/settings.local.json
+
+.DS_Store

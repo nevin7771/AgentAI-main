@@ -1,4 +1,6 @@
-// public/src/store/agent-actions.js
+// COMPLETE FIX FOR agent-actions.js
+// This addresses both polling agent responses and direct API responses
+
 import { chatAction } from "./chat";
 import { uiAction } from "./ui-gemini";
 import { agentAction } from "./agent";
@@ -166,6 +168,7 @@ export const sendAgentQuestion = (questionData) => {
           }
 
           const data = await response.json();
+          console.log(`[sendAgentQuestion] Orchestrated query response:`, data);
 
           // Handle success/failure responses appropriately
           if (!data.success) {
@@ -178,14 +181,69 @@ export const sendAgentQuestion = (questionData) => {
           // Remove loading message
           dispatch(chatAction.popChat());
 
-          // Use final_answer from OrchestrationService
-          const geminiContent = data.final_answer
-            ? data.final_answer.toString()
-            : "No answer received from agent.";
+          // FIXED: Extract content from response, supporting multiple formats
+          // Prioritize various possible content fields
+          let geminiContent;
+          let sourcesData = [];
+          let relatedQuestionsData = [];
+          let isPreformattedHTML = false;
 
-          // Extract sources from response if available
-          const sourcesData = data.retrieved_sources || data.sources || [];
-          const relatedQuestionsData = data.related_questions || [];
+          // Check for different response formats with detailed logging
+          if (data.final_answer) {
+            // 1. From OrchestrationService: final_answer field
+            console.log("[sendAgentQuestion] Using data.final_answer");
+            geminiContent = data.final_answer.toString();
+            // Try to extract sources from retrieval_contexts
+            if (
+              data.retrieval_contexts &&
+              Array.isArray(data.retrieval_contexts)
+            ) {
+              sourcesData = data.retrieval_contexts.map((ctx) => ({
+                title: ctx.title || "Source",
+                url: ctx.url || null,
+                snippet: ctx.summary || "",
+                favicon: null,
+              }));
+            }
+          } else if (data.result && typeof data.result.answer !== "undefined") {
+            // 2. Check for result.answer structure
+            console.log("[sendAgentQuestion] Using data.result.answer");
+            geminiContent = data.result.answer;
+            sourcesData = data.result.sources || [];
+            relatedQuestionsData = data.result.relatedQuestions || [];
+          } else if (data.answer) {
+            // 3. Direct answer field
+            console.log("[sendAgentQuestion] Using data.answer");
+            geminiContent = data.answer;
+            sourcesData = data.sources || [];
+            relatedQuestionsData = data.relatedQuestions || [];
+          } else if (data.formattedHtml) {
+            // 4. Formatted HTML content
+            console.log("[sendAgentQuestion] Using parsed formattedHtml");
+            const parsed = parseFormattedHTML(
+              data.formattedHtml,
+              queryKeywords
+            );
+            geminiContent = parsed.mainAnswer;
+            sourcesData = parsed.sources || [];
+            relatedQuestionsData = parsed.relatedQuestions || [];
+            isPreformattedHTML = !parsed.parsingFailed;
+          } else if (data.gemini) {
+            // 5. Support older 'gemini' field name
+            console.log("[sendAgentQuestion] Using data.gemini");
+            geminiContent = data.gemini;
+            sourcesData = data.sources || [];
+            relatedQuestionsData = data.relatedQuestions || [];
+          } else if (typeof data.result === "string") {
+            // 6. Result as direct string
+            console.log("[sendAgentQuestion] Using data.result as string");
+            geminiContent = data.result;
+          } else {
+            // 7. Fallback if no content found
+            console.warn("[sendAgentQuestion] No recognizable content found");
+            geminiContent =
+              "No answer received from agent. Response format could not be interpreted.";
+          }
 
           // Add the agent's answer to chat
           dispatch(
@@ -199,7 +257,7 @@ export const sendAgentQuestion = (questionData) => {
                 isLoader: "no",
                 isSearch: true,
                 searchType: "agent",
-                isPreformattedHTML: false,
+                isPreformattedHTML: isPreformattedHTML,
               },
             })
           );
@@ -443,6 +501,10 @@ export const pollAgentResponse = (taskId, agentId) => {
           `Agent poll failed: ${response.status} ${await response.text()}`
         );
       const data = await response.json();
+      console.log(
+        `[pollAgentResponse] Poll response for task ${taskId}:`,
+        data
+      );
 
       if (data.status === "complete") {
         dispatch(chatAction.popChat());
@@ -452,20 +514,127 @@ export const pollAgentResponse = (taskId, agentId) => {
         let relatedQuestionsData = [];
         let isPreformattedHTML = false;
 
-        if (data.result && typeof data.result.answer !== "undefined") {
+        // FIXED: Enhanced to support multiple response formats
+        // First check if we have data.result.answer or data.data.answer structure (nested objects)
+        if (
+          data.result &&
+          typeof data.result === "object" &&
+          typeof data.result.answer !== "undefined"
+        ) {
+          // Path 1a: Using structured result.answer format
           geminiContent = data.result.answer;
           sourcesData = data.result.sources || [];
           relatedQuestionsData = data.result.relatedQuestions || [];
           isPreformattedHTML = false;
+          console.log(
+            "[pollAgentResponse] Using data.result.answer structure:",
+            { length: geminiContent.length }
+          );
+        } else if (
+          data.data &&
+          typeof data.data === "object" &&
+          typeof data.data.answer !== "undefined"
+        ) {
+          // Path 1b: Using structured data.answer format
+          geminiContent = data.data.answer;
+          sourcesData = data.data.sources || [];
+          relatedQuestionsData = data.data.relatedQuestions || [];
+          isPreformattedHTML = false;
+          console.log("[pollAgentResponse] Using data.data.answer structure:", {
+            length: geminiContent.length,
+          });
         } else if (data.formattedHtml) {
+          // Path 2: Using formatted HTML that needs parsing
           const parsed = parseFormattedHTML(data.formattedHtml, queryKeywords);
           geminiContent = parsed.mainAnswer;
           sourcesData = parsed.sources;
           relatedQuestionsData = parsed.relatedQuestions;
-          isPreformattedHTML = parsed.parsingFailed;
+          isPreformattedHTML = !parsed.parsingFailed;
+          console.log("[pollAgentResponse] Using formatted HTML content:", {
+            parsingFailed: parsed.parsingFailed,
+          });
+        } else if (data.final_answer) {
+          // Path 3: Using orchestration service format
+          geminiContent = data.final_answer;
+          // Try to extract sources from retrieval_contexts if available
+          if (
+            data.retrieval_contexts &&
+            Array.isArray(data.retrieval_contexts)
+          ) {
+            sourcesData = data.retrieval_contexts.map((ctx) => ({
+              title: ctx.title || "Source",
+              url: ctx.url || null,
+              snippet: ctx.summary || "",
+            }));
+          }
+          isPreformattedHTML = false;
+          console.log(
+            "[pollAgentResponse] Using orchestration format with final_answer:",
+            { length: geminiContent.length }
+          );
+        } else if (
+          typeof data.result === "string" &&
+          data.result.trim() !== ""
+        ) {
+          // Path 4: Using data.result as a direct string
+          geminiContent = data.result;
+          isPreformattedHTML = false;
+          console.log("[pollAgentResponse] Using data.result as string:", {
+            preview: data.result.substring(0, 50),
+          });
+        } else if (data.gemini) {
+          // Path 5: Support legacy 'gemini' field
+          geminiContent = data.gemini;
+          sourcesData = data.sources || [];
+          relatedQuestionsData = data.relatedQuestions || [];
+          isPreformattedHTML =
+            typeof data.isPreformattedHTML === "boolean"
+              ? data.isPreformattedHTML
+              : false;
+          console.log("[pollAgentResponse] Using legacy gemini field:", {
+            length: geminiContent.length,
+          });
+        } else if (data.answer) {
+          // Path 6: Direct answer field at root level
+          geminiContent = data.answer;
+          sourcesData = data.sources || [];
+          relatedQuestionsData = data.relatedQuestions || [];
+          isPreformattedHTML = false;
+          console.log("[pollAgentResponse] Using direct answer field:", {
+            length: geminiContent.length,
+          });
         } else {
-          geminiContent = data.result || "Agent response processed.";
-          isPreformattedHTML = typeof geminiContent !== "string";
+          // Fallback: If no content found in expected places
+          console.warn(
+            "[pollAgentResponse] No recognizable content format found, using fallback",
+            data
+          );
+          geminiContent =
+            "Agent completed the request, but no response content was found. This may indicate a format mismatch.";
+          isPreformattedHTML = false;
+        }
+
+        // Ensure content is a string to prevent display issues
+        if (typeof geminiContent !== "string") {
+          console.warn(
+            "[pollAgentResponse] geminiContent is not a string, converting:",
+            typeof geminiContent
+          );
+          try {
+            geminiContent = JSON.stringify(geminiContent, null, 2);
+          } catch (e) {
+            geminiContent =
+              "Agent returned a non-text response that couldn't be displayed properly.";
+          }
+        }
+
+        // Final check to ensure we have some content
+        if (!geminiContent || geminiContent.trim() === "") {
+          console.warn(
+            "[pollAgentResponse] Empty content after processing, using fallback"
+          );
+          geminiContent =
+            "Agent completed the request, but returned an empty response.";
         }
 
         dispatch(
@@ -478,7 +647,7 @@ export const pollAgentResponse = (taskId, agentId) => {
               queryKeywords: queryKeywords,
               isLoader: "no",
               isSearch: true,
-              searchType: originalSearchType, // Use the original searchType for consistency
+              searchType: originalSearchType,
               isPreformattedHTML: isPreformattedHTML,
             },
           })

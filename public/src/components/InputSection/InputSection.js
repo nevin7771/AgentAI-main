@@ -233,6 +233,12 @@ const InputSection = () => {
     e.preventDefault();
     if (!userInput.trim()) return;
 
+    // Store the current input for use in the submission process
+    const currentInput = userInput;
+
+    // Clear input field immediately after submission to provide instant feedback
+    setUserInput("");
+
     // If agents are selected, route to agent API instead of simple/deep search
     if (selectedAgents.length > 0) {
       try {
@@ -242,12 +248,12 @@ const InputSection = () => {
         dispatch(
           chatAction.chatStart({
             useInput: {
-              user: userInput,
+              user: currentInput,
               gemini: "",
               isLoader: "yes",
               isSearch: true,
               searchType: "agent", // Always use "agent" for consistent loading animation
-              queryKeywords: userInput
+              queryKeywords: currentInput
                 .split(/\s+/)
                 .filter((word) => word.length > 3),
             },
@@ -257,7 +263,7 @@ const InputSection = () => {
         // Send the question and get the task ID
         console.log(
           "Sending agent question with input:",
-          userInput,
+          currentInput,
           "agents:",
           selectedAgents
         );
@@ -265,7 +271,7 @@ const InputSection = () => {
         // Send the question and get the task ID or direct response
         const agentResponse = await dispatch(
           sendAgentQuestion({
-            question: userInput,
+            question: currentInput,
             agents: selectedAgents,
             chatHistoryId,
             navigate, // Pass navigate for potential routing in the action
@@ -298,7 +304,7 @@ const InputSection = () => {
 
             console.log(
               "Query sent:",
-              userInput,
+              currentInput,
               ", Mode: Agent, Agents:",
               selectedAgents
             );
@@ -384,7 +390,7 @@ const InputSection = () => {
                   ...data,
                   agentId: selectedAgentId,
                   taskId: agentTask.taskId,
-                  question: userInput,
+                  question: currentInput,
                 });
                 return;
               } else if (attempts >= maxAttempts) {
@@ -393,7 +399,7 @@ const InputSection = () => {
                 handleAgentResponse({
                   agentId: selectedAgentId,
                   taskId: agentTask.taskId,
-                  question: userInput,
+                  question: currentInput,
                   result: "The agent took too long to respond",
                 });
                 return;
@@ -408,7 +414,7 @@ const InputSection = () => {
                 handleAgentResponse({
                   agentId: selectedAgentId,
                   taskId: agentTask.taskId,
-                  question: userInput,
+                  question: currentInput,
                   result: `Error polling agent: ${error.message}`,
                 });
               } else {
@@ -439,7 +445,7 @@ const InputSection = () => {
               dispatch(
                 chatAction.chatStart({
                   useInput: {
-                    user: userInput,
+                    user: currentInput,
                     gemini: `<div class="simple-search-results error">
                       <h3>Agent Error</h3>
                       <p>Sorry, there was an error retrieving the agent response: ${error.message}</p>
@@ -463,7 +469,7 @@ const InputSection = () => {
         dispatch(
           chatAction.chatStart({
             useInput: {
-              user: userInput,
+              user: currentInput,
               gemini: `<div class="simple-search-results error">
                 <h3>Agent Error</h3>
                 <p>Sorry, there was an error sending your question to the agent: ${error.message}</p>
@@ -471,7 +477,7 @@ const InputSection = () => {
               isLoader: "no",
               isSearch: true,
               searchType: "agent",
-              queryKeywords: userInput
+              queryKeywords: currentInput
                 .split(/\s+/)
                 .filter((word) => word.length > 3),
             },
@@ -487,7 +493,7 @@ const InputSection = () => {
         // Deep search
         dispatch(
           sendDeepSearchRequest({
-            query: userInput,
+            query: currentInput,
             sources: ["support.zoom.us", "community.zoom.us", "zoom.us"],
             endpoint: "/api/deepsearch",
             chatHistoryId,
@@ -497,7 +503,7 @@ const InputSection = () => {
         // Simple search (default)
         dispatch(
           sendDeepSearchRequest({
-            query: userInput,
+            query: currentInput,
             sources: ["support.zoom.us", "community.zoom.us", "zoom.us"],
             endpoint: "/api/simplesearch",
             chatHistoryId,
@@ -507,12 +513,11 @@ const InputSection = () => {
     }
 
     console.log(
-      `Query sent: ${userInput}, Mode: ${
+      `Query sent: ${currentInput}, Mode: ${
         selectedAgents.length > 0 ? "Agent" : searchMode
       }, Agents: ${selectedAgents.join(", ")}`
     );
 
-    setUserInput("");
     navigate("/app");
   };
 
