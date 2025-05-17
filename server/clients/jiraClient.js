@@ -1,5 +1,5 @@
 // server/clients/jiraClient.js
-// Updated to use environment variables, dynamic JQL, and ensure consistent response format
+// Enhanced version with improved response formatting and query generation
 
 import axios from "axios";
 import { generateJqlQuery } from "../orchestration/jqlGenerator.js";
@@ -79,14 +79,74 @@ const fetchAllComments = async (issueKey) => {
 };
 
 /**
+ * Enhanced function to get detailed issue information
+ *
+ * @param {string} issueKey - The Jira issue key (e.g., ZSEE-166382)
+ * @param {object} options - Optional parameters including fields to expand
+ * @returns {Promise<object>} - A promise resolving to the issue details
+ */
+const getIssue = async (issueKey, options = {}) => {
+  if (!JIRA_URL || !AUTH_TOKEN) {
+    console.error(
+      "[jiraClient] Jira API not configured. Cannot fetch issue details."
+    );
+    return null;
+  }
+
+  try {
+    console.log(`[jiraClient] Fetching details for issue ${issueKey}`);
+
+    // Default expand options if not provided
+    const expand =
+      options.expand ||
+      "changelog,renderedFields,names,schema,operations,editmeta,changelog";
+
+    // Default fields to retrieve if not provided
+    const fields = options.fields || [
+      "summary",
+      "description",
+      "status",
+      "assignee",
+      "reporter",
+      "priority",
+      "created",
+      "updated",
+      "comment",
+      "issuelinks",
+      "attachment",
+    ];
+
+    const issueUrl = `${JIRA_URL}/rest/api/3/issue/${issueKey}`;
+    const response = await axios.get(issueUrl, {
+      headers: {
+        Authorization: AUTH_TOKEN,
+        Accept: "application/json",
+      },
+      params: {
+        expand: expand,
+        fields: fields.join(","),
+      },
+    });
+
+    return response.data;
+  } catch (error) {
+    console.error(
+      `[jiraClient] Error fetching issue ${issueKey}:`,
+      error.message
+    );
+    return null;
+  }
+};
+
+/**
  * Searches Jira issues based on a natural language query.
  * Converts the query to JQL first, then calls the Jira API.
  *
- * @param {string} naturalLanguageQuery - The user\s query in natural language.
- * @param {number} maxResults - Maximum number of issues to return.
- * @returns {Promise<Array<object>>} - A promise resolving to an array of Jira issue objects (simplified).
+ * @param {string|object} searchParam - The search query or object with search parameters
+ * @param {number} maxResults - Maximum number of issues to return
+ * @returns {Promise<Array<object>>} - A promise resolving to an array of Jira issue objects (simplified)
  */
-const searchIssues = async (naturalLanguageQuery, maxResults = 5) => {
+const searchIssues = async (searchParam, maxResults = 10) => {
   if (!JIRA_URL || !AUTH_TOKEN) {
     console.error(
       "[jiraClient] Jira URL, Email, or Token not configured in .env. Skipping Jira search."
@@ -110,47 +170,129 @@ const searchIssues = async (naturalLanguageQuery, maxResults = 5) => {
           },
         },
       ],
-      naturalLanguageQuery
+      String(searchParam)
     );
   }
 
-  console.log(`[jiraClient] Searching Jira for: "${naturalLanguageQuery}"`);
+  // Handle different parameter types
+  let naturalLanguageQuery = "";
+  let jqlQuery = null;
+
+  if (typeof searchParam === "string") {
+    // Simple string query
+    naturalLanguageQuery = searchParam;
+    console.log(
+      `[jiraClient] Searching Jira for string query: "${naturalLanguageQuery}"`
+    );
+  } else if (typeof searchParam === "object" && searchParam !== null) {
+    // Extract query from the object
+    if (searchParam.jql) {
+      // Direct JQL query
+      jqlQuery = searchParam.jql;
+      naturalLanguageQuery = `JQL: ${jqlQuery.substring(0, 30)}...`;
+      console.log(`[jiraClient] Searching Jira with JQL: ${jqlQuery}`);
+    } else {
+      // Try to extract a query from various object properties
+      naturalLanguageQuery =
+        searchParam.query ||
+        searchParam.parameters?.naturalLanguageQuery ||
+        "Jira issues";
+      console.log(
+        `[jiraClient] Searching Jira with object parameter, extracted query: "${naturalLanguageQuery}"`
+      );
+    }
+  } else {
+    console.error(
+      "[jiraClient] Invalid search parameter type:",
+      typeof searchParam
+    );
+    return formatResultsForFrontend(
+      [
+        {
+          title: "Jira Search Error",
+          summary: "Invalid search parameter provided",
+          error: true,
+          extra: {
+            error_type: "invalid_parameter",
+            details: `Expected string or object, got ${typeof searchParam}`,
+          },
+        },
+      ],
+      String(searchParam)
+    );
+  }
 
   try {
-    // 1. Generate JQL from the natural language query
-    console.log(`[jiraClient] Generating JQL query...`);
-    const jql = await generateJqlQuery(naturalLanguageQuery);
-    console.log(`[jiraClient] Generated JQL: ${jql}`);
+    // Check for AI summary language related query
+    const aiSummaryLanguageQuery =
+      isAiSummaryLanguageQuery(naturalLanguageQuery);
+
+    // 1. Generate JQL from the natural language query or use provided JQL
+    console.log(
+      `[jiraClient] ${jqlQuery ? "Using provided" : "Generating"} JQL query...`
+    );
+
+    let jql;
+    if (jqlQuery) {
+      // Use the provided JQL directly
+      jql = jqlQuery;
+    } else if (aiSummaryLanguageQuery) {
+      jql = buildAiSummaryJqlQuery(naturalLanguageQuery);
+    } else {
+      jql = await generateJqlQuery(naturalLanguageQuery);
+    }
+
+    console.log(`[jiraClient] ${jqlQuery ? "Using" : "Generated"} JQL: ${jql}`);
 
     // 2. Call the Jira Search API
     const searchUrl = `${JIRA_URL}/rest/api/3/search`;
-    const response = await axios.post(
-      searchUrl,
-      {
-        jql: jql,
-        maxResults: maxResults,
-        fields: [
-          // Specify fields to retrieve
-          "summary",
-          "description",
-          "status",
-          "assignee",
-          "reporter",
-          "priority",
-          "created",
-          "updated",
-          "comment", // Include comments
-        ],
-      },
-      {
+
+    // Determine if we're using a POST or GET request based on JQL length
+    let response;
+    if (jql.length > 1000) {
+      // Long JQL - use POST request
+      response = await axios.post(
+        searchUrl,
+        {
+          jql: jql,
+          maxResults: maxResults,
+          fields: [
+            "summary",
+            "description",
+            "status",
+            "assignee",
+            "reporter",
+            "priority",
+            "created",
+            "updated",
+            "comment",
+          ],
+        },
+        {
+          headers: {
+            Authorization: AUTH_TOKEN,
+            Accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          timeout: 15000, // 15 seconds timeout
+        }
+      );
+    } else {
+      // Short JQL - use GET request
+      response = await axios.get(searchUrl, {
         headers: {
           Authorization: AUTH_TOKEN,
           Accept: "application/json",
-          "Content-Type": "application/json",
+        },
+        params: {
+          jql: jql,
+          maxResults: maxResults,
+          fields:
+            "summary,description,status,assignee,reporter,priority,created,updated,comment",
         },
         timeout: 15000, // 15 seconds timeout
-      }
-    );
+      });
+    }
 
     // 3. Format the results
     const issues = response.data?.issues || [];
@@ -162,7 +304,7 @@ const searchIssues = async (naturalLanguageQuery, maxResults = 5) => {
         let commentChunks = [];
 
         // Special handling for ZSEE tickets - fetch all comments separately
-        if (issue.key.includes("ZSEE-")) {
+        if (issue.key && issue.key.includes("ZSEE-")) {
           console.log(
             `[jiraClient] ZSEE ticket detected: ${issue.key} - fetching all comments`
           );
@@ -170,30 +312,34 @@ const searchIssues = async (naturalLanguageQuery, maxResults = 5) => {
         } else {
           // Standard comment extraction for non-ZSEE tickets
           commentChunks =
-            issue.fields.comment?.comments?.map((c) =>
-              c.body?.content
-                ?.map((c2) => c2.content?.map((t) => t.text).join(" ") || "")
-                .join("\n")
-            ) || [];
+            (issue.fields &&
+              issue.fields.comment?.comments?.map((c) =>
+                c.body?.content
+                  ?.map((c2) => c2.content?.map((t) => t.text).join(" ") || "")
+                  .join("\n")
+              )) ||
+            [];
         }
 
         return {
-          title: `${issue.key}: ${issue.fields.summary}`,
+          title: `${issue.key}: ${issue.fields?.summary || "No summary"}`,
           summary:
-            issue.fields.description?.content
+            issue.fields?.description?.content
               ?.map((c) => c.content?.map((t) => t.text).join(" ") || "")
-              .join("\n") || issue.fields.summary, // Attempt to extract text from description ADF
+              .join("\n") ||
+            issue.fields?.summary ||
+            "No description", // Attempt to extract text from description ADF
           url: `${JIRA_URL}/browse/${issue.key}`,
           search_engine: "Jira Direct API",
           chunks: commentChunks, // Use enhanced comments for ZSEE tickets
           extra: {
             key: issue.key,
-            status: issue.fields.status?.name,
-            assignee: issue.fields.assignee?.displayName,
-            reporter: issue.fields.reporter?.displayName,
-            priority: issue.fields.priority?.name,
-            created: issue.fields.created,
-            updated: issue.fields.updated,
+            status: issue.fields?.status?.name || "Unknown",
+            assignee: issue.fields?.assignee?.displayName || "Unassigned",
+            reporter: issue.fields?.reporter?.displayName || "Unknown",
+            priority: issue.fields?.priority?.name || "None",
+            created: issue.fields?.created,
+            updated: issue.fields?.updated,
           },
         };
       })
@@ -247,6 +393,50 @@ const searchIssues = async (naturalLanguageQuery, maxResults = 5) => {
 };
 
 /**
+ * Helper function to determine if a query is about AI summary language issues
+ *
+ * @param {string} query - The query to check
+ * @returns {boolean} - True if the query is about AI summary language
+ */
+function isAiSummaryLanguageQuery(query) {
+  const queryLower = query.toLowerCase();
+  const aiSummaryTerms = [
+    "ai summary",
+    "meeting summary",
+    "incorrect language",
+    "wrong language",
+    "language spoken",
+    "spoken language",
+    "transcription language",
+  ];
+
+  // Check if the query contains multiple AI summary related terms
+  let matchCount = 0;
+  for (const term of aiSummaryTerms) {
+    if (queryLower.includes(term)) {
+      matchCount++;
+    }
+  }
+
+  return matchCount >= 2;
+}
+
+/**
+ * Builds an optimized JQL query for AI summary language issues
+ *
+ * @param {string} query - The original query
+ * @returns {string} - A JQL query optimized for AI summary language issues
+ */
+function buildAiSummaryJqlQuery(query) {
+  return (
+    '(summary ~ "AI summary" OR summary ~ "meeting summary" OR summary ~ "language") AND ' +
+    '(summary ~ "incorrect" OR summary ~ "wrong" OR summary ~ "not working" OR ' +
+    'description ~ "incorrect language" OR description ~ "wrong language" OR ' +
+    'description ~ "AI summary") ORDER BY updatedDate DESC'
+  );
+}
+
+/**
  * Formats the search results to ensure they are compatible with the frontend expectations.
  * This should be called at the end of searchIssues to standardize responses.
  *
@@ -294,30 +484,33 @@ const formatResultsForFrontend = (results, query) => {
     return errorResult;
   }
 
-  // Create a combined answer from multiple results
-  let combinedAnswer = `Found ${results.length} Jira issue${
+  // Create a combined answer from multiple results - enhanced with better formatting
+  let combinedAnswer = `I've found ${results.length} Jira issue${
     results.length > 1 ? "s" : ""
-  } for "${query}":\n\n`;
+  } related to "${query}":\n\n`;
 
   results.forEach((item, index) => {
+    // Format each result as a numbered list with consistent formatting
     combinedAnswer += `${index + 1}. **${item.title || "Untitled"}**\n`;
-    if (item.summary) {
-      // Limit summary length in the combined answer
-      const shortenedSummary =
-        item.summary.length > 150
-          ? item.summary.substring(0, 150) + "..."
-          : item.summary;
-      combinedAnswer += `   ${shortenedSummary}\n`;
-    }
-    if (item.url) {
-      combinedAnswer += `   [View in Jira](${item.url})\n`;
-    }
+
+    // Always include status and assignee if available
     if (item.extra && item.extra.status) {
-      combinedAnswer += `   Status: ${item.extra.status}\n`;
+      combinedAnswer += `   * Status: ${item.extra.status}\n`;
     }
     if (item.extra && item.extra.assignee) {
-      combinedAnswer += `   Assignee: ${item.extra.assignee}\n`;
+      combinedAnswer += `   * Assignee: ${item.extra.assignee}\n`;
     }
+
+    // For AI summary language queries, include a short summary snippet if available
+    if (isAiSummaryLanguageQuery(query) && item.summary) {
+      // Limit summary length
+      const shortenedSummary =
+        item.summary.length > 100
+          ? item.summary.substring(0, 100) + "..."
+          : item.summary;
+      combinedAnswer += `   * Details: ${shortenedSummary}\n`;
+    }
+
     combinedAnswer += "\n";
   });
 
@@ -353,4 +546,5 @@ export default {
   searchIssues,
   fetchAllComments,
   formatResultsForFrontend,
+  getIssue,
 };

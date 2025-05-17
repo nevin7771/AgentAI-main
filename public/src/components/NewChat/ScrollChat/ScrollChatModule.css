@@ -498,3 +498,237 @@ pre code.hljs {
   position: relative;
   border-left: 4px solid #34A853;
 }
+
+/* Added styles for follow-up questions */
+.follow-up-questions-container {
+  margin-top: 16px;
+  border-top: 1px solid #e0e0e0;
+  padding-top: 16px;
+}
+
+.related-title {
+  font-size: 1.1em;
+  font-weight: bold;
+  margin-bottom: 12px;
+  color: #333;
+}
+
+.follow-up-question-card {
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: background-color 0.2s ease-in-out;
+}
+
+.follow-up-question-card:hover {
+  background-color: #e9ecef;
+}
+
+.follow-up-question-card span {
+  font-size: 0.95em;
+  color: #212529;
+}
+
+.follow-up-plus-icon {
+  font-size: 1.2em;
+  color: #007bff;
+  font-weight: bold;
+}
+
+/* Ensure gemini-response-container encapsulates the response and follow-ups */
+.gemini-response-container {
+    /* Add any necessary styling for the container itself if needed */
+}
+
+.gemini-p {
+    /* Existing styles for gemini-p */
+    margin-bottom: 16px; /* Add some space before follow-up questions */
+}
+
+/* Styles from highlight.js/styles/github.css are already imported in JS */
+
+
+
+/* Styles for sources container and items */
+.sources-container {
+  margin-top: 16px;
+  padding-top: 10px;
+  border-top: 1px solid #eee;
+}
+
+.sources-container ul {
+  list-style-type: none;
+  padding: 0;
+  margin: 0;
+  display: flex; /* Arrange source cards in a row */
+  flex-wrap: wrap; /* Allow wrapping to next line if space is insufficient */
+  gap: 10px; /* Space between cards */
+}
+
+.source-item {
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 10px;
+  margin-bottom: 8px; /* Kept for vertical stacking if flex-wrap occurs */
+  background-color: #fff;
+  transition: box-shadow 0.2s ease-in-out, border-color 0.2s ease-in-out;
+  width: calc(25% - 10px); /* Aim for 4 cards per row, adjust as needed */
+  box-sizing: border-box; /* Include padding and border in the element's total width and height */
+  display: flex; /* Use flex for internal alignment of icon and content */
+  align-items: flex-start; /* Align items to the top */
+}
+
+.source-item:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  border-color: #007bff;
+}
+
+.source-item.highlighted-source {
+  border-left: 4px solid #007bff; /* Highlight with a left border */
+  background-color: #e7f3ff; /* Light blue background for highlighted sources */
+}
+
+.source-item a {
+  text-decoration: none;
+  color: inherit; /* Inherit text color from parent */
+  display: flex; /* Make the entire link area a flex container */
+  width: 100%;
+}
+
+.source-icon {
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
+  flex-shrink: 0; /* Prevent icon from shrinking */
+}
+
+.source-card-content {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1; /* Allow content to take available space */
+  overflow: hidden; /* Prevent content from overflowing */
+}
+
+.source-domain {
+  font-size: 0.8em;
+  color: #6c757d;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.source-title {
+  font-size: 0.9em;
+  font-weight: 500;
+  color: #333;
+  margin-bottom: 4px;
+  /* Allow title to wrap if it's too long */
+  white-space: normal; 
+  word-break: break-word; /* Break long words to prevent overflow */
+  display: -webkit-box;
+  -webkit-line-clamp: 2; /* Limit to 2 lines */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3em; /* Adjust line height for better readability */
+  max-height: 2.6em; /* Corresponds to 2 lines with 1.3em line height */
+}
+
+.source-type-badge {
+  font-size: 0.75em;
+  background-color: #6c757d;
+  color: white;
+  padding: 2px 6px;
+  border-radius: 4px;
+  align-self: flex-start; /* Align badge to the start of the flex container */
+  margin-top: 4px;
+}
+
+/* Ensure the .gemini-answer class exists or is defined for the answer text */
+.gemini-answer {
+    /* Add any necessary styling for the answer container if needed */
+    margin-bottom: 16px; /* Space before sources */
+}
+
+/* Responsive adjustments for source cards */
+@media (max-width: 1200px) {
+  .source-item {
+    width: calc(33.333% - 10px); /* 3 cards per row */
+  }
+}
+
+@media (max-width: 768px) {
+  .source-item {
+    width: calc(50% - 10px); /* 2 cards per row */
+  }
+}
+
+@media (max-width: 576px) {
+  .source-item {
+    width: 100%; /* 1 card per row */
+  }
+  .sources-container ul {
+    flex-direction: column; /* Stack cards vertically on very small screens */
+  }
+}
+
+/* Existing styles from ScrollChatModule.css should be preserved */
+/* ... */
+
+/* Added styles for follow-up questions (from previous step) */
+.follow-up-questions-container {
+  margin-top: 16px;
+  border-top: 1px solid #e0e0e0;
+  padding-top: 16px;
+}
+
+.related-title {
+  font-size: 1.1em;
+  font-weight: bold;
+  margin-bottom: 12px;
+  color: #333;
+}
+
+.follow-up-question-card {
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: background-color 0.2s ease-in-out;
+}
+
+.follow-up-question-card:hover {
+  background-color: #e9ecef;
+}
+
+.follow-up-question-card span {
+  font-size: 0.95em;
+  color: #212529;
+}
+
+.follow-up-plus-icon {
+  font-size: 1.2em;
+  color: #007bff;
+  font-weight: bold;
+}
+
+.gemini-response-container {
+    /* Add any necessary styling for the container itself if needed */
+}
+
+.gemini-p {
+    margin-bottom: 16px; 
+}
+

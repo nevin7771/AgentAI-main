@@ -11,7 +11,68 @@ import {
 import { chatAction } from "../../../store/chat";
 import CopyBtn from "../../Ui/CopyBtn";
 import ShareBtn from "../../Ui/ShareBtn";
+import DOMPurify from "dompurify";
 import { highlightKeywords } from "../../../utils/highlightKeywords";
+
+const extractKeywords = (text) => {
+  if (!text) return [];
+  const stopWords = new Set([
+    "a",
+    "an",
+    "the",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "being",
+    "have",
+    "has",
+    "had",
+    "do",
+    "does",
+    "did",
+    "will",
+    "would",
+    "should",
+    "can",
+    "could",
+    "may",
+    "might",
+    "must",
+    "and",
+    "but",
+    "or",
+    "nor",
+    "for",
+    "so",
+    "yet",
+    "in",
+    "on",
+    "at",
+    "by",
+    "from",
+    "to",
+    "with",
+    "about",
+    "as",
+    "if",
+    "it",
+    "this",
+    "that",
+    "then",
+    "thus",
+    "of",
+    "for",
+    "not",
+  ]);
+  return String(text)
+    .toLowerCase()
+    .replace(/[\p{P}\p{S}]/gu, "")
+    .split(/\s+/)
+    .filter((word) => word.length > 3 && !stopWords.has(word));
+};
 
 const ScrollChat = () => {
   const navigate = useNavigate();
@@ -149,6 +210,15 @@ const ScrollChat = () => {
     return processedText;
   };
 
+  const getAnswerKeywords = (geminiText) => {
+    if (!geminiText) return [];
+    const tempDiv = document.createElement("div");
+    // Use processMessageContent to convert markdown to HTML before extracting text
+    // Pass empty array for queryKeywords and false for isUserMessage to get base HTML
+    tempDiv.innerHTML = processMessageContent(geminiText, [], false);
+    return extractKeywords(tempDiv.textContent || tempDiv.innerText || "");
+  };
+
   const handleRelatedQuestionClick = (
     question,
     originalSearchType,
@@ -181,217 +251,256 @@ const ScrollChat = () => {
     }
   };
 
-  const chatSection = chat.map((c) => (
-    <Fragment key={c?.id || Math.random()}>
-      {!c?.error ? (
-        <div className={styles["single-chat"]}>
-          {c?.user && (
-            <div className={styles["user-chat-container"]}>
-              <div className={`${styles.user} ${styles["message-bubble"]}`}>
-                <div className={styles["sender-info"]}>
-                  <img src={userLogo} alt="User" />
-                </div>
-                <div className={styles["message-content"]}>
-                  {/* User messages are typically plain text, no need for dangerouslySetInnerHTML unless they can contain HTML */}
-                  <p>{c.user}</p>
+  const chatSection = chat.map((c) => {
+    console.log(c); // Log for debugging
+
+    // Calculate answerKeywords directly here. useMemo inside map is incorrect.
+    // The calculation itself is per-item, so this is the correct place if not memoizing the getAnswerKeywords function itself.
+    const answerKeywords = getAnswerKeywords(c?.gemini);
+
+    return (
+      <Fragment key={c?.id || Math.random()}>
+        {!c?.error ? (
+          <div className={styles["single-chat"]}>
+            {c?.user && (
+              // ... user chat bubble ...
+              <div className={styles["user-chat-container"]}>
+                <div className={`${styles.user} ${styles["message-bubble"]}`}>
+                  <div className={styles["sender-info"]}>
+                    <img src={userLogo} alt="User" />
+                  </div>
+                  <div className={styles["message-content"]}>
+                    <p>{c.user}</p>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {(c?.gemini || c?.isLoader === "yes") && (
-            <div className={styles["gemini-chat-container"]}>
-              <div className={`${styles.gemini} ${styles["message-bubble"]}`}>
-                <div className={styles["sender-info"]}>
-                  <img
-                    src={
-                      c?.isLoader === "yes" &&
-                      (c?.searchType === "agent" ||
-                        c?.searchType === "deep" ||
-                        c?.searchType === "simple")
-                        ? commonIcon.geminiLaoder
-                        : c?.isSearch || c?.searchType === "agent"
-                        ? agentLogo
-                        : geminiLogo
-                    }
-                    alt={
-                      c?.isLoader === "yes"
-                        ? "Loading"
-                        : c?.isSearch || c?.searchType === "agent"
-                        ? "Agent"
-                        : "AI"
-                    }
-                    className={`${styles["ai-icon"]} ${
-                      c?.isLoader === "yes" &&
-                      (c?.searchType === "agent" ||
-                        c?.searchType === "deep" ||
-                        c?.searchType === "simple")
-                        ? styles.sparkleAnimation
-                        : ""
-                    }`}
-                  />
-                </div>
-                <div className={styles["message-content-wrapper"]}>
-                  {" "}
-                  {/* Added wrapper */}
-                  <div
-                    className={`${styles["message-content"]} ${
-                      c?.isSearch ? styles["search-message-content"] : ""
-                    }`}>
-                    {c?.isLoader === "yes" ? (
-                      <div className={styles["loading-container-gemini"]}>
-                        <span className={styles["loading-text"]}>
-                          {currentLoadingText}
-                        </span>
-                      </div>
-                    ) : (
-                      <div
-                        className="gemini-answer"
-                        dangerouslySetInnerHTML={{
-                          __html:
-                            processMessageContent(
-                              c?.gemini,
-                              c?.queryKeywords
-                            ) || "",
-                        }}
-                      />
-                    )}
+            {(c?.gemini || c?.isLoader === "yes") && (
+              // ... AI chat bubble ...
+              <div className={styles["gemini-chat-container"]}>
+                <div className={`${styles.gemini} ${styles["message-bubble"]}`}>
+                  <div className={styles["sender-info"]}>
+                    <img
+                      src={
+                        c?.isLoader === "yes" &&
+                        (c?.searchType === "agent" ||
+                          c?.searchType === "deep" ||
+                          c?.searchType === "simple")
+                          ? commonIcon.geminiLaoder
+                          : c?.isSearch || c?.searchType === "agent"
+                          ? agentLogo
+                          : geminiLogo
+                      }
+                      alt={
+                        c?.isLoader === "yes"
+                          ? "Loading"
+                          : c?.isSearch || c?.searchType === "agent"
+                          ? "Agent"
+                          : "AI"
+                      }
+                      className={`${styles["ai-icon"]} ${
+                        c?.isLoader === "yes" &&
+                        (c?.searchType === "agent" ||
+                          c?.searchType === "deep" ||
+                          c?.searchType === "simple")
+                          ? styles.sparkleAnimation
+                          : ""
+                      }`}
+                    />
                   </div>
-                  {c?.isSearch &&
-                    (c?.sources?.length > 0 ||
-                      c?.relatedQuestions?.length > 0) &&
-                    !c.isLoader && (
-                      <div className={styles.unifiedInfoCard}>
+                  <div className={styles["message-content-wrapper"]}>
+                    <div
+                      className={`${styles["message-content"]} ${
+                        c?.isSearch ? styles["search-message-content"] : ""
+                      }`}>
+                      {c?.isLoader === "yes" ? (
+                        <div className={styles["loading-container-gemini"]}>
+                          <span className={styles["loading-text"]}>
+                            {currentLoadingText}
+                          </span>
+                        </div>
+                      ) : (
+                        <div
+                          className="gemini-answer"
+                          dangerouslySetInnerHTML={{
+                            __html:
+                              processMessageContent(
+                                c?.gemini,
+                                c?.queryKeywords
+                              ) || "",
+                          }}
+                        />
+                      )}
+                    </div>
+
+                    {/* MODIFIED SECTION FOR SOURCES AND RELATED QUESTIONS */}
+                    {!c.isLoader && (
+                      <>
                         {c.sources && c.sources.length > 0 && (
-                          <div className={styles.sourcesContainerInUnifiedCard}>
+                          <div className="sources-container">
                             <h3 className={styles.unifiedCardSectionTitle}>
-                              Sources and related content
-                            </h3>{" "}
-                            {/* Updated title based on image */}
-                            <div className="gemini-sources-grid">
-                              {c.sources.map((source, idx) => (
-                                <div className="source-card" key={idx}>
-                                  <a
-                                    href={source.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="source-card-link">
-                                    <div className="source-card-content">
-                                      <div
-                                        className="source-card-title"
-                                        dangerouslySetInnerHTML={{
-                                          __html: processMessageContent(
-                                            source.title,
-                                            c.queryKeywords
-                                          ),
-                                        }}
-                                      />
-                                      {source.snippet && (
-                                        <div
-                                          className="source-card-snippet"
-                                          dangerouslySetInnerHTML={{
-                                            __html: processMessageContent(
-                                              source.snippet,
-                                              c.queryKeywords
-                                            ),
-                                          }}
-                                        />
-                                      )}
-                                    </div>
-                                    <div className="source-card-footer">
+                              Sources
+                            </h3>
+                            <ul>
+                              {c.sources.map((source, idx) => {
+                                const sourceTextForMatching = `${
+                                  source.title || ""
+                                } ${source.snippet || ""}`.toLowerCase();
+                                const isHighlighted = answerKeywords.some(
+                                  (keyword) =>
+                                    sourceTextForMatching.includes(keyword)
+                                );
+                                const sourceClass = isHighlighted
+                                  ? "source-item highlighted-source"
+                                  : "source-item";
+
+                                let displayTitle =
+                                  source.title || "Untitled Source";
+                                let domain = "";
+                                if (source.url) {
+                                  try {
+                                    domain = new URL(source.url).hostname;
+                                  } catch (e) {
+                                    /* ignore invalid URL */
+                                  }
+                                } else {
+                                  domain = source.domain || "";
+                                }
+
+                                if (
+                                  source.type === "jira" ||
+                                  source.type === "confluence"
+                                ) {
+                                  displayTitle =
+                                    source.citationLabel ||
+                                    source.title ||
+                                    "Untitled Link";
+                                }
+
+                                return (
+                                  <li
+                                    key={source.id || idx}
+                                    className={sourceClass}>
+                                    <a
+                                      href={source.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      title={source.title || source.url}>
                                       {source.favicon && (
                                         <img
                                           src={source.favicon}
                                           alt=""
-                                          className="source-favicon"
+                                          className="source-icon"
                                         />
                                       )}
-                                      <span className="source-url">
-                                        {source.url
-                                          ? new URL(source.url).hostname
-                                          : ""}
-                                      </span>
-                                      {/* Add three-dot menu icon if needed, requires additional logic and styling */}
-                                      {/* <span className={styles.sourceCardMenu}>&#8942;</span> */}
-                                    </div>
-                                  </a>
+                                      <div className="source-card-content">
+                                        {domain && (
+                                          <div className="source-domain">
+                                            {domain}
+                                          </div>
+                                        )}
+                                        <div
+                                          className="source-title"
+                                          dangerouslySetInnerHTML={{
+                                            __html: DOMPurify.sanitize(
+                                              highlightKeywords(
+                                                displayTitle,
+                                                c.queryKeywords
+                                              )
+                                            ),
+                                          }}
+                                        />
+                                        {(source.type === "jira" ||
+                                          source.type === "confluence") && (
+                                          <span className="source-type-badge">
+                                            {source.type.toUpperCase()}
+                                          </span>
+                                        )}
+                                        {source.snippet && (
+                                          <div
+                                            className="source-snippet"
+                                            dangerouslySetInnerHTML={{
+                                              __html: DOMPurify.sanitize(
+                                                highlightKeywords(
+                                                  source.snippet,
+                                                  c.queryKeywords
+                                                )
+                                              ),
+                                            }}
+                                          />
+                                        )}
+                                      </div>
+                                    </a>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          </div>
+                        )}
+
+                        {c.relatedQuestions &&
+                          c.relatedQuestions.length > 0 && (
+                            <div className="follow-up-questions-container">
+                              <p className="related-title">Related</p>
+                              {c.relatedQuestions.map((question, idx) => (
+                                <div
+                                  key={idx}
+                                  className="follow-up-question-card"
+                                  onClick={() =>
+                                    handleRelatedQuestionClick(
+                                      question,
+                                      c.searchType,
+                                      c.isSearch
+                                    )
+                                  }>
+                                  <span>{question}</span>
+                                  <span className="follow-up-plus-icon">+</span>
                                 </div>
                               ))}
                             </div>
-                          </div>
-                        )}
-                        {c.relatedQuestions &&
-                          c.relatedQuestions.length > 0 && (
-                            <div
-                              className={
-                                styles.relatedQuestionsContainerInUnifiedCard
-                              }>
-                              <h3 className={styles.unifiedCardSectionTitle}>
-                                Related Questions
-                              </h3>
-                              <div className="gemini-chips-list">
-                                {c.relatedQuestions.map((question, idx) => (
-                                  <button
-                                    key={idx}
-                                    className="gemini-chip"
-                                    onClick={() =>
-                                      handleRelatedQuestionClick(
-                                        question,
-                                        c.searchType,
-                                        c.isSearch
-                                      )
-                                    }>
-                                    <span
-                                      className="gemini-chip-text"
-                                      dangerouslySetInnerHTML={{
-                                        __html: processMessageContent(
-                                          question,
-                                          c.queryKeywords
-                                        ),
-                                      }}
-                                    />
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
                           )}
+                      </>
+                    )}
+                    {/* END OF MODIFIED SECTION */}
+
+                    {c?.gemini && c?.isLoader !== "yes" && !c.error && (
+                      <div className={styles["message-actions-toolbar"]}>
+                        <CopyBtn data={c?.gemini} />
+                        {historyId && (
+                          <ShareBtn chatId={historyId} messageId={c?.id} />
+                        )}
                       </div>
                     )}
-                  {c?.gemini && c?.isLoader !== "yes" && !c.error && (
-                    <div className={styles["message-actions-toolbar"]}>
-                      <CopyBtn data={c?.gemini} />
-                      {historyId && (
-                        <ShareBtn chatId={historyId} messageId={c?.id} />
-                      )}
-                    </div>
-                  )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          // ... error display ...
+          <div className={styles["single-chat"]}>
+            <div className={styles["gemini-chat-container"]}>
+              <div
+                className={`${styles.gemini} ${styles["message-bubble"]} ${styles.errorBubble}`}>
+                <div className={styles["sender-info"]}>
+                  <img
+                    src={agentLogo}
+                    alt="Error"
+                    className={styles["ai-icon"]}
+                  />
+                </div>
+                <div
+                  className={`${styles["message-content"]} ${styles["error-message"]}`}>
+                  <p>{c.error.message || "An error occurred."}</p>
                 </div>
               </div>
             </div>
-          )}
-        </div>
-      ) : (
-        <div className={styles["single-chat"]}>
-          <div className={styles["gemini-chat-container"]}>
-            <div
-              className={`${styles.gemini} ${styles["message-bubble"]} ${styles.errorBubble}`}>
-              <div className={styles["sender-info"]}>
-                <img
-                  src={agentLogo}
-                  alt="Error"
-                  className={styles["ai-icon"]}
-                />
-              </div>
-              <div
-                className={`${styles["message-content"]} ${styles["error-message"]}`}>
-                <p>{c.error.message || "An error occurred."}</p>
-              </div>
-            </div>
           </div>
-        </div>
-      )}
-    </Fragment>
-  ));
+        )}
+      </Fragment>
+    );
+  });
 
   return (
     <div className={styles["scroll-chat-main"]} ref={chatRef}>
