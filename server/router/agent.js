@@ -16,19 +16,21 @@ router.use(authMiddleware);
 let vectorDbInitialized = false;
 const initVectorDb = async () => {
   if (vectorDbInitialized) return;
-  
+
   try {
     if (!process.env.PINECONE_API_KEY) {
-      console.log('PINECONE_API_KEY not found - skipping vector DB initialization');
+      console.log(
+        "PINECONE_API_KEY not found - skipping vector DB initialization"
+      );
       return;
     }
-    
-    await createPineconeIndex('agent-ai-searches');
+
+    await createPineconeIndex("agent-ai-searches");
     vectorDbInitialized = true;
-    console.log('Vector database initialized successfully');
+    console.log("Vector database initialized successfully");
   } catch (error) {
-    console.error('Error initializing vector database:', error);
-    console.log('Will fall back to standard search methods');
+    console.error("Error initializing vector database:", error);
+    console.log("Will fall back to standard search methods");
     // Continue even if vector DB init fails - we'll fall back to standard search
   }
 };
@@ -36,8 +38,11 @@ const initVectorDb = async () => {
 // Initialize vector DB when router is loaded, but don't block if it fails
 // Wrap in setTimeout to avoid blocking server startup
 setTimeout(() => {
-  initVectorDb().catch(err => {
-    console.warn("Vector DB initialization failed, will use fallback search methods:", err.message);
+  initVectorDb().catch((err) => {
+    console.warn(
+      "Vector DB initialization failed, will use fallback search methods:",
+      err.message
+    );
   });
 }, 5000);
 
@@ -85,13 +90,16 @@ router.post("/api/deep-research", async (req, res) => {
         // Send progress updates as SSE events
         const status = progress.status || "researching";
         let message = "Researching...";
-        
+
         switch (status) {
           case "analyzing":
             message = "Analyzing query and planning research approach...";
             break;
           case "searching":
-            message = `Searching for information on: ${progress.currentQuery?.substring(0, 30)}...`;
+            message = `Searching for information on: ${progress.currentQuery?.substring(
+              0,
+              30
+            )}...`;
             break;
           case "researching":
             message = `Researching at depth ${progress.currentDepth}...`;
@@ -103,7 +111,7 @@ router.post("/api/deep-research", async (req, res) => {
             message = "Research complete!";
             break;
         }
-        
+
         res.write(
           `data: ${JSON.stringify({
             type: "progress",
@@ -152,7 +160,16 @@ router.post("/api/deep-research", async (req, res) => {
 });
 
 // Handler for RAG search with vector database integration
+// In server/router/agent.js - update the simplesearch route
+
+// Handler for simplesearch with LLM Gateway web search
+// In server/router/agent.js - fix the simplesearch route
+
+// Handler for simplesearch with LLM Gateway web search
 router.post("/api/simplesearch", async (req, res) => {
+  // Initialize savedChatHistoryId at the beginning
+  let savedChatHistoryId = req.body.chatHistoryId || "";
+
   try {
     const {
       query,
@@ -169,131 +186,167 @@ router.post("/api/simplesearch", async (req, res) => {
       });
     }
 
-    console.log(`[RAGSearch] Processing query: "${query}"`);
+    console.log(`[SimpleSearch] Processing query: "${query}"`);
 
-    // Perform RAG search with vector database and ReAct approach
-    const { answer, searchResults, usedCache } = await performReActSearch(query, sources);
+    // Create the LLM Gateway Search Agent
+    const searchAgent = createAgent("llm-gateway-search", {
+      sources: sources,
+    });
 
-    // Import the formatSearchResultHTML function
-    const { formatSearchResultHTML } = await import("../agents/utils/agentUtils.js");
-    
-    // Use our formatter function to generate clean HTML
-    const formattedHtml = formatSearchResultHTML(
-      { answer }, 
-      query,
-      sources
-    );
+    try {
+      // Execute the search using the agent
+      const result = await searchAgent.execute(query);
 
-    // Save to chat history if requested
-    let savedChatHistoryId = chatHistoryId;
-    
-    if (req.user) { // Always try to save if user exists
-      try {
-        const { chat } = await import("../model/chat.js");
-        const { chatHistory } = await import("../model/chatHistory.js");
-        
-        // Create or get chat history
-        let chatHistoryDoc;
-        
-        if (chatHistoryId && chatHistoryId.length > 2) {
-          // Use existing chat history
-          chatHistoryDoc = await chatHistory.findById(chatHistoryId);
-          if (!chatHistoryDoc) {
-            // If not found, create new
+      // Format the HTML response
+      const formattedHtml = searchAgent.formatResponse(result);
+
+      // Save to chat history if requested
+      if (req.user) {
+        // Always try to save if user exists
+        try {
+          const { chat } = await import("../model/chat.js");
+          const { chatHistory } = await import("../model/chatHistory.js");
+
+          // Create or get chat history
+          let chatHistoryDoc;
+
+          if (chatHistoryId && chatHistoryId.length > 2) {
+            // Use existing chat history
+            chatHistoryDoc = await chatHistory.findById(chatHistoryId);
+            if (!chatHistoryDoc) {
+              // If not found, create new
+              chatHistoryDoc = new chatHistory({
+                user: req.user._id,
+                title: query.substring(0, 30),
+              });
+              await chatHistoryDoc.save();
+            }
+          } else {
+            // Create new chat history
             chatHistoryDoc = new chatHistory({
               user: req.user._id,
               title: query.substring(0, 30),
             });
             await chatHistoryDoc.save();
           }
-        } else {
-          // Create new chat history
-          chatHistoryDoc = new chatHistory({
-            user: req.user._id,
-            title: query.substring(0, 30),
-          });
-          await chatHistoryDoc.save();
-        }
-        
-        savedChatHistoryId = chatHistoryDoc._id;
-        
-        // Create chat entry
-        const chatDoc = new chat({
-          chatHistory: chatHistoryDoc._id,
-          messages: [
-            {
-              sender: req.user._id,
-              message: {
-                user: query,
-                gemini: formattedHtml,
+
+          savedChatHistoryId = chatHistoryDoc._id;
+
+          // Create chat entry
+          const chatDoc = new chat({
+            chatHistory: chatHistoryDoc._id,
+            messages: [
+              {
+                sender: req.user._id,
+                message: {
+                  user: query,
+                  gemini: formattedHtml,
+                },
+                isSearch: true,
+                searchType: "simple",
               },
-              isSearch: true,
-              searchType: "simple",
-            },
-          ],
-        });
-        
-        await chatDoc.save();
-        
-        // Update the chatHistory document with the new chat reference
-        chatHistoryDoc.chat = chatDoc._id;
-        await chatHistoryDoc.save();
-        
-        // Update the user document to include this chat history if it's new
-        if (!chatHistoryId || chatHistoryId.length < 2) {
-          const { user } = await import("../model/user.js");
-          const userData = await user.findById(req.user._id);
-          if (userData) {
-            // Check if the chat history ID already exists in the user's chatHistory array
-            const historyExists = userData.chatHistory.some(
-              history => history.toString() === chatHistoryDoc._id.toString()
-            );
-            
-            // If it doesn't exist, add it
-            if (!historyExists) {
-              userData.chatHistory.push(chatHistoryDoc._id);
-              await userData.save();
-              console.log(`Added chat history ${chatHistoryDoc._id} to user ${userData._id}`);
+            ],
+          });
+
+          await chatDoc.save();
+
+          // Update the chatHistory document with the new chat reference
+          chatHistoryDoc.chat = chatDoc._id;
+          await chatHistoryDoc.save();
+
+          // Update the user document to include this chat history if it's new
+          if (!chatHistoryId || chatHistoryId.length < 2) {
+            const { user } = await import("../model/user.js");
+            const userData = await user.findById(req.user._id);
+            if (userData) {
+              // Check if the chat history ID already exists in the user's chatHistory array
+              const historyExists = userData.chatHistory.some(
+                (history) =>
+                  history.toString() === chatHistoryDoc._id.toString()
+              );
+
+              // If it doesn't exist, add it
+              if (!historyExists) {
+                userData.chatHistory.push(chatHistoryDoc._id);
+                await userData.save();
+                console.log(
+                  `Added chat history ${chatHistoryDoc._id} to user ${userData._id}`
+                );
+              }
             }
           }
+          console.log(
+            `[SimpleSearch] Saved search to MongoDB, chat ID: ${chatDoc._id}`
+          );
+        } catch (error) {
+          console.error("[SimpleSearch] Error saving to MongoDB:", error);
+          // Continue even if saving fails
         }
-        console.log(`[RAGSearch] Saved search to MongoDB, chat ID: ${chatDoc._id}`);
-      } catch (error) {
-        console.error("[RAGSearch] Error saving to MongoDB:", error);
-        // Continue even if saving fails
       }
+
+      // Send the response
+      res.status(200).json({
+        success: true,
+        result: {
+          query,
+          answer: result.answer,
+        },
+        formattedHtml,
+        chatHistoryId: savedChatHistoryId,
+      });
+    } catch (agentError) {
+      console.error("[SimpleSearch] Agent execution error:", agentError);
+
+      let errorMessage = "An unknown error occurred";
+
+      if (agentError instanceof Error) {
+        errorMessage = agentError.message;
+      } else if (typeof agentError === "object") {
+        try {
+          errorMessage = JSON.stringify(agentError);
+        } catch (e) {
+          errorMessage = "Unprocessable error object";
+        }
+      } else if (agentError) {
+        errorMessage = String(agentError);
+      }
+
+      res.status(500).json({
+        success: false,
+        error: errorMessage,
+        formattedHtml: `
+          <div class="search-results-container">
+            <div class="search-content-wrapper">
+              <div class="search-main-content">
+                <h2>Search Error</h2>
+                <p>${errorMessage}</p>
+                <p>Please try refining your search query or try again later.</p>
+              </div>
+            </div>
+          </div>
+        `,
+        chatHistoryId: savedChatHistoryId,
+      });
     }
-    
-    // Send the response
-    res.status(200).json({
-      success: true,
-      result: {
-        query,
-        answer,
-        usedCache
-      },
-      formattedHtml,
-      chatHistoryId: savedChatHistoryId,
-    });
   } catch (error) {
-    console.error("[RAGSearch] Error:", error);
-    
+    console.error("[SimpleSearch] Fatal error:", error);
+
+    // Generic error handler for any uncaught errors
     res.status(500).json({
       success: false,
-      error: error.message || "An unknown error occurred",
+      error: error.message || "A server error occurred",
       formattedHtml: `
         <div class="search-results-container">
           <div class="search-content-wrapper">
             <div class="search-main-content">
-              <h2>Search Error</h2>
-              <p>There was an error processing your request: ${
-                error.message || "Unknown error"
-              }</p>
-              <p>Please try again or refine your search query.</p>
+              <h2>Server Error</h2>
+              <p>A server error occurred while processing your request.</p>
+              <p>Error details: ${error.message || "Unknown error"}</p>
             </div>
           </div>
         </div>
       `,
+      chatHistoryId: savedChatHistoryId,
     });
   }
 });
@@ -302,11 +355,11 @@ router.post("/api/simplesearch", async (req, res) => {
 router.delete("/api/chat-history/:chatHistoryId", async (req, res) => {
   try {
     const { chatHistoryId } = req.params;
-    
+
     if (!chatHistoryId) {
       return res.status(400).json({
         success: false,
-        error: "Chat history ID is required"
+        error: "Chat history ID is required",
       });
     }
 
@@ -315,7 +368,7 @@ router.delete("/api/chat-history/:chatHistoryId", async (req, res) => {
     if (!req.user) {
       return res.status(401).json({
         success: false,
-        error: "User not authenticated"
+        error: "User not authenticated",
       });
     }
 
@@ -325,7 +378,7 @@ router.delete("/api/chat-history/:chatHistoryId", async (req, res) => {
     const { user } = await import("../model/user.js");
 
     let chatHistoryDoc;
-    
+
     // Check if chatHistoryId is a MongoDB ObjectId or a client-generated ID
     if (/^[0-9a-fA-F]{24}$/.test(chatHistoryId)) {
       // This is a valid MongoDB ObjectId, find by ID
@@ -333,19 +386,21 @@ router.delete("/api/chat-history/:chatHistoryId", async (req, res) => {
     } else {
       // This is a client-generated ID (like agent_timestamp_random)
       // Look for it in a custom field or try a different query
-      console.log(`[DeleteChatHistory] ID is not a MongoDB ObjectId, looking up by custom ID`);
-      chatHistoryDoc = await chatHistory.findOne({ 
+      console.log(
+        `[DeleteChatHistory] ID is not a MongoDB ObjectId, looking up by custom ID`
+      );
+      chatHistoryDoc = await chatHistory.findOne({
         $or: [
           { clientId: chatHistoryId },
-          { title: { $regex: chatHistoryId, $options: 'i' } }
-        ]
+          { title: { $regex: chatHistoryId, $options: "i" } },
+        ],
       });
     }
-    
+
     if (!chatHistoryDoc) {
       return res.status(404).json({
         success: false,
-        error: "Chat history not found"
+        error: "Chat history not found",
       });
     }
 
@@ -353,7 +408,7 @@ router.delete("/api/chat-history/:chatHistoryId", async (req, res) => {
     if (chatHistoryDoc.user.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         success: false,
-        error: "Not authorized to delete this chat history"
+        error: "Not authorized to delete this chat history",
       });
     }
 
@@ -368,10 +423,12 @@ router.delete("/api/chat-history/:chatHistoryId", async (req, res) => {
     const userData = await user.findById(req.user._id);
     if (userData) {
       userData.chatHistory = userData.chatHistory.filter(
-        history => history.toString() !== chatHistoryId
+        (history) => history.toString() !== chatHistoryId
       );
       await userData.save();
-      console.log(`Removed chat history ${chatHistoryId} from user ${userData._id}`);
+      console.log(
+        `Removed chat history ${chatHistoryId} from user ${userData._id}`
+      );
     }
 
     // Delete the chat history
@@ -380,14 +437,14 @@ router.delete("/api/chat-history/:chatHistoryId", async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: "Chat history deleted successfully"
+      message: "Chat history deleted successfully",
     });
   } catch (error) {
     console.error("[DeleteChatHistory] Error:", error);
-    
+
     res.status(500).json({
       success: false,
-      error: error.message || "An unknown error occurred"
+      error: error.message || "An unknown error occurred",
     });
   }
 });
@@ -416,7 +473,7 @@ router.post("/api/deepsearch", async (req, res) => {
     // Execute the search
     const deepSearchAgent = createAgent("deep-research", {
       sources,
-      depth, 
+      depth,
       breadth: 2,
     });
 
@@ -425,27 +482,37 @@ router.post("/api/deepsearch", async (req, res) => {
 
     // Save search results to the vector database asynchronously (don't await)
     try {
-      const { processResultEmbedding } = await import("../rag/vector/embeddingsService.js");
-      const { upsertEmbeddings } = await import("../rag/vector/pineconeClient.js");
-      
+      const { processResultEmbedding } = await import(
+        "../rag/vector/embeddingsService.js"
+      );
+      const { upsertEmbeddings } = await import(
+        "../rag/vector/pineconeClient.js"
+      );
+
       // Create embeddings for research sources
       if (result.sources && result.sources.length > 0) {
-        const embeddingPromises = result.sources.map(source => 
-          processResultEmbedding(source.content || source.snippet || '', {
-            title: source.title || 'Deep Search Result',
-            url: source.url || source.link || '#',
-            source: source.domain || 'Deep Search',
-            queryText: query
+        const embeddingPromises = result.sources.map((source) =>
+          processResultEmbedding(source.content || source.snippet || "", {
+            title: source.title || "Deep Search Result",
+            url: source.url || source.link || "#",
+            source: source.domain || "Deep Search",
+            queryText: query,
           })
         );
-        
+
         Promise.all(embeddingPromises)
-          .then(embeddings => upsertEmbeddings('agent-ai-searches', embeddings))
-          .then(() => console.log('Deep search results saved to vector database'))
-          .catch(err => console.error('Error saving to vector database:', err));
+          .then((embeddings) =>
+            upsertEmbeddings("agent-ai-searches", embeddings)
+          )
+          .then(() =>
+            console.log("Deep search results saved to vector database")
+          )
+          .catch((err) =>
+            console.error("Error saving to vector database:", err)
+          );
       }
     } catch (error) {
-      console.error('Error processing vector database:', error);
+      console.error("Error processing vector database:", error);
       // Continue - vector DB operations are optional
     }
 
@@ -454,15 +521,16 @@ router.post("/api/deepsearch", async (req, res) => {
 
     // Save to chat history if requested
     let savedChatHistoryId = chatHistoryId;
-    
-    if (req.user) { // Always try to save if user exists, login or IP-based
+
+    if (req.user) {
+      // Always try to save if user exists, login or IP-based
       try {
         const { chat } = await import("../model/chat.js");
         const { chatHistory } = await import("../model/chatHistory.js");
-        
+
         // Create or get chat history
         let chatHistoryDoc;
-        
+
         if (chatHistoryId && chatHistoryId.length > 2) {
           // Use existing chat history
           chatHistoryDoc = await chatHistory.findById(chatHistoryId);
@@ -482,9 +550,9 @@ router.post("/api/deepsearch", async (req, res) => {
           });
           await chatHistoryDoc.save();
         }
-        
+
         savedChatHistoryId = chatHistoryDoc._id;
-        
+
         // Create chat entry
         const chatDoc = new chat({
           chatHistory: chatHistoryDoc._id,
@@ -500,13 +568,13 @@ router.post("/api/deepsearch", async (req, res) => {
             },
           ],
         });
-        
+
         await chatDoc.save();
-        
+
         // Update the chatHistory document with the new chat reference
         chatHistoryDoc.chat = chatDoc._id;
         await chatHistoryDoc.save();
-        
+
         // Update the user document to include this chat history if it's new
         if (!chatHistoryId || chatHistoryId.length < 2) {
           const { user } = await import("../model/user.js");
@@ -514,24 +582,28 @@ router.post("/api/deepsearch", async (req, res) => {
           if (userData) {
             // Check if the chat history ID already exists in the user's chatHistory array
             const historyExists = userData.chatHistory.some(
-              history => history.toString() === chatHistoryDoc._id.toString()
+              (history) => history.toString() === chatHistoryDoc._id.toString()
             );
-            
+
             // If it doesn't exist, add it
             if (!historyExists) {
               userData.chatHistory.push(chatHistoryDoc._id);
               await userData.save();
-              console.log(`Added chat history ${chatHistoryDoc._id} to user ${userData._id}`);
+              console.log(
+                `Added chat history ${chatHistoryDoc._id} to user ${userData._id}`
+              );
             }
           }
         }
-        console.log(`[DeepSearch] Saved search to MongoDB, chat ID: ${chatDoc._id}`);
+        console.log(
+          `[DeepSearch] Saved search to MongoDB, chat ID: ${chatDoc._id}`
+        );
       } catch (error) {
         console.error("[DeepSearch] Error saving to MongoDB:", error);
         // Continue even if saving fails
       }
     }
-    
+
     // Send the complete response
     res.status(200).json({
       success: true,
@@ -541,7 +613,7 @@ router.post("/api/deepsearch", async (req, res) => {
     });
   } catch (error) {
     console.error("[DeepSearch] Error:", error);
-    
+
     res.status(500).json({
       success: false,
       error: error.message || "An unknown error occurred",

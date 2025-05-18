@@ -12,6 +12,7 @@ import publicRoutes from "./router/public.js";
 import authRoutes from "./router/auth.js";
 import agentRouter from "./router/agent.js";
 import agentApiRouter from "./router/agent_api.js";
+import { initializeToken } from "./utils/tokenInitializer.js";
 
 // Verify environment variables are loaded
 console.log("Environment check:");
@@ -152,7 +153,17 @@ const SSL_KEY_PATH =
 // Connect to MongoDB and start the server(s)
 mongoose
   .connect(MONGODB_URL)
-  .then(() => {
+  .then(async () => {
+    try {
+      // Initialize LLM Gateway token before starting server
+      await initializeToken();
+      console.log("Token initialization complete");
+    } catch (error) {
+      console.warn(
+        "Token initialization failed, but continuing server startup:",
+        error.message
+      );
+    }
     // For development or if certificates don't exist, use HTTP server
     if (
       process.env.NODE_ENV !== "production" ||
