@@ -1,4 +1,3 @@
-// public/src/components/AgentChat/AgentSelector.js
 import React, { useState, useEffect } from "react";
 import styles from "./AgentSelector.module.css";
 import { useDispatch, useSelector } from "react-redux";
@@ -21,12 +20,37 @@ const AgentSelector = () => {
     });
   }, [dispatch]);
 
+  // Mock function to ensure Monitor agent is added if not present in response
+  useEffect(() => {
+    if (agents && agents.length > 0) {
+      const hasConfluenceAgent = agents.some((agent) => agent.id === "conf_ag");
+      const hasMonitorAgent = agents.some((agent) => agent.id === "monitor_ag");
+
+      // If we have agents but no Monitor agent, add it
+      if (!hasMonitorAgent) {
+        const updatedAgents = [...agents];
+
+        // Add the Monitor agent (if not found)
+        updatedAgents.push({
+          id: "monitor_ag",
+          name: "Monitor Agent",
+          description: "Search logs and monitor data",
+        });
+
+        dispatch(agentAction.setAgents(updatedAgents));
+      }
+    }
+  }, [agents, dispatch]);
+
   // Toggle agent selection
   const toggleAgent = (agentId) => {
     try {
       if (selectedAgents.includes(agentId)) {
         dispatch(agentAction.removeSelectedAgent(agentId));
       } else {
+        // Deselect any previously selected agents before selecting the new one
+        // (We want to limit to one agent at a time for Day One agents)
+        dispatch(agentAction.clearSelectedAgents());
         dispatch(agentAction.addSelectedAgent(agentId));
       }
     } catch (err) {
@@ -64,16 +88,27 @@ const AgentSelector = () => {
   // Safely get the count of agents
   const agentCount = Array.isArray(agents) ? agents.length : 0;
 
+  // Function to get the display name of the selected agent
+  const getSelectedAgentName = () => {
+    if (selectedAgents.length === 0) return "Select Agents";
+
+    if (selectedAgents.length === 1) {
+      const selectedAgentId = selectedAgents[0];
+      const selectedAgent = agents.find(
+        (agent) => agent.id === selectedAgentId
+      );
+      return selectedAgent
+        ? `${selectedAgent.name} Selected`
+        : `Agent Selected`;
+    }
+
+    return `${selectedAgents.length} Agents Selected`;
+  };
+
   return (
     <div className={styles["agent-selector"]}>
       <div className={styles["selector-toggle"]} onClick={toggleDropdown}>
-        <span className={styles["toggle-text"]}>
-          {selectedAgents.length > 0
-            ? `${selectedAgents.length} Agent${
-                selectedAgents.length > 1 ? "s" : ""
-              } Selected`
-            : "Select Agents"}
-        </span>
+        <span className={styles["toggle-text"]}>{getSelectedAgentName()}</span>
         <span
           className={`${styles["toggle-arrow"]} ${
             isOpen ? styles["open"] : ""
@@ -123,6 +158,10 @@ const AgentSelector = () => {
                       selectedAgents.includes(agent.id)
                         ? styles["selected"]
                         : ""
+                    } ${
+                      agent.id === "conf_ag" || agent.id === "monitor_ag"
+                        ? styles["day-one-agent"]
+                        : ""
                     }`}
                     onClick={() => toggleAgent(agent.id)}>
                     <div className={styles["agent-checkbox"]}>
@@ -141,7 +180,15 @@ const AgentSelector = () => {
                       )}
                     </div>
                     <div className={styles["agent-info"]}>
-                      <span className={styles["agent-name"]}>{agent.name}</span>
+                      <span className={styles["agent-name"]}>
+                        {agent.name}
+                        {(agent.id === "conf_ag" ||
+                          agent.id === "monitor_ag") && (
+                          <span className={styles["streaming-badge"]}>
+                            Streaming
+                          </span>
+                        )}
+                      </span>
                       <span className={styles["agent-description"]}>
                         {agent.description}
                       </span>

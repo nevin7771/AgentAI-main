@@ -155,6 +155,11 @@ export const getAllAgents = async (req, res) => {
         description: "Search and analyze Confluence pages",
       },
       {
+        id: "monitor_ag",
+        name: "Monitor Agent",
+        description: "Search and analyze Monitor logs",
+      },
+      {
         id: "jira_ag",
         name: "Jira Agent",
         description: "Search and analyze Jira issues",

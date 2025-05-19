@@ -2,98 +2,103 @@ import { createSlice } from "@reduxjs/toolkit";
 
 const initialState = {
   chats: [],
-  newChat: false,
-  isLoader: false,
-  isSubmitting: false,
-  lastQuery: "",
+  showScrollBottom: false,
   recentChat: [],
   previousChat: [],
-  chatHistoryId: "",
+  newChat: false,
+  chatHistoryId: null,
+  geminiBackendOption: "Gemini",
   suggestPrompt: "",
 };
 
 const chatSlice = createSlice({
   name: "chat",
-  initialState,
+  initialState: initialState,
   reducers: {
-    loaderHandler(state) {
-      state.isLoader = !state.isLoader;
-    },
-    newChatHandler(state) {
-      state.newChat = false;
-    },
-    replaceChat(state, action) {
-      state.chats = action.payload.chats;
-    },
-    getChatHandler(state, action) {
-      state.chats = action.payload.chats || []; // Ensure chats is always an array
-    },
-    recentChatHandler(state, action) {
-      state.recentChat = action.payload.recentChat;
-    },
     chatStart(state, action) {
-      if (
-        action.payload.useInput.isLoader === "yes" &&
-        state.lastQuery === action.payload.useInput.user
-      ) {
-        return;
-      }
-      if (action.payload.useInput.user) {
-        state.lastQuery = action.payload.useInput.user;
-      }
-      state.chats.push({
+      const newMessage = {
+        id: new Date().getTime().toString(),
         user: action.payload.useInput.user,
-        isLoader: action.payload.useInput.isLoader,
         gemini: action.payload.useInput.gemini,
-        id: Math.random(),
-        newChat: true,
+        isLoader: action.payload.useInput.isLoader,
         isSearch: action.payload.useInput.isSearch || false,
-        searchType: action.payload.useInput.searchType || null,
+        searchType: action.payload.useInput.searchType,
+        usedCache: action.payload.useInput.usedCache,
         queryKeywords: action.payload.useInput.queryKeywords || [],
         sources: action.payload.useInput.sources || [],
         relatedQuestions: action.payload.useInput.relatedQuestions || [],
         isPreformattedHTML: action.payload.useInput.isPreformattedHTML || false,
-        error: action.payload.useInput.error || null,
-        timestamp:
-          action.payload.useInput.timestamp || new Date().toISOString(),
-      });
+        error: action.payload.useInput.error || false,
+        streamingId: action.payload.useInput.streamingId || null, // Add streamingId for streaming updates
+      };
+      state.chats.push(newMessage);
     },
-    popChat(state) {
-      state.chats.pop();
-    },
-    previousChatHandler(state, action) {
-      if (Array.isArray(action.payload.previousChat)) {
-        state.previousChat = action.payload.previousChat;
+
+    // New reducer for updating streaming chat messages
+    updateStreamingChat(state, action) {
+      const { streamingId, content, isComplete } = action.payload;
+
+      // Find the streaming message by its unique ID
+      const messageIndex = state.chats.findIndex(
+        (chat) => chat.streamingId === streamingId
+      );
+
+      if (messageIndex !== -1) {
+        // Update the content
+        state.chats[messageIndex].gemini = content;
+
+        // If the stream is complete, change the loader state
+        if (isComplete) {
+          state.chats[messageIndex].isLoader = "no";
+        }
       }
     },
-    replacePreviousChat(state, action) {
-      state.previousChat = action.payload.previousChat;
+
+    newChatHandler(state) {
+      state.previousChat = [];
+      state.newChat = !state.newChat;
     },
+    replaceChat(state, action) {
+      // This action replaces the current chat with a new one
+      // Used when clicking the logo to reset the chat
+      state.chats = action.payload.chats || [];
+    },
+    suggestPromptHandler(state, action) {
+      state.suggestPrompt = action.payload.suggestPrompt;
+    },
+
+    geminiBackendOptionHandler(state, action) {
+      state.geminiBackendOption = action.payload.geminiBackendOption;
+    },
+
     chatHistoryIdHandler(state, action) {
       state.chatHistoryId = action.payload.chatHistoryId;
     },
-    suggestPromptHandler(state, action) {
-      state.suggestPrompt = action.payload.prompt;
+
+    recentChatHandler(state, action) {
+      state.recentChat = action.payload.recentChat;
     },
-    setSubmitting(state, action) {
-      state.isSubmitting = action.payload;
+
+    previousChatHandler(state, action) {
+      state.previousChat = action.payload.previousChat;
     },
-    clearLastQuery(state) {
-      state.lastQuery = "";
+
+    getChatHandler(state, action) {
+      state.chats = action.payload.chats;
     },
-    // Added to handle chat deletion from the UI (sidebar)
+
+    popChat(state) {
+      state.chats = state.chats.filter((c) => c.isLoader !== "yes");
+    },
+
+    scrollHandler(state, action) {
+      state.showScrollBottom = action.payload.value;
+    },
+
     removeChatHistory(state, action) {
-      const chatIdToRemove = action.payload.chatId;
       state.recentChat = state.recentChat.filter(
-        (chat) => chat._id !== chatIdToRemove
+        (c) => c._id !== action.payload.chatId
       );
-      // If the currently active chat is the one being deleted, clear it
-      if (state.chatHistoryId === chatIdToRemove) {
-        state.chats = [];
-        state.chatHistoryId = "";
-        state.previousChat = [];
-        state.lastQuery = "";
-      }
     },
   },
 });

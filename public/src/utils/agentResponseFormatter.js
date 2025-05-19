@@ -182,6 +182,7 @@ export const getAgentName = (agentId) => {
     zr_ag: "ZR Agent",
     jira_ag: "Jira Agent",
     conf_ag: "Confluence Agent",
+    monitor_ag: "Monitor Agent",
     zp_ag: "ZP Agent",
     "search-with-ai": "Search Agent",
     "deep-search": "Deep Search Agent",

@@ -732,3 +732,83 @@ pre code.hljs {
     margin-bottom: 16px; 
 }
 
+
+
+.typing-indicator {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 5px;
+}
+
+.typing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--text-color);
+  margin: 0 2px;
+  opacity: 0.6;
+  animation: typingAnimation 1.4s infinite ease-in-out;
+}
+
+.typing-dot:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.typing-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.typing-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes typingAnimation {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.6;
+  }
+  30% {
+    transform: translateY(-5px);
+    opacity: 1;
+  }
+}
+
+.streaming-container {
+  position: relative;
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.streaming-content {
+  min-height: 20px;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0.7;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Style for Day One streaming content */
+.day-one-streaming {
+  line-height: 1.6;
+  font-size: 1rem;
+  color: var(--text-color);
+}
+
+/* Additional loader styles */
+.streaming-loading {
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  position: relative;
+  animation: spin 1s linear infinite;
+  margin-right: 10px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}

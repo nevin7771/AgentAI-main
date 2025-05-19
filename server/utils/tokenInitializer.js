@@ -12,38 +12,71 @@ const isProduction = process.env.NODE_ENV === "production";
 dotenv.config();
 
 /**
- * Initialize the LLM Gateway token
- * This runs during server startup to ensure a valid token is available
+ * Initialize the LLM Gateway token and Day One token
+ * This runs during server startup to ensure valid tokens are available
  */
 export async function initializeToken() {
   console.log("[TokenInitializer] Starting token initialization...");
 
   try {
-    // Check if token exists and is valid
-    if (await isTokenValid()) {
-      console.log("[TokenInitializer] Existing token is valid. Using it.");
-      return true;
-    }
-
-    // Token doesn't exist or is invalid - generate a new one
-    console.log(
-      "[TokenInitializer] Token missing or invalid. Generating new token..."
-    );
-
-    if (isProduction) {
-      // In production (EC2), use instance profile
-      await generateTokenWithInstanceProfile();
+    // Check if LLM Gateway token exists and is valid
+    if (await isTokenValid("LLM_GATEWAY_JWT_TOKEN")) {
+      console.log(
+        "[TokenInitializer] Existing LLM Gateway token is valid. Using it."
+      );
     } else {
-      // In development, use AWS CLI
-      await generateTokenWithAwsCli();
+      // Token doesn't exist or is invalid - generate a new one
+      console.log(
+        "[TokenInitializer] LLM Gateway token missing or invalid. Generating new token..."
+      );
+
+      if (isProduction) {
+        // In production (EC2), use instance profile
+        await generateTokenWithInstanceProfile(
+          "llm-gateway",
+          "dev/dev-jira",
+          "LLM_GATEWAY_JWT_TOKEN"
+        );
+      } else {
+        // In development, use AWS CLI
+        await generateTokenWithAwsCli(
+          "llm-gateway",
+          "dev/dev-jira",
+          "LLM_GATEWAY_JWT_TOKEN"
+        );
+      }
     }
 
-    // Reload environment variables after token update
+    // Check if Day One token exists and is valid
+    if (await isTokenValid("DAYONE_JWT_TOKEN")) {
+      console.log(
+        "[TokenInitializer] Existing Day One token is valid. Using it."
+      );
+    } else {
+      // Token doesn't exist or is invalid - generate a new one
+      console.log(
+        "[TokenInitializer] Day One token missing or invalid. Generating new token..."
+      );
+
+      if (isProduction) {
+        // In production (EC2), use instance profile
+        await generateTokenWithInstanceProfile(
+          "edo",
+          "dev/edo",
+          "DAYONE_JWT_TOKEN"
+        );
+      } else {
+        // In development, use AWS CLI
+        await generateTokenWithAwsCli("edo", "dev/edo", "DAYONE_JWT_TOKEN");
+      }
+    }
+
+    // Reload environment variables after token updates
     dotenv.config();
 
     return true;
   } catch (error) {
-    console.error("[TokenInitializer] Error initializing token:", error);
+    console.error("[TokenInitializer] Error initializing tokens:", error);
     // Don't fail server startup - just log the error
     // The server can still run, and requests that need the token will fail individually
     return false;
@@ -52,13 +85,16 @@ export async function initializeToken() {
 
 /**
  * Check if the current token is valid
+ * @param {string} tokenEnvName - Environment variable name for the token
  */
-async function isTokenValid() {
+async function isTokenValid(tokenEnvName) {
   // Simple check: token exists and env file was modified less than 6 days ago
-  const token = process.env.LLM_GATEWAY_JWT_TOKEN;
+  const token = process.env[tokenEnvName];
 
   if (!token) {
-    console.log("[TokenInitializer] No token found in environment variables");
+    console.log(
+      `[TokenInitializer] No ${tokenEnvName} found in environment variables`
+    );
     return false;
   }
 
@@ -75,24 +111,34 @@ async function isTokenValid() {
     const isValid = daysSinceUpdate < 6;
 
     console.log(
-      `[TokenInitializer] Token is ${daysSinceUpdate.toFixed(
+      `[TokenInitializer] ${tokenEnvName} is ${daysSinceUpdate.toFixed(
         1
       )} days old. Valid: ${isValid}`
     );
 
     return isValid;
   } catch (error) {
-    console.error("[TokenInitializer] Error checking token validity:", error);
+    console.error(
+      `[TokenInitializer] Error checking ${tokenEnvName} validity:`,
+      error
+    );
     return false;
   }
 }
 
 /**
  * Generate token using EC2 instance profile (for production)
+ * @param {string} audience - Token audience
+ * @param {string} csmsPrefix - CSMS prefix
+ * @param {string} tokenEnvName - Environment variable name for the token
  */
-async function generateTokenWithInstanceProfile() {
+async function generateTokenWithInstanceProfile(
+  audience,
+  csmsPrefix,
+  tokenEnvName
+) {
   console.log(
-    "[TokenInitializer] Generating token using EC2 instance profile..."
+    `[TokenInitializer] Generating ${tokenEnvName} token using EC2 instance profile...`
   );
 
   try {
@@ -100,11 +146,14 @@ async function generateTokenWithInstanceProfile() {
     // The AWS SDK will use the instance profile automatically
     // Just run the token generation script
     const { stdout, stderr } = await execAsync(
-      "python generate_token.py -audience=llm-gateway -csms_prefix=dev/dev-jira"
+      `python generate_token.py -audience=${audience} -csms_prefix=${csmsPrefix}`
     );
 
     if (stderr) {
-      console.warn("[TokenInitializer] Warning from token generation:", stderr);
+      console.warn(
+        `[TokenInitializer] Warning from ${tokenEnvName} generation:`,
+        stderr
+      );
     }
 
     // Extract token from output
@@ -120,15 +169,15 @@ async function generateTokenWithInstanceProfile() {
     const token = tokenLine.trim();
 
     // Update .env file with the new token
-    await updateEnvFile(token);
+    await updateEnvFile(token, tokenEnvName);
 
     console.log(
-      "[TokenInitializer] Successfully generated and saved token using instance profile"
+      `[TokenInitializer] Successfully generated and saved ${tokenEnvName} using instance profile`
     );
     return true;
   } catch (error) {
     console.error(
-      "[TokenInitializer] Error generating token with instance profile:",
+      `[TokenInitializer] Error generating ${tokenEnvName} with instance profile:`,
       error
     );
     throw error;
@@ -137,9 +186,12 @@ async function generateTokenWithInstanceProfile() {
 
 /**
  * Generate token using AWS CLI (for development)
+ * @param {string} audience - Token audience
+ * @param {string} csmsPrefix - CSMS prefix
+ * @param {string} tokenEnvName - Environment variable name for the token
  */
-async function generateTokenWithAwsCli() {
-  console.log("[TokenInitializer] Generating token using AWS CLI...");
+async function generateTokenWithAwsCli(audience, csmsPrefix, tokenEnvName) {
+  console.log(`[TokenInitializer] Generating ${tokenEnvName} using AWS CLI...`);
 
   try {
     // Step 1: Run AWS SSO login (non-interactive for development)
@@ -184,7 +236,7 @@ async function generateTokenWithAwsCli() {
       console.log("\n===================================================");
       console.log("ATTENTION: AWS SSO login is required for token generation.");
       console.log("Please run the following command in a separate terminal:");
-      console.log("aws --profile zsso-dev sso login");
+      console.log("aws --profile zoom-sso-dev sso login");
       console.log("===================================================\n");
 
       // Wait for user to complete login (simple approach: fixed delay)
@@ -213,13 +265,16 @@ async function generateTokenWithAwsCli() {
     );
 
     // Step 3: Generate token
-    console.log("[TokenInitializer] Generating token...");
+    console.log(`[TokenInitializer] Generating ${tokenEnvName}...`);
     const { stdout, stderr } = await execAsync(
-      "python generate_token.py -audience=llm-gateway -csms_prefix=dev/dev-jira"
+      `python generate_token.py -audience=${audience} -csms_prefix=${csmsPrefix}`
     );
 
     if (stderr) {
-      console.warn("[TokenInitializer] Warning from token generation:", stderr);
+      console.warn(
+        `[TokenInitializer] Warning from ${tokenEnvName} generation:`,
+        stderr
+      );
     }
 
     // Extract token from output
@@ -235,15 +290,15 @@ async function generateTokenWithAwsCli() {
     const token = tokenLine.trim();
 
     // Update .env file with the new token
-    await updateEnvFile(token);
+    await updateEnvFile(token, tokenEnvName);
 
     console.log(
-      "[TokenInitializer] Successfully generated and saved token using AWS CLI"
+      `[TokenInitializer] Successfully generated and saved ${tokenEnvName} using AWS CLI`
     );
     return true;
   } catch (error) {
     console.error(
-      "[TokenInitializer] Error generating token with AWS CLI:",
+      `[TokenInitializer] Error generating ${tokenEnvName} with AWS CLI:`,
       error
     );
     throw error;
@@ -252,8 +307,10 @@ async function generateTokenWithAwsCli() {
 
 /**
  * Update .env file with new token
+ * @param {string} token - The JWT token
+ * @param {string} tokenEnvName - Environment variable name for the token
  */
-async function updateEnvFile(token) {
+async function updateEnvFile(token, tokenEnvName) {
   try {
     const envPath = path.resolve(process.cwd(), ".env");
 
@@ -266,34 +323,53 @@ async function updateEnvFile(token) {
       envContent = "";
     }
 
-    // Check if LLM_GATEWAY_JWT_TOKEN already exists
-    const tokenRegex = /^LLM_GATEWAY_JWT_TOKEN=.*/m;
+    // Check if token variable already exists
+    const tokenRegex = new RegExp(`^${tokenEnvName}=.*`, "m");
 
     if (tokenRegex.test(envContent)) {
       // Replace existing token
-      envContent = envContent.replace(
-        tokenRegex,
-        `LLM_GATEWAY_JWT_TOKEN=${token}`
-      );
+      envContent = envContent.replace(tokenRegex, `${tokenEnvName}=${token}`);
     } else {
       // Add new token entry
-      envContent += `\nLLM_GATEWAY_JWT_TOKEN=${token}`;
+      envContent += `\n${tokenEnvName}=${token}`;
     }
 
     // Ensure other required configuration exists
-    if (!envContent.includes("LLM_GATEWAY_URL")) {
-      envContent +=
-        "\nLLM_GATEWAY_URL=https://llm-gateway-zmdev-aws-us-east-1.ai.zoomdev.us/v1/chat-bot/invoke";
-    }
+    if (tokenEnvName === "LLM_GATEWAY_JWT_TOKEN") {
+      if (!envContent.includes("LLM_GATEWAY_URL")) {
+        envContent +=
+          "\nLLM_GATEWAY_URL=https://llm-gateway-zmdev-aws-us-east-1.ai.zoomdev.us/v1/chat-bot/invoke";
+      }
 
-    if (!envContent.includes("LLM_MODEL")) {
-      envContent += "\nLLM_MODEL=claude-3-7-sonnet-20250219";
+      if (!envContent.includes("LLM_MODEL")) {
+        envContent += "\nLLM_MODEL=claude-3-7-sonnet-20250219";
+      }
+    } else if (tokenEnvName === "DAYONE_JWT_TOKEN") {
+      if (!envContent.includes("DAYONE_API_URL")) {
+        envContent +=
+          "\nDAYONE_API_URL=https://new-dayone.zoomdev.us/api/v1/edo/service/ai/stream";
+      }
+
+      if (!envContent.includes("DAYONE_FUNCTION_ID")) {
+        envContent +=
+          "\nDAYONE_FUNCTION_ID=210169ae-760f-4fae-8a82-e16fc9b5b78f";
+      }
+
+      if (!envContent.includes("MONITOR_FUNCTION_ID")) {
+        envContent +=
+          "\nMONITOR_FUNCTION_ID=c46de244-ea9b-4a47-be9d-d40f816da925";
+      }
+
+      if (!envContent.includes("CONFLUENCE_FUNCTION_ID")) {
+        envContent +=
+          "\nCONFLUENCE_FUNCTION_ID=210169ae-760f-4fae-8a82-e16fc9b5b78f";
+      }
     }
 
     // Write updated content back to .env file
     fs.writeFileSync(envPath, envContent);
     console.log(
-      "[TokenInitializer] Updated .env file with new token and settings"
+      `[TokenInitializer] Updated .env file with new ${tokenEnvName} and settings`
     );
 
     return true;

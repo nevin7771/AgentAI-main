@@ -164,3 +164,27 @@
   background-color: #fef7e0;
   border-left: 4px solid #fbbc04;
 }
+
+
+.day-one-agent {
+  position: relative;
+  border-left: 3px solid #2e7dd1 !important;
+}
+
+.streaming-badge {
+  font-size: 0.6rem;
+  background-color: #2e7dd1;
+  color: white;
+  padding: 2px 6px;
+  border-radius: 10px;
+  margin-left: 6px;
+  position: relative;
+  top: -2px;
+  display: inline-block;
+}
+
+/* Make agents only selectable one at a time to prevent issues with mixed agent types */
+.agent-item.selected {
+  background-color: rgba(95, 99, 104, 0.1);
+  border-left: 3px solid var(--main-color) !important;
+}

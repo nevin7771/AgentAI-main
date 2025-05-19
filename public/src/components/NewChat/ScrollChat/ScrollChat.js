@@ -119,15 +119,18 @@ const ScrollChat = () => {
   }, [chat]);
 
   useEffect(() => {
-    const isLoading = chat.some(
+    // Check for different loading indicators - standard or streaming
+    const hasStandardLoadingMessage = chat.some(
       (c) =>
         c.isLoader === "yes" &&
         (c.searchType === "agent" ||
           c.searchType === "deep" ||
           c.searchType === "simple")
     );
+
+    // If there's a standard loading message, rotate the loading text
     let intervalId;
-    if (isLoading) {
+    if (hasStandardLoadingMessage) {
       setCurrentLoadingText(loadingTexts[0]); // Reset to first message when loading starts
       intervalId = setInterval(() => {
         setCurrentLoadingText((prevText) => {
@@ -137,6 +140,7 @@ const ScrollChat = () => {
         });
       }, 2500); // Change text every 2.5 seconds
     }
+
     return () => clearInterval(intervalId);
   }, [chat]);
 
@@ -252,10 +256,7 @@ const ScrollChat = () => {
   };
 
   const chatSection = chat.map((c) => {
-    console.log(c); // Log for debugging
-
-    // Calculate answerKeywords directly here. useMemo inside map is incorrect.
-    // The calculation itself is per-item, so this is the correct place if not memoizing the getAnswerKeywords function itself.
+    // Calculate answerKeywords directly here
     const answerKeywords = getAnswerKeywords(c?.gemini);
 
     return (
@@ -276,7 +277,9 @@ const ScrollChat = () => {
               </div>
             )}
 
-            {(c?.gemini || c?.isLoader === "yes") && (
+            {(c?.gemini ||
+              c?.isLoader === "yes" ||
+              c?.isLoader === "streaming") && (
               // ... AI chat bubble ...
               <div className={styles["gemini-chat-container"]}>
                 <div className={`${styles.gemini} ${styles["message-bubble"]}`}>
@@ -288,19 +291,22 @@ const ScrollChat = () => {
                           c?.searchType === "deep" ||
                           c?.searchType === "simple")
                           ? commonIcon.geminiLaoder
+                          : c?.isLoader === "streaming"
+                          ? commonIcon.geminiLaoder // Use the same loader icon for streaming
                           : c?.isSearch || c?.searchType === "agent"
                           ? agentLogo
                           : geminiLogo
                       }
                       alt={
-                        c?.isLoader === "yes"
+                        c?.isLoader === "yes" || c?.isLoader === "streaming"
                           ? "Loading"
                           : c?.isSearch || c?.searchType === "agent"
                           ? "Agent"
                           : "AI"
                       }
                       className={`${styles["ai-icon"]} ${
-                        c?.isLoader === "yes" &&
+                        (c?.isLoader === "yes" ||
+                          c?.isLoader === "streaming") &&
                         (c?.searchType === "agent" ||
                           c?.searchType === "deep" ||
                           c?.searchType === "simple")
@@ -320,6 +326,29 @@ const ScrollChat = () => {
                             {currentLoadingText}
                           </span>
                         </div>
+                      ) : c?.isLoader === "streaming" ? (
+                        // Handle streaming messages with a typing animation
+                        <div className={styles["streaming-container"]}>
+                          <div
+                            className={styles["streaming-content"]}
+                            dangerouslySetInnerHTML={{
+                              __html:
+                                processMessageContent(
+                                  c?.gemini,
+                                  c?.queryKeywords
+                                ) || "",
+                            }}
+                          />
+
+                          {/* Only show typing indicator if still streaming */}
+                          {c?.isLoader === "streaming" && (
+                            <span className={styles["typing-indicator"]}>
+                              <span className={styles["typing-dot"]}></span>
+                              <span className={styles["typing-dot"]}></span>
+                              <span className={styles["typing-dot"]}></span>
+                            </span>
+                          )}
+                        </div>
                       ) : (
                         <div
                           className="gemini-answer"
@@ -334,7 +363,7 @@ const ScrollChat = () => {
                       )}
                     </div>
 
-                    {/* MODIFIED SECTION FOR SOURCES AND RELATED QUESTIONS */}
+                    {/* Show sources and related questions for completed messages only */}
                     {!c.isLoader && (
                       <>
                         {c.sources && c.sources.length > 0 && (
@@ -462,16 +491,19 @@ const ScrollChat = () => {
                           )}
                       </>
                     )}
-                    {/* END OF MODIFIED SECTION */}
 
-                    {c?.gemini && c?.isLoader !== "yes" && !c.error && (
-                      <div className={styles["message-actions-toolbar"]}>
-                        <CopyBtn data={c?.gemini} />
-                        {historyId && (
-                          <ShareBtn chatId={historyId} messageId={c?.id} />
-                        )}
-                      </div>
-                    )}
+                    {/* Show copy and share buttons only for completed messages */}
+                    {c?.gemini &&
+                      c?.isLoader !== "yes" &&
+                      c?.isLoader !== "streaming" &&
+                      !c.error && (
+                        <div className={styles["message-actions-toolbar"]}>
+                          <CopyBtn data={c?.gemini} />
+                          {historyId && (
+                            <ShareBtn chatId={historyId} messageId={c?.id} />
+                          )}
+                        </div>
+                      )}
                   </div>
                 </div>
               </div>

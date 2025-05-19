@@ -1,5 +1,4 @@
-// server/app.js
-// HTTPS server with SSL certificates for vista.nklab.ltd
+// Updated server/app.js with Day One API routes
 import "dotenv/config";
 import express from "express";
 import mongoose from "mongoose";
@@ -12,6 +11,8 @@ import publicRoutes from "./router/public.js";
 import authRoutes from "./router/auth.js";
 import agentRouter from "./router/agent.js";
 import agentApiRouter from "./router/agent_api.js";
+import dayoneApiRouter from "./router/dayone_api.js";
+import dayoneTokenApiRouter from "./router/dayone_token_api.js";
 import { initializeToken } from "./utils/tokenInitializer.js";
 
 // Verify environment variables are loaded
@@ -25,6 +26,10 @@ console.log("OKTA_REDIRECT_URI:", process.env.OKTA_REDIRECT_URI);
 console.log(
   "OPENAI_API_KEY:",
   process.env.OPENAI_API_KEY ? "***" : "undefined"
+);
+console.log(
+  "DAYONE_JWT_TOKEN:",
+  process.env.DAYONE_JWT_TOKEN ? "***" : "undefined"
 );
 
 const MONGODB_URL =
@@ -123,7 +128,8 @@ app.use("/gemini", publicRoutes); // Mount at /gemini for backward compatibility
 app.use(authRoutes);
 app.use(agentRouter); // Add the agent router which includes deep-research endpoint
 app.use(agentApiRouter); // Add the agent API router for agent integration
-
+app.use(dayoneApiRouter); // Add the Day One API router
+app.use(dayoneTokenApiRouter);
 // 404 handler
 app.use((req, res, next) => {
   console.log(`404 Not Found: ${req.method} ${req.path}`);
@@ -155,7 +161,7 @@ mongoose
   .connect(MONGODB_URL)
   .then(async () => {
     try {
-      // Initialize LLM Gateway token before starting server
+      // Initialize LLM Gateway token and Day One token before starting server
       await initializeToken();
       console.log("Token initialization complete");
     } catch (error) {
@@ -184,6 +190,8 @@ mongoose
         console.log("- POST /api/generate-jwt");
         console.log("- POST /api/agent-question");
         console.log("- GET  /api/agent-response/:taskId");
+        console.log("- POST /api/dayone/confluence (streaming)");
+        console.log("- POST /api/dayone/monitor (streaming)");
       });
       return; // Skip HTTPS setup in development mode
     }
@@ -218,6 +226,8 @@ mongoose
           console.log("- POST /api/generate-jwt");
           console.log("- POST /api/agent-question");
           console.log("- GET  /api/agent-response/:taskId");
+          console.log("- POST /api/dayone/confluence (streaming)");
+          console.log("- POST /api/dayone/monitor (streaming)");
         });
       } else {
         console.warn("SSL certificates not found. HTTPS server not started.");
