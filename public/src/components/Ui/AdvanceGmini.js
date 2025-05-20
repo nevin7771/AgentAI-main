@@ -13,7 +13,9 @@ const AdvanceGemini = () => {
   const navigate = useNavigate();
   const isAdvanceGeminiPrompt = useSelector((state) => state.ui.isAdvanceShow);
   const advanceClass = isAdvanceGeminiPrompt ? "advance-on" : "advance-off";
-  const selectedAgents = useSelector((state) => state.agent.selectedAgents);
+  const selectedAgents = useSelector(
+    (state) => state.agent?.selectedAgents || []
+  );
 
   const icon = themeIcon();
   const { agents } = useAgent();

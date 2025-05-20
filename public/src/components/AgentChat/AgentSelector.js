@@ -7,7 +7,10 @@ import { fetchAvailableAgents } from "../../store/agent-actions";
 const AgentSelector = () => {
   const dispatch = useDispatch();
   const agents = useSelector((state) => state.agent.agents);
-  const selectedAgents = useSelector((state) => state.agent.selectedAgents);
+  const selectedAgents = useSelector(
+    (state) => state.agent?.selectedAgents || []
+  );
+
   const isLoading = useSelector((state) => state.agent.isLoading);
   const error = useSelector((state) => state.agent.error);
 

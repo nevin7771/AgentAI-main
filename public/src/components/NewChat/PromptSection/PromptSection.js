@@ -21,7 +21,11 @@ const PromptSection = () => {
   }, []);
 
   const promptOnClick = (mainText) => {
+    console.log("Prompt card clicked with text:", mainText);
+    console.log("Prompt card clicked with text:", mainText);
+    console.log("About to dispatch action with payload:", { prompt: mainText });
     dispatch(chatAction.suggestPromptHandler({ prompt: mainText }));
+    console.log("Action dispatched");
   };
   return (
     <div className={styles["prompt-main"]}>

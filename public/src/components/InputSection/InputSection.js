@@ -24,10 +24,17 @@ const InputSection = () => {
   const inputRef = useRef(null);
   const uploadMenuRef = useRef(null);
   const chatHistoryId = useSelector((state) => state.chat.chatHistoryId);
-  const suggestPrompt = useSelector((state) => state.chat.suggestPrompt);
+  const suggestPrompt = useSelector((state) => {
+    // Make sure we're accessing the correct property with a safe default
+    const promptValue = state.chat.suggestPrompt || "";
+    console.log("Prompt value from Redux:", promptValue);
+    return promptValue;
+  });
 
   // Get selectedAgents from Redux store
-  const selectedAgents = useSelector((state) => state.agent.selectedAgents);
+  const selectedAgents = useSelector(
+    (state) => state.agent?.selectedAgents || []
+  );
 
   // State for direct agent polling
   const [directPollingConfig, setDirectPollingConfig] = useState(null);
@@ -64,7 +71,21 @@ const InputSection = () => {
     console.log(`Handling ${type} upload`);
     setShowUploadOptions(false);
   };
+  useEffect(() => {
+    console.log("useEffect triggered with suggestPrompt:", suggestPrompt);
 
+    // Check if suggestPrompt has a value
+    if (suggestPrompt && suggestPrompt.length > 0) {
+      console.log("Setting userInput to:", suggestPrompt);
+      setUserInput(suggestPrompt);
+
+      // Optional: Reset the suggestPrompt in Redux after using it
+      // This prevents issues if the same prompt is clicked twice
+      setTimeout(() => {
+        dispatch(chatAction.suggestPromptHandler({ prompt: "" }));
+      }, 100);
+    }
+  }, [suggestPrompt, dispatch]);
   // Close upload options when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -417,13 +438,22 @@ const InputSection = () => {
 
     navigate("/app");
   };
+  console.log("Current suggestPrompt state:", suggestPrompt);
 
   useEffect(() => {
-    if (suggestPrompt.length > 0) {
+    console.log("useEffect triggered with suggestPrompt:", suggestPrompt);
+    console.log("suggestPrompt type:", typeof suggestPrompt);
+
+    // Check if suggestPrompt is valid and has length
+    if (
+      suggestPrompt &&
+      typeof suggestPrompt === "string" &&
+      suggestPrompt.length > 0
+    ) {
+      console.log("Setting userInput to:", suggestPrompt);
       setUserInput(suggestPrompt);
     }
   }, [suggestPrompt]);
-
   // Reset polling config when direct polling completes
   const handlePollingComplete = () => {
     console.log("Direct polling complete, resetting config");
