@@ -144,6 +144,8 @@ const ScrollChat = () => {
     return () => clearInterval(intervalId);
   }, [chat]);
 
+  // In ScrollChat.js - ensure processMessageContent handles Markdown properly
+
   const processMessageContent = (
     text,
     queryKeywords = [],
@@ -152,48 +154,73 @@ const ScrollChat = () => {
     if (text === null || typeof text === "undefined") return "";
     let processedText = String(text);
 
-    // Check if text contains HTML tags - if so, it's likely already processed
-    const containsHtmlTags = /<\/?[a-z][\s\S]*>/i.test(processedText);
+    // Only process non-user messages that don't already have HTML tags
+    if (!isUserMessage) {
+      const containsHtmlTags = /<\/?[a-z][\s\S]*>/i.test(processedText);
 
-    // If this is not a user message and doesn't have HTML tags yet, process it
-    if (!isUserMessage && !containsHtmlTags) {
-      // Process code blocks - must do this first to avoid interference with other formatting
-      processedText = processedText.replace(
-        /```([\s\S]*?)```/gs,
-        (match, codeBlock) => {
-          const escapedCode = codeBlock
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;");
-          return `<br><pre class="${
-            styles.codeBlock
-          }"><code>${escapedCode.trim()}\n</code></pre><br>`;
-        }
-      );
+      if (!containsHtmlTags) {
+        // First replace Markdown links with HTML links
+        processedText = processedText.replace(
+          /\[([^\]]+)\]\(([^)]+)\)/g,
+          '<a href="$2" target="_blank" rel="noopener noreferrer" class="link-styled">$1</a>'
+        );
 
-      // Process headers - must come before other inline formatting
-      processedText = processedText.replace(/^### (.*$)/gim, "<h3>$1</h3>");
-      processedText = processedText.replace(/^## (.*$)/gim, "<h2>$1</h2>");
-      processedText = processedText.replace(/^# (.*$)/gim, "<h1>$1</h1>");
+        // Format headers with proper styling and spacing
+        processedText = processedText.replace(
+          /^### (.*$)/gim,
+          '<h3 style="margin-top: 16px; margin-bottom: 8px; font-size: 1.2em;">$1</h3>'
+        );
+        processedText = processedText.replace(
+          /^## (.*$)/gim,
+          '<h2 style="margin-top: 20px; margin-bottom: 10px; font-size: 1.4em;">$1</h2>'
+        );
+        processedText = processedText.replace(
+          /^# (.*$)/gim,
+          '<h1 style="margin-top: 24px; margin-bottom: 12px; font-size: 1.6em;">$1</h1>'
+        );
 
-      // Bold and italic formatting
-      processedText = processedText.replace(
-        /\*\*(.*?)\*\*/g,
-        "<strong>$1</strong>"
-      );
-      processedText = processedText.replace(/\*(.*?)\*/g, "<em>$1</em>");
+        // Format lists with proper indentation and spacing
+        processedText = processedText.replace(
+          /^\s*[-*+] (.*)/gim,
+          '<li style="margin-bottom: 4px;">$1</li>'
+        );
+        processedText = processedText.replace(
+          /(<li[^>]*>.*<\/li>\s*)+/g,
+          '<ul style="margin-top: 8px; margin-bottom: 8px; padding-left: 20px;">$&</ul>'
+        );
 
-      // List items - do this before general newline processing
-      processedText = processedText.replace(/^\s*[-*+] (.*)/gim, "<li>$1</li>");
-      processedText = processedText.replace(
-        /(<li>.*<\/li>\s*)+/g,
-        "<ul>$&</ul>"
-      );
+        // Add styling to emoji sections to make them stand out better
+        processedText = processedText.replace(
+          /([\uD800-\uDBFF][\uDC00-\uDFFF])\s+([^:\n]+):/g,
+          '<div style="display: flex; align-items: center; margin: 12px 0; font-weight: bold;"><span style="font-size: 1.2em; margin-right: 8px;">$1</span><span>$2:</span></div>'
+        );
 
-      // Convert newlines to <br /> only if they are not part of the above structures
-      processedText = processedText.replace(
-        /\n(?!<\/?(ul|li|h[1-6]|pre|code|strong|em|br))/g,
-        "<br />"
-      );
+        // Process code blocks
+        processedText = processedText.replace(
+          /```([\s\S]*?)```/gs,
+          (match, codeBlock) => {
+            const escapedCode = codeBlock
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;");
+            return `<pre style="background-color: #f6f8fa; padding: 12px; border-radius: 4px; overflow-x: auto;"><code>${escapedCode.trim()}</code></pre>`;
+          }
+        );
+
+        // Add paragraph spacing to remaining line breaks
+        processedText = processedText.replace(
+          /\n\n/g,
+          '</p><p style="margin-top: 12px;">'
+        );
+
+        // Convert single newlines to <br> for formatting
+        processedText = processedText.replace(
+          /\n(?!<\/?(ul|li|h[1-6]|pre|code|strong|em|br))/g,
+          "<br />"
+        );
+
+        // Wrap the entire content in a div with proper spacing
+        processedText = `<div style="line-height: 1.5; color: inherit;"><p>${processedText}</p></div>`;
+      }
     }
 
     // Skip highlighting for user messages or if no keywords

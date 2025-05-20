@@ -11,8 +11,8 @@ import publicRoutes from "./router/public.js";
 import authRoutes from "./router/auth.js";
 import agentRouter from "./router/agent.js";
 import agentApiRouter from "./router/agent_api.js";
-import dayoneApiRouter from "./router/dayone_api.js";
 import dayoneTokenApiRouter from "./router/dayone_token_api.js";
+import jiraAgentRouter from "./router/jira_agent.js";
 import { initializeToken } from "./utils/tokenInitializer.js";
 
 // Verify environment variables are loaded
@@ -128,8 +128,8 @@ app.use("/gemini", publicRoutes); // Mount at /gemini for backward compatibility
 app.use(authRoutes);
 app.use(agentRouter); // Add the agent router which includes deep-research endpoint
 app.use(agentApiRouter); // Add the agent API router for agent integration
-app.use(dayoneApiRouter); // Add the Day One API router
 app.use(dayoneTokenApiRouter);
+app.use(jiraAgentRouter);
 // 404 handler
 app.use((req, res, next) => {
   console.log(`404 Not Found: ${req.method} ${req.path}`);
