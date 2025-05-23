@@ -274,7 +274,7 @@ const searchIssues = async (searchParam, maxResults = 10) => {
             Accept: "application/json",
             "Content-Type": "application/json",
           },
-          timeout: 15000, // 15 seconds timeout
+          timeout: 35000, // 15 seconds timeout
         }
       );
     } else {
@@ -290,7 +290,7 @@ const searchIssues = async (searchParam, maxResults = 10) => {
           fields:
             "summary,description,status,assignee,reporter,priority,created,updated,comment",
         },
-        timeout: 15000, // 15 seconds timeout
+        timeout: 25000, // 15 seconds timeout
       });
     }
 

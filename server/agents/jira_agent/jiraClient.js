@@ -54,7 +54,7 @@ const searchIssues = async (jqlQuery, maxResults = 20) => {
           "Content-Type": "application/json",
           Accept: "application/json",
         },
-        timeout: 15000, // 15 seconds timeout
+        timeout: 35000, // 15 seconds timeout
       }
     );
 

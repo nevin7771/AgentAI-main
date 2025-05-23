@@ -24,12 +24,7 @@ const InputSection = () => {
   const inputRef = useRef(null);
   const uploadMenuRef = useRef(null);
   const chatHistoryId = useSelector((state) => state.chat.chatHistoryId);
-  const suggestPrompt = useSelector((state) => {
-    // Make sure we're accessing the correct property with a safe default
-    const promptValue = state.chat.suggestPrompt || "";
-    console.log("Prompt value from Redux:", promptValue);
-    return promptValue;
-  });
+  const suggestPrompt = useSelector((state) => state.chat.suggestPrompt || "");
 
   // Get selectedAgents from Redux store
   const selectedAgents = useSelector(
@@ -72,11 +67,8 @@ const InputSection = () => {
     setShowUploadOptions(false);
   };
   useEffect(() => {
-    console.log("useEffect triggered with suggestPrompt:", suggestPrompt);
-
     // Check if suggestPrompt has a value
     if (suggestPrompt && suggestPrompt.length > 0) {
-      console.log("Setting userInput to:", suggestPrompt);
       setUserInput(suggestPrompt);
 
       // Optional: Reset the suggestPrompt in Redux after using it
@@ -438,12 +430,8 @@ const InputSection = () => {
 
     navigate("/app");
   };
-  console.log("Current suggestPrompt state:", suggestPrompt);
 
   useEffect(() => {
-    console.log("useEffect triggered with suggestPrompt:", suggestPrompt);
-    console.log("suggestPrompt type:", typeof suggestPrompt);
-
     // Check if suggestPrompt is valid and has length
     if (
       suggestPrompt &&

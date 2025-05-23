@@ -64,14 +64,12 @@ const chatSlice = createSlice({
       state.chats = action.payload.chats || [];
     },
     suggestPromptHandler(state, action) {
-      console.log("suggestPromptHandler called with payload:", action.payload);
       // Make sure we handle null/undefined properly
       if (action.payload && typeof action.payload.prompt === "string") {
         state.suggestPrompt = action.payload.prompt;
       } else {
         state.suggestPrompt = "";
       }
-      console.log("suggestPrompt state after update:", state.suggestPrompt);
     },
     geminiBackendOptionHandler(state, action) {
       state.geminiBackendOption = action.payload.geminiBackendOption;
