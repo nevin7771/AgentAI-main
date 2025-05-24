@@ -25,6 +25,146 @@ class LLMGatewayService {
     }
   }
 
+  async query(query, chatHistory = [], options = {}) {
+    // Refresh token from environment in case it was updated
+    this.token = process.env.LLM_GATEWAY_JWT_TOKEN;
+
+    console.log(`[LLMGatewayService] Starting query...`);
+    console.log(`[LLMGatewayService] API URL:`, this.apiUrl);
+    console.log(`[LLMGatewayService] Token exists:`, !!this.token);
+    console.log(`[LLMGatewayService] Token length:`, this.token?.length || 0);
+    console.log(
+      `[LLMGatewayService] Model:`,
+      options.model || this.defaultModel
+    );
+
+    this.validateToken();
+
+    // Format messages for the API
+    const messages = [];
+
+    // Add chat history if provided
+    if (chatHistory && chatHistory.length > 0) {
+      for (const message of chatHistory) {
+        messages.push({
+          role: message.role || (message.isUser ? "user" : "assistant"),
+          message: message.content || message.text || message.message,
+        });
+      }
+    }
+
+    // Add current query as the latest message
+    messages.push({
+      role: "user",
+      message: query,
+    });
+
+    // Create request payload
+    const payload = {
+      model: options.model || this.defaultModel,
+      messages: messages,
+      task_id: options.taskId || `task_${Date.now()}`,
+      user_name: options.userName || "jira_agent",
+    };
+
+    console.log(
+      `[LLMGatewayService] Request payload:`,
+      JSON.stringify(payload, null, 2)
+    );
+
+    try {
+      console.log(`[LLMGatewayService] Making API call...`);
+
+      const response = await axios.post(this.apiUrl, payload, {
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          "Content-Type": "application/json",
+        },
+        timeout: options.timeout || 30000,
+      });
+
+      console.log(`[LLMGatewayService] Response status:`, response.status);
+      console.log(`[LLMGatewayService] Response headers:`, response.headers);
+      console.log(`[LLMGatewayService] Response data:`, response.data);
+      console.log(
+        `[LLMGatewayService] Response data type:`,
+        typeof response.data
+      );
+
+      // Check if response.data has expected structure
+      if (!response.data) {
+        throw new Error("LLM Gateway returned empty response data");
+      }
+
+      // Check for different possible response formats
+      if (response.data.content) {
+        console.log(
+          `[LLMGatewayService] Found content field:`,
+          response.data.content
+        );
+      } else if (response.data.text) {
+        console.log(
+          `[LLMGatewayService] Found text field:`,
+          response.data.text
+        );
+        // Normalize to expected format
+        response.data.content = response.data.text;
+      } else if (response.data.message) {
+        console.log(
+          `[LLMGatewayService] Found message field:`,
+          response.data.message
+        );
+        // Normalize to expected format
+        response.data.content = response.data.message;
+      } else if (response.data.response) {
+        console.log(
+          `[LLMGatewayService] Found response field:`,
+          response.data.response
+        );
+        // Normalize to expected format
+        response.data.content = response.data.response;
+      } else {
+        console.warn(
+          `[LLMGatewayService] No recognized content field in response:`,
+          Object.keys(response.data)
+        );
+        // Try to use the first string field
+        const stringFields = Object.entries(response.data).filter(
+          ([key, value]) => typeof value === "string" && value.length > 0
+        );
+
+        if (stringFields.length > 0) {
+          console.log(
+            `[LLMGatewayService] Using first string field: ${stringFields[0][0]}`
+          );
+          response.data.content = stringFields[0][1];
+        } else {
+          throw new Error(
+            `LLM Gateway returned unexpected response format: ${JSON.stringify(
+              response.data
+            )}`
+          );
+        }
+      }
+
+      return response.data;
+    } catch (error) {
+      console.error("[LLMGatewayService] Error calling LLM Gateway:", error);
+
+      if (error.response) {
+        console.error(
+          "[LLMGatewayService] Error response status:",
+          error.response.status
+        );
+        console.error(
+          "[LLMGatewayService] Error response data:",
+          error.response.data
+        );
+      }
+
+      throw error;
+    }
+  }
   /**
    * Call the LLM Gateway with a query
    * @param {string} query - The user's query

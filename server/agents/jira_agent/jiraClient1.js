@@ -54,7 +54,7 @@ const searchIssues = async (jqlQuery, maxResults = 20) => {
           "Content-Type": "application/json",
           Accept: "application/json",
         },
-        timeout: 15000, // 15 seconds timeout
+        timeout: 35000, // 15 seconds timeout
       }
     );
 
@@ -174,8 +174,76 @@ const fetchAllComments = async (issueKey) => {
   }
 };
 
+// In jiraClient.js
+
+/**
+ * Enhanced search with better time handling
+ */
+const searchIssuesWithTimeframe = async (
+  jqlQuery,
+  timeframe,
+  maxResults = 20
+) => {
+  if (!JIRA_URL || !AUTH_TOKEN) {
+    throw new Error("Jira API credentials not configured");
+  }
+
+  // Add timeframe constraints if needed
+  let finalJql = jqlQuery;
+  if (timeframe && !jqlQuery.includes("created")) {
+    // Parse timeframe string and add to JQL
+    if (timeframe === "last week") {
+      finalJql += " AND created >= -1w";
+    } else if (timeframe === "last month") {
+      finalJql += " AND created >= -4w";
+    } else if (timeframe === "last day") {
+      finalJql += " AND created >= -1d";
+    } else if (timeframe === "last quarter") {
+      finalJql += " AND created >= -12w";
+    }
+  }
+
+  console.log(`[jiraClient] Searching with enhanced JQL: ${finalJql}`);
+
+  // Rest of the function remains the same...
+  try {
+    const searchUrl = `${JIRA_URL}/rest/api/3/search`;
+
+    const response = await axios.post(
+      searchUrl,
+      {
+        jql: finalJql,
+        maxResults: maxResults,
+        fields: [
+          "summary",
+          "description",
+          "status",
+          "assignee",
+          "reporter",
+          "priority",
+          "created",
+          "updated",
+          "resolutiondate",
+          "comment",
+          "components",
+          "project",
+        ],
+      }
+      // Rest of function same as original
+    );
+
+    return response.data?.issues || [];
+  } catch (error) {
+    console.error(
+      "[jiraClient] Error searching Jira:",
+      error.response?.data || error.message
+    );
+    throw error;
+  }
+};
 export default {
   searchIssues,
   getIssue,
   fetchAllComments,
+  searchIssuesWithTimeframe,
 };

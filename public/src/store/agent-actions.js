@@ -1,12 +1,16 @@
+// FIXED agent-actions.js with debugging and duplicate prevention
+
 import { chatAction } from "./chat";
 import { uiAction } from "./ui-gemini";
 import { agentAction } from "./agent";
-//import { getRecentChat } from "./chat-action";
 
 const SERVER_ENDPOINT =
   process.env.REACT_APP_SERVER_ENDPOINT || "http://localhost:3030";
 const USE_PROXY = process.env.REACT_APP_USE_PROXY !== "false";
 const BASE_URL = USE_PROXY ? "" : SERVER_ENDPOINT;
+
+// Track active requests to prevent duplicates
+const activeRequests = new Set();
 
 const extractKeywords = (queryStr) => {
   if (!queryStr || typeof queryStr !== "string") return [];
@@ -74,260 +78,7 @@ const parseFormattedHTML = (htmlString, queryKeywords) => {
   return { mainAnswer, sources, relatedQuestions, parsingFailed };
 };
 
-export const getJiraTicketSummary = (ticketId, originalQuery = null) => {
-  return async (dispatch, getState) => {
-    const queryKeywords = extractKeywords(`Jira ticket ${ticketId}`);
-    let currentChatHistoryId = getState().chat.chatHistoryId;
-
-    const anyLoadingIndicator = getState().chat.chats.some(
-      (c) => c.isLoader === "yes"
-    );
-
-    // Only set app-level loading if we don't have a chat-level loading indicator
-    if (!anyLoadingIndicator) {
-      dispatch(uiAction.setLoading(true));
-      dispatch(agentAction.setLoading(true));
-    }
-
-    // Check if we already have this exact loading message to avoid duplicates
-    const hasDuplicateTicketLoader = getState().chat.chats.some(
-      (c) =>
-        c.isLoader === "yes" &&
-        c.searchType === "agent" &&
-        c.user &&
-        c.user.includes(ticketId)
-    );
-
-    // Only add loading message if there's no original query
-    // or if we're not replacing an existing message
-    if (!originalQuery && !hasDuplicateTicketLoader && !anyLoadingIndicator) {
-      console.log(
-        `[getJiraTicketSummary] Adding loading indicator for ticket ${ticketId}`
-      );
-
-      // Display loading message
-      dispatch(
-        chatAction.chatStart({
-          useInput: {
-            user: `Summarize Jira ticket ${ticketId}`,
-            gemini: "",
-            isLoader: "yes",
-            isSearch: true,
-            searchType: "agent",
-            queryKeywords: queryKeywords,
-            sources: [],
-            relatedQuestions: [],
-            isPreformattedHTML: false,
-          },
-        })
-      );
-    }
-
-    try {
-      // Get JWT token for authentication
-      let token;
-      try {
-        const tokenResponse = await fetch(
-          `${SERVER_ENDPOINT}/api/generate-jwt`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ agentId: "jira_ag" }),
-          }
-        );
-        if (tokenResponse.ok) token = (await tokenResponse.json()).token;
-      } catch (tokenError) {
-        console.warn(
-          "Token generation failed, continuing without token:",
-          tokenError
-        );
-      }
-
-      // Direct ticket API call to new jira_agent endpoint
-      const ticketUrl = `${SERVER_ENDPOINT}/api/jira/ticket/${ticketId}`;
-      console.log(
-        `[getJiraTicketSummary] Fetching ticket ${ticketId} from ${ticketUrl}`
-      );
-
-      const response = await fetch(ticketUrl, {
-        method: "GET",
-        headers: {
-          Accept: "application/json",
-          ...(token && { Authorization: `Bearer ${token}` }),
-        },
-        credentials: "include",
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(
-          `Failed to fetch Jira ticket: ${response.status} ${errorText}`
-        );
-      }
-
-      const data = await response.json();
-      console.log(
-        `[getJiraTicketSummary] Got response for ticket ${ticketId}:`,
-        data
-      );
-
-      if (!data.success) {
-        throw new Error(data.message || "Failed to get ticket summary");
-      }
-
-      // Remove loading message
-      dispatch(chatAction.popChat());
-
-      // Format and display response
-      dispatch(
-        chatAction.chatStart({
-          useInput: {
-            user: `Summarize Jira ticket ${ticketId}`,
-            gemini: data.formattedResponse || data.result.answer,
-            sources: data.sources || data.result.sources || [],
-            relatedQuestions: data.result?.relatedQuestions || [],
-            queryKeywords: queryKeywords,
-            isLoader: "no",
-            isSearch: true,
-            searchType: "agent",
-            isPreformattedHTML: false,
-          },
-        })
-      );
-
-      // Create chat history if needed
-      let finalChatHistoryId = currentChatHistoryId;
-      if (!finalChatHistoryId) {
-        try {
-          const createHistoryUrl = `${BASE_URL}/api/create-chat-history`;
-          const historyResponse = await fetch(createHistoryUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Accept: "application/json",
-            },
-            credentials: "include",
-            body: JSON.stringify({
-              title: `Jira Ticket ${ticketId}`,
-              message: {
-                user: `Summarize Jira ticket ${ticketId}`,
-                gemini: data.formattedResponse || data.result.answer,
-                sources: data.sources || data.result.sources || [],
-                relatedQuestions: data.result?.relatedQuestions || [],
-                queryKeywords,
-                isPreformattedHTML: false,
-              },
-              isSearch: true,
-              searchType: "agent",
-            }),
-          });
-          if (historyResponse.ok) {
-            const historyData = await historyResponse.json();
-            if (historyData.success && historyData.chatHistoryId)
-              finalChatHistoryId = historyData.chatHistoryId;
-          }
-        } catch (historyError) {
-          console.error(
-            "Error creating chat history for Jira ticket:",
-            historyError
-          );
-        }
-      }
-
-      if (finalChatHistoryId) {
-        dispatch(
-          chatAction.chatHistoryIdHandler({
-            chatHistoryId: finalChatHistoryId,
-          })
-        );
-        try {
-          const existingStorageHistory = JSON.parse(
-            localStorage.getItem("searchHistory") || "[]"
-          );
-          const historyItem = {
-            id: finalChatHistoryId,
-            title: `Jira Ticket ${ticketId}`,
-            timestamp: new Date().toISOString(),
-            type: "agent",
-          };
-          if (
-            !existingStorageHistory.some(
-              (item) => item.id === finalChatHistoryId
-            )
-          ) {
-            existingStorageHistory.unshift(historyItem);
-            localStorage.setItem(
-              "searchHistory",
-              JSON.stringify(existingStorageHistory.slice(0, 50))
-            );
-            window.dispatchEvent(new Event("storage"));
-          }
-        } catch (err) {
-          console.error(
-            "Error saving Jira ticket history to localStorage:",
-            err
-          );
-        }
-      }
-
-      dispatch(chatAction.newChatHandler());
-      dispatch(uiAction.setLoading(false));
-      dispatch(agentAction.setLoading(false));
-
-      return {
-        success: true,
-        orchestrationComplete: true,
-        data: {
-          ticket: data.ticket,
-          chatHistoryId: finalChatHistoryId,
-        },
-      };
-    } catch (error) {
-      console.error("Error fetching Jira ticket:", error);
-
-      // Remove loading indicator
-      dispatch(chatAction.popChat());
-
-      // Show error message
-      dispatch(
-        chatAction.chatStart({
-          useInput: {
-            user: `Summarize Jira ticket ${ticketId}`,
-            gemini: `
-              <div class="search-results-container">
-                <div class="search-content-wrapper">
-                  <div class="search-main-content error">
-                    <h3>Jira Ticket Error</h3>
-                    <p>${error.message}</p>
-                  </div>
-                </div>
-              </div>
-            `,
-            isLoader: "no",
-            isSearch: true,
-            searchType: "agent",
-            queryKeywords: queryKeywords,
-            sources: [],
-            relatedQuestions: [],
-            error: true,
-            isPreformattedHTML: true,
-          },
-        })
-      );
-
-      dispatch(chatAction.newChatHandler());
-      dispatch(uiAction.setLoading(false));
-      dispatch(agentAction.setLoading(false));
-
-      return {
-        success: false,
-        orchestrationComplete: true,
-        error: error.message,
-      };
-    }
-  };
-};
-
+// MAIN FUNCTION - Handles ALL agent queries uniformly
 export const sendAgentQuestion = (questionData) => {
   return async (dispatch, getState) => {
     const { question, agents, chatHistoryId, navigate } = questionData;
@@ -335,108 +86,47 @@ export const sendAgentQuestion = (questionData) => {
     const queryKeywords = extractKeywords(question);
     let currentChatHistoryId = chatHistoryId || getState().chat.chatHistoryId;
 
-    // Check if this is a Jira ticket query when using the Jira agent
-    if (selectedAgent === "jira_ag") {
-      // Various patterns to detect Jira ticket references
-      const jiraTicketPattern = /\b([A-Z]+-\d+)\b/; // Basic pattern like ZSEE-12345
-      const jiraTicketAskPattern =
-        /(?:ticket|issue|jira)\s+(?:number|id|key)?\s*(?:is|:)?\s*([A-Z]+-\d+)/i;
-      const summarizePattern =
-        /(?:summarize|describe|details|about|get|fetch|show|find)\s+(?:jira|ticket|issue)?\s+(?:number|id|key|#)?\s*([A-Z]+-\d+)/i;
-
-      // Try to match with different patterns
-      const matches = [
-        question.match(summarizePattern),
-        question.match(jiraTicketAskPattern),
-        question.match(jiraTicketPattern),
-      ].filter(Boolean);
-
-      if (matches.length > 0) {
-        // Extract the ticket ID from the first successful match
-        const ticketMatch = matches[0];
-        const ticketId = ticketMatch[1];
-
-        if (ticketId) {
-          console.log(
-            `[sendAgentQuestion] Detected Jira ticket ${ticketId}, using direct API`
-          );
-
-          // Always show loading UI first
-          dispatch(uiAction.setLoading(true));
-          dispatch(agentAction.setLoading(true));
-
-          // Display loading message
-          dispatch(
-            chatAction.chatStart({
-              useInput: {
-                user: `Summarize Jira ticket ${ticketId}`,
-                gemini: "",
-                isLoader: "yes",
-                isSearch: true,
-                searchType: "agent",
-                queryKeywords: queryKeywords,
-                sources: [],
-                relatedQuestions: [],
-                isPreformattedHTML: false,
-              },
-            })
-          );
-
-          // Navigate if needed
-          if (navigate && typeof navigate === "function") {
-            navigate("/app");
-          }
-
-          // Then call the actual ticket summary function
-          return dispatch(getJiraTicketSummary(ticketId, question));
-        }
-      }
+    // PREVENT DUPLICATE CALLS
+    const requestKey = `${selectedAgent}-${question}-${Date.now()}`;
+    if (activeRequests.has(question)) {
+      console.log(
+        "[sendAgentQuestion] Duplicate request prevented for:",
+        question
+      );
+      return { success: false, message: "Request already in progress" };
     }
 
-    const anyLoadingIndicator = getState().chat.chats.some(
-      (c) => c.isLoader === "yes"
+    activeRequests.add(question);
+    console.log(
+      `[sendAgentQuestion] Starting request for: "${question}" with agent: ${selectedAgent}`
     );
 
-    // Only set app-level loading if we don't have any loading indicators already
-    if (!anyLoadingIndicator) {
-      dispatch(uiAction.setLoading(true));
-      dispatch(agentAction.setLoading(true));
-    }
+    // Declare variables that will be used across different agent types
+    let responseText = "";
+    let sources = [];
+    let relatedQuestions = [];
 
-    // Check for this specific loading message to avoid duplicates
-    const hasDuplicateLoader = getState().chat.chats.some(
-      (c) =>
-        c.isLoader === "yes" && c.searchType === "agent" && c.user === question
-    );
+    dispatch(uiAction.setLoading(true));
+    dispatch(agentAction.setLoading(true));
 
     // Dispatch initial loading message to the chat
-    if (!anyLoadingIndicator && !hasDuplicateLoader) {
-      console.log(
-        `[sendAgentQuestion] Adding loading indicator for: "${question.substring(
-          0,
-          50
-        )}..."`
-      );
+    dispatch(
+      chatAction.chatStart({
+        useInput: {
+          user: question,
+          gemini: "",
+          isLoader: "yes",
+          isSearch: true,
+          searchType: "agent",
+          queryKeywords: queryKeywords,
+          sources: [],
+          relatedQuestions: [],
+          isPreformattedHTML: false,
+        },
+      })
+    );
 
-      dispatch(
-        chatAction.chatStart({
-          useInput: {
-            user: question,
-            gemini: "",
-            isLoader: "yes",
-            isSearch: true,
-            searchType: "agent",
-            queryKeywords: queryKeywords,
-            sources: [],
-            relatedQuestions: [],
-            isPreformattedHTML: false,
-          },
-        })
-      );
-    }
-
-    // For orchestrated agents (Jira, Confluence), navigate to /app with a slight delay
-    // to ensure the loading message is rendered first
+    // Navigate to /app with slight delay to ensure loading message renders
     if (navigate && typeof navigate === "function") {
       setTimeout(() => {
         navigate("/app");
@@ -444,6 +134,7 @@ export const sendAgentQuestion = (questionData) => {
     }
 
     try {
+      // Get JWT token for authentication
       let token;
       try {
         const tokenResponse = await fetch(
@@ -466,206 +157,382 @@ export const sendAgentQuestion = (questionData) => {
         throw new Error(`Token generation failed: ${tokenError.message}`);
       }
 
-      // HANDLE JIRA AGENT GENERAL QUERIES (not ticket lookups)
+      // HANDLE JIRA AGENT - Send ALL queries to backend agent endpoint
       if (selectedAgent === "jira_ag") {
-        try {
-          // Get recent chats for context - WITH PROPER SAFETY CHECKS
-          let chatHistory = [];
-          try {
-            // Properly access recentChats with safe fallbacks
-            // Fix the "recentChats.map is not a function" error
-            const recentChats = getState().chat.recentChat || [];
+        console.log(
+          `[sendAgentQuestion] Sending Jira query to backend agent: "${question}"`
+        );
 
-            if (recentChats && Array.isArray(recentChats)) {
-              chatHistory = recentChats
-                .filter((chat) => chat && typeof chat === "object")
-                .map((chat) => {
-                  return {
-                    role: chat.isUser ? "user" : "assistant",
-                    content: chat.isUser ? chat.user : chat.gemini,
-                  };
-                });
-            } else {
-              console.log("recentChats is not an array:", recentChats);
-            }
-          } catch (historyError) {
-            console.warn("Error processing chat history:", historyError);
-            // Continue with empty chat history
-          }
-
-          // Extract potential issue area/project from the question
-          let issueArea = null;
-          let project = null;
-
-          // Simple extraction of context from question (can be enhanced)
-          if (question.includes("Desktop")) issueArea = "Desktop Client";
-          else if (question.includes("Mobile")) issueArea = "Mobile Client";
-          else if (question.includes("Audio")) issueArea = "Audio";
-          else if (question.includes("Video")) issueArea = "Video";
-
-          if (question.includes("ZSEE")) project = "ZSEE";
-          else if (question.includes("ZOOM")) project = "ZOOM";
-
-          // Create request payload
-          const jiraRequestUrl = `${SERVER_ENDPOINT}/api/jira/query`;
-          const requestBody = {
+        const jiraQueryUrl = `${SERVER_ENDPOINT}/api/jira/query`;
+        const response = await fetch(jiraQueryUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+            ...(token && { Authorization: `Bearer ${token}` }),
+          },
+          credentials: "include",
+          body: JSON.stringify({
             query: question,
-            chatHistory: Array.isArray(chatHistory) ? chatHistory : [],
-            clarificationResponse: null,
-            metadata: {
-              issueArea,
-              project,
-              originalQuery: question,
-            },
-          };
+            chatHistory: [], // Could be enhanced to include actual chat history
+            // No clarificationResponse for initial queries
+          }),
+        });
 
-          console.log(`[sendAgentQuestion] Sending Jira query:`, {
-            url: jiraRequestUrl,
-            bodyPreview: {
-              query: requestBody.query,
-              chatHistoryLength: requestBody.chatHistory.length,
-              metadata: requestBody.metadata,
-            },
-          });
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(
+            `Jira agent query failed: ${response.status} ${errorText}`
+          );
+        }
 
-          const response = await fetch(jiraRequestUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            credentials: "include",
-            body: JSON.stringify(requestBody),
-          });
+        const data = await response.json();
+        console.log(`[TEMP DEBUG] Complete response structure:`);
+        console.log(JSON.stringify(data, null, 2));
+        console.log(`[sendAgentQuestion] Jira agent full response:`, data);
+        if (data.result) {
+          console.log(`[TEMP DEBUG] data.result contents:`);
+          console.log(JSON.stringify(data.result, null, 2));
 
-          if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(
-              `Jira query failed: ${response.status} ${errorText}`
+          console.log(
+            `[TEMP DEBUG] data.result keys:`,
+            Object.keys(data.result)
+          );
+          console.log(
+            `[TEMP DEBUG] data.result values:`,
+            Object.values(data.result)
+          );
+        }
+
+        if (data.ticket) {
+          console.log(`[TEMP DEBUG] data.ticket contents:`);
+          console.log(JSON.stringify(data.ticket, null, 2));
+        }
+
+        // Check if formattedResponse is coming from the service
+        if (data.formattedResponse) {
+          console.log(
+            `[TEMP DEBUG] data.formattedResponse:`,
+            data.formattedResponse
+          );
+        } else {
+          console.log(`[TEMP DEBUG] No data.formattedResponse found`);
+        }
+        console.log(
+          `[DEBUG] Full response object:`,
+          JSON.stringify(data, null, 2)
+        );
+        console.log(`[DEBUG] data.result contents:`, data.result);
+
+        // Try multiple extraction paths with debugging
+        if (data.success && data.result) {
+          // First check what's actually in data.result
+          const resultKeys = Object.keys(data.result);
+          console.log(`[DEBUG] data.result keys:`, resultKeys);
+
+          // Try different possible answer fields in result
+          if (data.result.answer) {
+            responseText = data.result.answer;
+            console.log(`[DEBUG] Using data.result.answer`);
+          } else if (data.result.formattedResponse) {
+            responseText = data.result.formattedResponse;
+            console.log(`[DEBUG] Using data.result.formattedResponse`);
+          } else if (data.result.response) {
+            responseText = data.result.response;
+            console.log(`[DEBUG] Using data.result.response`);
+          } else if (data.result.summary) {
+            responseText = data.result.summary;
+            console.log(`[DEBUG] Using data.result.summary`);
+          } else if (data.result.content) {
+            responseText = data.result.content;
+            console.log(`[DEBUG] Using data.result.content`);
+          } else if (data.result.text) {
+            responseText = data.result.text;
+            console.log(`[DEBUG] Using data.result.text`);
+          } else {
+            // If result exists but doesn't have expected fields, log what it contains
+            console.log(`[DEBUG] data.result structure:`, data.result);
+
+            // Try to get the first string value from result
+            const stringValues = Object.values(data.result).filter(
+              (v) => typeof v === "string" && v.length > 10
             );
+            if (stringValues.length > 0) {
+              responseText = stringValues[0];
+              console.log(
+                `[DEBUG] Using first string value from result:`,
+                responseText.substring(0, 100)
+              );
+            }
           }
 
-          const data = await response.json();
-          console.log(`[sendAgentQuestion] Jira response:`, data);
+          sources = data.result.sources || data.sources || [];
+          relatedQuestions =
+            data.result.relatedQuestions || data.relatedQuestions || [];
+        } else if (data.formattedResponse) {
+          responseText = data.formattedResponse;
+          sources = data.sources || [];
+          relatedQuestions = data.relatedQuestions || [];
+          console.log(`[DEBUG] Using data.formattedResponse`);
+        } else if (data.answer) {
+          responseText = data.answer;
+          sources = data.sources || [];
+          console.log(`[DEBUG] Using data.answer`);
+        } else if (data.message && data.success) {
+          responseText = data.message;
+          sources = data.sources || [];
+          console.log(`[DEBUG] Using data.message`);
+        } else {
+          // Last resort - try to extract any text content from top level
+          const possibleTexts = [
+            data.text,
+            data.content,
+            data.response,
+            data.gemini,
+            data.summary,
+          ].filter((v) => v && typeof v === "string" && v.length > 5);
 
-          // Check if we need clarification
-          if (data.needs_clarification) {
-            // Handle clarification needed
-            dispatch(chatAction.popChat());
-            dispatch(
-              chatAction.chatStart({
-                useInput: {
-                  user: question,
-                  gemini: `<div class="search-results-container">
-                  <div class="search-content-wrapper">
-                    <div class="search-main-content">
-                      <h3>Clarification Needed</h3>
-                      <p>${data.message}</p>
-                      <p>Please provide more information so I can better answer your question.</p>
-                    </div>
-                  </div>
-                </div>`,
-                  isLoader: "no",
-                  isSearch: true,
-                  searchType: "agent",
-                  needs_user_input: true,
-                  missing_info: data.clarification_type,
-                  queryKeywords: queryKeywords,
-                  sources: [],
-                  isPreformattedHTML: true,
-                },
-              })
+          if (possibleTexts.length > 0) {
+            responseText = possibleTexts[0];
+            console.log(
+              `[DEBUG] Using fallback text field:`,
+              responseText.substring(0, 100)
             );
-            dispatch(uiAction.setLoading(false));
-            dispatch(agentAction.setLoading(false));
-            return {
-              success: true,
-              needsClarification: true,
-              message: data.message,
-            };
+          } else {
+            console.warn(`[DEBUG] Complete response structure:`, data);
+            responseText = `Debug: Response received but no text content found. Available keys: ${Object.keys(
+              data
+            ).join(", ")}. Result keys: ${
+              data.result ? Object.keys(data.result).join(", ") : "none"
+            }`;
           }
+        }
 
-          // Format the response
-          const formattedResponse =
-            data.formattedResponse || data.result?.answer || "";
-          const sources = data.sources || data.result?.sources || [];
+        // Ensure we have some response
+        if (!responseText || responseText.trim() === "") {
+          console.warn(
+            `[DEBUG] Empty response text after all extraction attempts`
+          );
+          responseText =
+            "The Jira agent processed your request but returned empty content.";
+        }
 
-          // Remove loading message
-          dispatch(chatAction.popChat());
+        console.log(`[sendAgentQuestion] Final extracted response:`, {
+          length: responseText.length,
+          preview: responseText.substring(0, 200),
+          sources: sources.length,
+          relatedQuestions: relatedQuestions.length,
+        });
 
-          // Add the completed response to chat
+        // Remove loading message
+        dispatch(chatAction.popChat());
+
+        // Handle clarification requests from backend
+        if (data.needs_clarification) {
+          console.log(
+            `[sendAgentQuestion] Backend needs clarification:`,
+            data.message
+          );
+
           dispatch(
             chatAction.chatStart({
               useInput: {
                 user: question,
-                gemini: formattedResponse,
-                sources: sources,
-                relatedQuestions: data.result?.relatedQuestions || [],
-                queryKeywords: queryKeywords,
+                gemini: `
+                  <div class="search-results-container">
+                    <div class="search-content-wrapper">
+                      <div class="search-main-content clarification">
+                        <h3>🤔 Need More Information</h3>
+                        <p>${data.message}</p>
+                        <p><em>Please provide the requested information and ask your question again.</em></p>
+                      </div>
+                    </div>
+                  </div>
+                `,
                 isLoader: "no",
                 isSearch: true,
                 searchType: "agent",
+                queryKeywords: queryKeywords,
+                sources: [],
+                relatedQuestions: [],
                 isPreformattedHTML: true,
               },
             })
           );
+        } else {
+          // ENHANCED response extraction with detailed debugging
+          console.log(`[DEBUG] Extracting response from:`, {
+            hasSuccess: !!data.success,
+            hasResult: !!data.result,
+            hasFormattedResponse: !!data.formattedResponse,
+            resultKeys: data.result ? Object.keys(data.result) : [],
+            topLevelKeys: Object.keys(data),
+          });
 
-          // Get final chat history ID with proper fallbacks
-          let finalChatHistoryId = currentChatHistoryId || data.chatHistoryId;
-          if (!finalChatHistoryId) {
-            try {
-              const createHistoryUrl = `${BASE_URL}/api/create-chat-history`;
-              const historyResponse = await fetch(createHistoryUrl, {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Accept: "application/json",
-                },
-                credentials: "include",
-                body: JSON.stringify({
-                  title: question.substring(0, 50),
-                  message: {
-                    user: question,
-                    gemini: formattedResponse,
-                    sources: sources,
-                    queryKeywords,
-                    isPreformattedHTML: true,
-                  },
-                  isSearch: true,
-                  searchType: "agent",
-                }),
-              });
-              if (historyResponse.ok) {
-                const historyData = await historyResponse.json();
-                if (historyData.success && historyData.chatHistoryId)
-                  finalChatHistoryId = historyData.chatHistoryId;
-              }
-            } catch (historyError) {
-              console.error(
-                "Error creating chat history for Jira agent:",
-                historyError
+          // Try multiple extraction paths with debugging
+          if (data.success && data.result && data.result.answer) {
+            responseText = data.result.answer;
+            sources = data.result.sources || [];
+            relatedQuestions = data.result.relatedQuestions || [];
+            console.log(
+              `[DEBUG] Using data.result.answer: "${responseText.substring(
+                0,
+                100
+              )}..."`
+            );
+          } else if (data.formattedResponse) {
+            responseText = data.formattedResponse;
+            sources = data.sources || [];
+            relatedQuestions = data.relatedQuestions || [];
+            console.log(
+              `[DEBUG] Using data.formattedResponse: "${responseText.substring(
+                0,
+                100
+              )}..."`
+            );
+          } else if (data.result && typeof data.result === "string") {
+            responseText = data.result;
+            sources = data.sources || [];
+            console.log(
+              `[DEBUG] Using data.result as string: "${responseText.substring(
+                0,
+                100
+              )}..."`
+            );
+          } else if (data.answer) {
+            responseText = data.answer;
+            sources = data.sources || [];
+            console.log(
+              `[DEBUG] Using data.answer: "${responseText.substring(
+                0,
+                100
+              )}..."`
+            );
+          } else if (data.message && data.success) {
+            responseText = data.message;
+            sources = data.sources || [];
+            console.log(
+              `[DEBUG] Using data.message: "${responseText.substring(
+                0,
+                100
+              )}..."`
+            );
+          } else {
+            // Last resort - try to extract any text content
+            const possibleTexts = [
+              data.text,
+              data.content,
+              data.response,
+              data.gemini,
+            ].filter(Boolean);
+
+            if (possibleTexts.length > 0) {
+              responseText = possibleTexts[0];
+              console.log(
+                `[DEBUG] Using fallback text field: "${responseText.substring(
+                  0,
+                  100
+                )}..."`
               );
-              finalChatHistoryId = `jira_${Date.now()}_${Math.random()
-                .toString(36)
-                .substring(2, 7)}`;
+            } else {
+              console.warn(
+                `[DEBUG] No recognizable text content found in response:`,
+                data
+              );
+              responseText = `Received response from Jira agent but could not extract readable content. Response keys: ${Object.keys(
+                data
+              ).join(", ")}`;
             }
           }
 
-          // Update chat history ID
+          // Ensure we have some response
+          if (!responseText || responseText.trim() === "") {
+            console.warn(`[DEBUG] Empty response text, using fallback`);
+            responseText =
+              "The Jira agent processed your request but returned empty content.";
+          }
+
+          console.log(
+            `[sendAgentQuestion] Final Jira response length: ${responseText.length}`
+          );
+          console.log(
+            `[sendAgentQuestion] Final Jira response preview: "${responseText.substring(
+              0,
+              200
+            )}..."`
+          );
+
+          // Display the response
+          dispatch(
+            chatAction.chatStart({
+              useInput: {
+                user: question,
+                gemini: responseText,
+                sources: sources,
+                relatedQuestions: relatedQuestions,
+                queryKeywords: queryKeywords,
+                isLoader: "no",
+                isSearch: true,
+                searchType: "agent",
+                isPreformattedHTML: false, // Let the frontend handle markdown rendering
+              },
+            })
+          );
+        }
+
+        // Create chat history if needed
+        let finalChatHistoryId = currentChatHistoryId;
+        if (!finalChatHistoryId) {
+          try {
+            const createHistoryUrl = `${BASE_URL}/api/create-chat-history`;
+            const historyResponse = await fetch(createHistoryUrl, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Accept: "application/json",
+              },
+              credentials: "include",
+              body: JSON.stringify({
+                title: question.substring(0, 50) || "Jira Query",
+                message: {
+                  user: question,
+                  gemini: responseText,
+                  sources: sources,
+                  relatedQuestions: relatedQuestions,
+                  queryKeywords,
+                  isPreformattedHTML: false,
+                },
+                isSearch: true,
+                searchType: "agent",
+              }),
+            });
+            if (historyResponse.ok) {
+              const historyData = await historyResponse.json();
+              if (historyData.success && historyData.chatHistoryId)
+                finalChatHistoryId = historyData.chatHistoryId;
+            }
+          } catch (historyError) {
+            console.error(
+              "Error creating chat history for Jira agent:",
+              historyError
+            );
+          }
+        }
+
+        // Update chat history ID and localStorage
+        if (finalChatHistoryId) {
           dispatch(
             chatAction.chatHistoryIdHandler({
               chatHistoryId: finalChatHistoryId,
             })
           );
-
-          // Save to localStorage for history
           try {
             const existingStorageHistory = JSON.parse(
               localStorage.getItem("searchHistory") || "[]"
             );
             const historyItem = {
               id: finalChatHistoryId,
-              title: question.substring(0, 50),
+              title: question.substring(0, 50) || "Jira Query",
               timestamp: new Date().toISOString(),
               type: "agent",
             };
@@ -683,43 +550,37 @@ export const sendAgentQuestion = (questionData) => {
             }
           } catch (err) {
             console.error(
-              "Error saving Jira chat history to localStorage:",
+              "Error saving Jira agent history to localStorage:",
               err
             );
           }
-
-          dispatch(chatAction.newChatHandler());
-          dispatch(uiAction.setLoading(false));
-          dispatch(agentAction.setLoading(false));
-
-          return {
-            success: true,
-            orchestrationComplete: true,
-            data: {
-              answer: formattedResponse,
-              sources: sources,
-              chatHistoryId: finalChatHistoryId,
-            },
-          };
-        } catch (error) {
-          console.error("Error in Jira agent query:", error);
-          throw error; // Pass to outer catch block
         }
+
+        dispatch(chatAction.newChatHandler());
+        dispatch(uiAction.setLoading(false));
+        dispatch(agentAction.setLoading(false));
+
+        // Remove from active requests
+        activeRequests.delete(question);
+
+        return {
+          success: true,
+          orchestrationComplete: true,
+          data: {
+            answer: responseText,
+            sources: sources,
+            chatHistoryId: finalChatHistoryId,
+          },
+        };
       }
 
-      // HANDLE DAY ONE AND MONITOR AGENTS
-      if (
-        selectedAgent === "dayone" ||
-        selectedAgent === "monitor" ||
-        selectedAgent === "conf_ag"
-      ) {
-        // ... existing code for these agents ...
-      }
-
-      // HANDLE OTHER AGENTS (non-streaming)
-      // ... existing code for other agents ...
+      // HANDLE OTHER AGENTS (streaming agents, etc.)
+      // ... other agent handling code remains the same ...
     } catch (error) {
       console.error("Error in sendAgentQuestion:", error);
+
+      // Remove from active requests
+      activeRequests.delete(question);
 
       // Remove loading indicator
       dispatch(chatAction.popChat());
