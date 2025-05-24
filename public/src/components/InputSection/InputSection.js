@@ -1,4 +1,4 @@
-// public/src/components/InputSection/InputSection.js
+// public/src/components/InputSection/InputSection.js - FIXED FOR IMMEDIATE STREAMING
 import styles from "./InputSection.module.css";
 import { sendDeepSearchRequest, getRecentChat } from "../../store/chat-action";
 import { sendAgentQuestion } from "../../store/agent-actions";
@@ -8,42 +8,72 @@ import {
 } from "../../store/day-one-agent-actions";
 import pollAgentTask from "../../utils/agentTaskPoller";
 import { highlightKeywords } from "../../utils/highlightKeywords";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate } from "react-router-dom";
 import { chatAction } from "../../store/chat";
 import { uiAction } from "../../store/ui-gemini";
-import AgentPollingManager from "../AgentPolling";
 
 const InputSection = () => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const [userInput, setUserInput] = useState("");
-  const [searchMode, setSearchMode] = useState("simple"); // "simple" or "deep"
+  const [searchMode, setSearchMode] = useState("simple");
   const [showUploadOptions, setShowUploadOptions] = useState(false);
-  const inputRef = useRef(null);
+  const textareaRef = useRef(null);
   const uploadMenuRef = useRef(null);
   const chatHistoryId = useSelector((state) => state.chat.chatHistoryId);
-  const suggestPrompt = useSelector((state) => state.chat.suggestPrompt || "");
+  const suggestPrompt = useSelector((state) => state.chat.suggestPrompt);
+
+  // CRITICAL FIX: Check for any active loading state
+  const isLoaderActive = useSelector((state) => {
+    const chats = state.chat.chats;
+    const hasLoadingChat = chats.some(
+      (chat) =>
+        chat.isLoader === "yes" ||
+        chat.isLoader === "streaming" ||
+        chat.isLoader === "partial"
+    );
+    return hasLoadingChat ? "yes" : "no";
+  });
 
   // Get selectedAgents from Redux store
-  const selectedAgents = useSelector(
-    (state) => state.agent?.selectedAgents || []
-  );
+  const selectedAgents = useSelector((state) => state.agent.selectedAgents);
 
-  // State for direct agent polling
-  const [directPollingConfig, setDirectPollingConfig] = useState(null);
+  // Agent ID mapping for display names
+  const AGENT_DISPLAY_NAMES = {
+    conf_ag: "Confluence Agent",
+    monitor_ag: "Monitor Agent",
+    jira_ag: "Jira Agent",
+    client_agent: "Client Agent",
+    zr_ag: "ZR Agent",
+    zp_ag: "ZP Agent",
+    dayone_ag: "Day One Agent",
+  };
+
+  const getAgentDisplayName = useCallback((agentId) => {
+    return AGENT_DISPLAY_NAMES[agentId] || "Agent";
+  }, []);
 
   const userInputHandler = (e) => {
     setUserInput(e.target.value);
   };
 
+  // Effect for auto-resizing the textarea
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = "auto";
+      textarea.style.height = `${textarea.scrollHeight}px`;
+    }
+  }, [userInput]);
+
   const setSimpleSearch = () => {
     setSearchMode("simple");
     setShowUploadOptions(false);
     setTimeout(() => {
-      if (inputRef.current) {
-        inputRef.current.focus();
+      if (textareaRef.current) {
+        textareaRef.current.focus();
       }
     }, 0);
   };
@@ -52,8 +82,8 @@ const InputSection = () => {
     setSearchMode("deep");
     setShowUploadOptions(false);
     setTimeout(() => {
-      if (inputRef.current) {
-        inputRef.current.focus();
+      if (textareaRef.current) {
+        textareaRef.current.focus();
       }
     }, 0);
   };
@@ -66,18 +96,7 @@ const InputSection = () => {
     console.log(`Handling ${type} upload`);
     setShowUploadOptions(false);
   };
-  useEffect(() => {
-    // Check if suggestPrompt has a value
-    if (suggestPrompt && suggestPrompt.length > 0) {
-      setUserInput(suggestPrompt);
 
-      // Optional: Reset the suggestPrompt in Redux after using it
-      // This prevents issues if the same prompt is clicked twice
-      setTimeout(() => {
-        dispatch(chatAction.suggestPromptHandler({ prompt: "" }));
-      }, 100);
-    }
-  }, [suggestPrompt, dispatch]);
   // Close upload options when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -96,542 +115,371 @@ const InputSection = () => {
   }, []);
 
   // Function to check if an agent is a Day One streaming agent
-  const isDayOneAgent = (agentId) => {
+  const isDayOneStreamingAgent = useCallback((agentId) => {
     return agentId === "conf_ag" || agentId === "monitor_ag";
-  };
+  }, []);
 
+  // CRITICAL FIX: Enhanced onSubmitHandler for immediate streaming
   const onSubmitHandler = async (e) => {
     e.preventDefault();
-    if (!userInput.trim()) return;
+    if (!userInput.trim() || isLoaderActive === "yes") return;
 
-    // Store the current input for use in the submission process
     const currentInput = userInput;
+    setUserInput(""); // Clear input field immediately
 
-    // Clear input field immediately after submission to provide instant feedback
-    setUserInput("");
+    console.log(`[InputSection] Submitting: "${currentInput}"`);
+    console.log(`[InputSection] Current chat history ID: ${chatHistoryId}`);
+    console.log(`[InputSection] Selected agents: ${selectedAgents.join(", ")}`);
 
-    // If agents are selected, route to appropriate agent API
-    if (selectedAgents.length > 0) {
-      try {
-        dispatch(uiAction.setLoading(true));
+    try {
+      // CRITICAL FIX: Navigate immediately for all cases to show loading/streaming
+      const targetUrl = chatHistoryId ? `/app/${chatHistoryId}` : "/app";
+      console.log(`[InputSection] Navigating immediately to: ${targetUrl}`);
+      navigate(targetUrl);
 
-        // Check if this is a Day One agent (Confluence or Monitor)
+      // Always show initial loading state
+      dispatch(uiAction.setLoading(true));
+
+      if (selectedAgents.length > 0) {
         const selectedAgentId = selectedAgents[0];
-        const isConfluenceAgent = selectedAgentId === "conf_ag";
-        const isMonitorAgent = selectedAgentId === "monitor_ag";
+        console.log(
+          `[InputSection] Processing agent request: ${selectedAgentId}`
+        );
 
-        // Use different actions based on agent type
-        if (isConfluenceAgent) {
-          console.log("Processing Confluence agent request:", currentInput);
-
-          const response = await dispatch(
-            sendDirectConfluenceQuestion({
-              question: currentInput,
-              chatHistoryId,
-              navigate,
-            })
-          );
-
-          // The streaming will handle loading state and navigation
-          return;
-        } else if (isMonitorAgent) {
-          console.log("Processing Monitor agent request:", currentInput);
-
-          const response = await dispatch(
-            sendDirectMonitorQuestion({
-              question: currentInput,
-              chatHistoryId,
-              navigate,
-            })
-          );
-
-          // The streaming will handle loading state and navigation
-          return;
-        }
-        // For other agents, use the original flow
-        else {
-          // Add loading indicator to chat
-          dispatch(
-            chatAction.chatStart({
-              useInput: {
-                user: currentInput,
-                gemini: "",
-                isLoader: "yes",
-                isSearch: true,
-                searchType: "agent",
-                queryKeywords: currentInput
-                  .split(/\s+/)
-                  .filter((word) => word.length > 3),
-              },
-            })
-          );
-
+        if (isDayOneStreamingAgent(selectedAgentId)) {
           console.log(
-            "Sending agent question with input:",
-            currentInput,
-            "agents:",
-            selectedAgents
+            `[InputSection] Using Day One streaming for ${selectedAgentId}`
           );
 
-          // Send the question and get the task ID or direct response
+          // CRITICAL FIX: Start streaming process without awaiting completion
+          // This allows immediate navigation and streaming display
+          if (selectedAgentId === "conf_ag") {
+            // Don't await - let it stream in background
+            dispatch(
+              sendDirectConfluenceQuestion({
+                question: currentInput,
+                chatHistoryId,
+                navigate,
+              })
+            )
+              .then((response) => {
+                console.log(
+                  `[InputSection] Confluence streaming completed:`,
+                  response
+                );
+                // Handle post-completion logic if needed
+                if (response && response.success) {
+                  setTimeout(() => {
+                    dispatch(getRecentChat());
+                  }, 1000);
+                }
+              })
+              .catch((error) => {
+                console.error(
+                  `[InputSection] Confluence streaming error:`,
+                  error
+                );
+              });
+          } else if (selectedAgentId === "monitor_ag") {
+            // Don't await - let it stream in background
+            dispatch(
+              sendDirectMonitorQuestion({
+                question: currentInput,
+                chatHistoryId,
+                navigate,
+              })
+            )
+              .then((response) => {
+                console.log(
+                  `[InputSection] Monitor streaming completed:`,
+                  response
+                );
+                // Handle post-completion logic if needed
+                if (response && response.success) {
+                  setTimeout(() => {
+                    dispatch(getRecentChat());
+                  }, 1000);
+                }
+              })
+              .catch((error) => {
+                console.error(`[InputSection] Monitor streaming error:`, error);
+              });
+          }
+
+          // Clean up loading state immediately since streaming will handle its own state
+          dispatch(uiAction.setLoading(false));
+        } else {
+          // Handle other (non-streaming) agents
+          console.log(
+            `[InputSection] Using standard agent processing for ${selectedAgentId}`
+          );
+
           const agentResponse = await dispatch(
             sendAgentQuestion({
               question: currentInput,
               agents: selectedAgents,
               chatHistoryId,
-              navigate, // Pass navigate for potential routing in the action
+              navigate,
             })
           );
 
-          // Check for orchestrated responses (which have orchestrationComplete flag)
+          console.log(`[InputSection] Agent response:`, agentResponse);
+
+          // Handle orchestrated response
           if (agentResponse && agentResponse.orchestrationComplete === true) {
-            console.log(
-              "Received direct orchestrated response, no polling needed"
-            );
+            console.log(`[InputSection] Orchestrated response completed`);
 
-            // Show proper loading and navigation for orchestrated responses
-            dispatch(uiAction.setLoading(true));
-
-            // Add a small delay to ensure UI updates
-            setTimeout(() => {
-              // Turn off loading
-              dispatch(uiAction.setLoading(false));
-
-              // If we have a chat history ID, navigate to it
-              if (agentResponse.data && agentResponse.data.chatHistoryId) {
-                navigate(`/app/${agentResponse.data.chatHistoryId}`);
-              } else if (chatHistoryId && chatHistoryId.length > 0) {
-                navigate(`/app/${chatHistoryId}`);
-              } else {
-                // As a fallback, navigate to the app page
-                navigate("/app");
-              }
-
+            const finalChatId =
+              agentResponse.data?.chatHistoryId || chatHistoryId;
+            if (finalChatId && finalChatId !== chatHistoryId) {
               console.log(
-                "Query sent:",
-                currentInput,
-                ", Mode: Agent, Agents:",
-                selectedAgents
+                `[InputSection] Updating URL to: /app/${finalChatId}`
               );
-            }, 800);
-
-            return; // Exit early since we already have our answer
+              setTimeout(() => {
+                navigate(`/app/${finalChatId}`, { replace: true });
+                dispatch(getRecentChat());
+              }, 1000);
+            }
+            return;
           }
 
-          // Regular agent polling flow...
-          // [Rest of the existing code for standard agents]
-          // For standard agents, check if the response contains a taskId
+          // For standard polling agents
           if (!agentResponse || !agentResponse.taskId) {
-            console.error("Invalid agent response:", agentResponse);
+            console.error(
+              `[InputSection] Invalid agent response:`,
+              agentResponse
+            );
             throw new Error(
               "Failed to get a valid response from agent service"
             );
           }
 
-          console.log("Agent response task ID:", agentResponse.taskId);
+          console.log(
+            `[InputSection] Starting polling for task: ${agentResponse.taskId}`
+          );
 
-          // Start polling for agent response
-          const selectedAgentId = selectedAgents[0];
+          // Use pollAgentTask utility for robust polling
+          pollAgentTask(agentResponse.taskId, dispatch, {
+            interval: 2000,
+            maxAttempts: 60,
+            onComplete: (data) => {
+              console.log(`[InputSection] Agent task completed:`, data);
 
-          if (
-            selectedAgents.length === 1 &&
-            agentResponse.agentTasks &&
-            agentResponse.agentTasks[selectedAgentId]
-          ) {
-            // For single agent, try direct polling
-            const agentTask = agentResponse.agentTasks[selectedAgentId];
-            console.log(
-              `Setting up direct polling for agent ${selectedAgentId}:`,
-              agentTask
-            );
-
-            // Start immediate manual polling
-            let attempts = 0;
-            const maxAttempts = 30;
-            const pollInterval = 2000;
-
-            const poll = async () => {
-              attempts++;
-              console.log(`Manual poll attempt ${attempts}/${maxAttempts}`);
-
-              try {
-                const response = await fetch("/api/proxy-agent-poll", {
-                  method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                  },
-                  credentials: "include",
-                  body: JSON.stringify({
-                    agentId: selectedAgentId,
-                    taskId: agentTask.taskId,
-                  }),
-                });
-
-                if (!response.ok) {
-                  // Try to parse error response for more details
-                  let errorDetails = "";
-                  try {
-                    const errorData = await response.json();
-                    errorDetails =
-                      errorData.error ||
-                      errorData.message ||
-                      JSON.stringify(errorData);
-                    console.error(
-                      "Error response from proxy-agent-poll:",
-                      errorData
-                    );
-                  } catch (e) {
-                    // If we can't parse JSON, use the status text
-                    errorDetails = response.statusText;
-                  }
-
-                  throw new Error(
-                    `Polling error: HTTP ${response.status} - ${errorDetails}`
-                  );
-                }
-
-                const data = await response.json();
-                console.log(`Manual poll response:`, data);
-
-                if (data.status === "complete" || data.status === "success") {
-                  // Process the result
-                  handleAgentResponse({
-                    ...data,
-                    agentId: selectedAgentId,
-                    taskId: agentTask.taskId,
-                    question: currentInput,
-                  });
-                  return;
-                } else if (attempts >= maxAttempts) {
-                  // Timeout
-                  console.log("Polling timed out");
-                  handleAgentResponse({
-                    agentId: selectedAgentId,
-                    taskId: agentTask.taskId,
-                    question: currentInput,
-                    result: "The agent took too long to respond",
-                  });
-                  return;
-                } else {
-                  // Continue polling
-                  setTimeout(poll, pollInterval);
-                }
-              } catch (error) {
-                console.error("Polling error:", error);
-
-                if (attempts >= maxAttempts) {
-                  handleAgentResponse({
-                    agentId: selectedAgentId,
-                    taskId: agentTask.taskId,
-                    question: currentInput,
-                    result: `Error polling agent: ${error.message}`,
-                  });
-                } else {
-                  setTimeout(poll, pollInterval);
-                }
-              }
-            };
-
-            // Start polling
-            poll();
-          } else {
-            // For multiple agents, use regular polling through our server
-            pollAgentTask(agentResponse.taskId, dispatch, {
-              interval: 2000,
-              maxAttempts: 30,
-              onComplete: (data) => {
-                console.log("Agent task complete:", data);
-                navigate("/app");
-              },
-              onPending: (data) => {
-                console.log("Agent task still pending:", data);
-              },
-              onError: (error) => {
-                console.error("Agent task polling error:", error);
-
-                // Show error in chat
-                dispatch(chatAction.popChat());
-                dispatch(
-                  chatAction.chatStart({
-                    useInput: {
-                      user: currentInput,
-                      gemini: `<div class="simple-search-results error">
-                        <h3>Agent Error</h3>
-                        <p>Sorry, there was an error retrieving the agent response: ${error.message}</p>
-                      </div>`,
-                      isLoader: "no",
-                      isSearch: true,
-                    },
-                  })
-                );
-
-                dispatch(uiAction.setLoading(false));
-                navigate("/app");
-              },
-            });
-          }
-        }
-      } catch (error) {
-        console.error("Error submitting agent question:", error);
-
-        // Show error in chat
-        dispatch(chatAction.popChat());
-        dispatch(
-          chatAction.chatStart({
-            useInput: {
-              user: currentInput,
-              gemini: `<div class="simple-search-results error">
-                <h3>Agent Error</h3>
-                <p>Sorry, there was an error sending your question to the agent: ${error.message}</p>
-              </div>`,
-              isLoader: "no",
-              isSearch: true,
-              searchType: "agent",
-              queryKeywords: currentInput
-                .split(/\s+/)
-                .filter((word) => word.length > 3),
+              // Handle final response
+              handleAgentResponse({
+                ...data,
+                agentId: selectedAgentId,
+                question: currentInput,
+              });
             },
-          })
-        );
-
-        dispatch(uiAction.setLoading(false));
-        navigate("/app"); // Navigate to app to ensure error is visible
-      }
-    } else {
-      // No agents selected, use the normal search paths
-      if (searchMode === "deep") {
-        // Deep search
-        dispatch(
-          sendDeepSearchRequest({
-            query: currentInput,
-            sources: ["support.zoom.us", "community.zoom.us", "zoom.us"],
-            endpoint: "/api/deepsearch",
-            chatHistoryId,
-          })
-        );
+            onPending: (data) => {
+              console.log(`[InputSection] Agent task pending:`, data);
+            },
+            onError: (error) => {
+              console.error(`[InputSection] Agent task error:`, error);
+              dispatch(chatAction.popChat());
+              dispatch(
+                chatAction.chatStart({
+                  useInput: {
+                    user: currentInput,
+                    gemini: `<div class="${styles["error-message"]}">
+                      <h3>Agent Error</h3>
+                      <p>Sorry, there was an error retrieving the agent response: ${error.message}</p>
+                    </div>`,
+                    isLoader: "no",
+                    isSearch: true,
+                    searchType: "agent",
+                  },
+                })
+              );
+              dispatch(uiAction.setLoading(false));
+            },
+          });
+        }
       } else {
-        // Simple search (default)
-        dispatch(
-          sendDeepSearchRequest({
-            query: currentInput,
-            sources: ["support.zoom.us", "community.zoom.us", "zoom.us"],
-            endpoint: "/api/simplesearch",
-            chatHistoryId,
-          })
-        );
+        // No agents selected, use the normal search paths
+        console.log(`[InputSection] Using ${searchMode} search`);
+
+        let searchResponse;
+        if (searchMode === "deep") {
+          searchResponse = await dispatch(
+            sendDeepSearchRequest({
+              query: currentInput,
+              sources: ["support.zoom.us", "community.zoom.us", "zoom.us"],
+              endpoint: "/api/deepsearch",
+              chatHistoryId,
+            })
+          );
+        } else {
+          searchResponse = await dispatch(
+            sendDeepSearchRequest({
+              query: currentInput,
+              sources: ["support.zoom.us", "community.zoom.us", "zoom.us"],
+              endpoint: "/api/simplesearch",
+              chatHistoryId,
+            })
+          );
+        }
+
+        console.log(`[InputSection] Search response:`, searchResponse);
+
+        // Refresh recent chats after search
+        setTimeout(() => {
+          dispatch(getRecentChat());
+        }, 1500);
       }
+
+      console.log(`[InputSection] Query processing initiated successfully`);
+    } catch (error) {
+      console.error(`[InputSection] Error submitting query:`, error);
+      dispatch(chatAction.popChat());
+      dispatch(
+        chatAction.chatStart({
+          useInput: {
+            user: currentInput,
+            gemini: `<div class="${styles["error-message"]}">
+              <h3>Error</h3>
+              <p>Sorry, an unexpected error occurred: ${error.message}</p>
+            </div>`,
+            isLoader: "no",
+            isSearch: true,
+            searchType: selectedAgents.length > 0 ? "agent" : searchMode,
+          },
+        })
+      );
+      dispatch(uiAction.setLoading(false));
     }
-
-    console.log(
-      `Query sent: ${currentInput}, Mode: ${
-        selectedAgents.length > 0 ? "Agent" : searchMode
-      }, Agents: ${selectedAgents.join(", ")}`
-    );
-
-    navigate("/app");
   };
 
   useEffect(() => {
-    // Check if suggestPrompt is valid and has length
-    if (
-      suggestPrompt &&
-      typeof suggestPrompt === "string" &&
-      suggestPrompt.length > 0
-    ) {
-      console.log("Setting userInput to:", suggestPrompt);
+    if (suggestPrompt && suggestPrompt.length > 0) {
       setUserInput(suggestPrompt);
+      dispatch(chatAction.suggestPromptHandler({ suggestPrompt: "" }));
     }
-  }, [suggestPrompt]);
-  // Reset polling config when direct polling completes
-  const handlePollingComplete = () => {
-    console.log("Direct polling complete, resetting config");
-    setDirectPollingConfig(null);
-  };
+  }, [suggestPrompt, dispatch]);
 
-  // Function to handle agent response directly (retained from original code)
-  const handleAgentResponse = (data) => {
-    // Format the result text from the agent
-    let resultText = "";
-    if (data.result) {
-      resultText =
-        typeof data.result === "object"
-          ? JSON.stringify(data.result, null, 2)
-          : String(data.result);
-    } else {
-      resultText = "Agent returned no result data";
-    }
+  // Enhanced handleAgentResponse for non-Day One agents
+  const handleAgentResponse = useCallback(
+    (data) => {
+      console.log(`[InputSection] Handling agent response:`, data);
 
-    // Format the text
-    try {
-      // Replace Markdown headers with HTML headers
-      resultText = resultText.replace(/##\s+([^\n]+)/g, "<h2>$1</h2>");
-
-      // Replace Markdown list items with HTML list items
-      resultText = resultText.replace(/^\s*-\s+([^\n]+)/gm, "<li>$1</li>");
-
-      // Wrap list items in unordered lists
-      if (resultText.includes("<li>")) {
-        resultText = resultText.replace(
-          /(<li>.*?<\/li>)\s*\n\s*(?!<li>)/gs,
-          "$1</ul>\n"
-        );
-        resultText = resultText.replace(
-          /(?<!<\/ul>)\s*\n\s*(<li>)/gs,
-          "\n<ul>$1"
-        );
-
-        // Close any remaining unclosed lists
+      let resultText = "";
+      if (data.result) {
         if (
-          (resultText.match(/<ul>/g) || []).length >
-          (resultText.match(/<\/ul>/g) || []).length
+          typeof data.result === "string" &&
+          data.result.includes("<") &&
+          data.result.includes(">")
         ) {
-          resultText += "</ul>";
+          resultText = data.result;
+        } else if (typeof data.result === "object") {
+          resultText = JSON.stringify(data.result, null, 2);
+        } else {
+          resultText = String(data.result);
         }
-      }
-
-      // Convert line breaks
-      resultText = resultText.replace(/\n\n/g, "<br><br>");
-      resultText = resultText.replace(/\n/g, "<br>");
-    } catch (e) {
-      console.error("Error formatting Markdown:", e);
-      // Fall back to simple string with line breaks
-      resultText = resultText.replace(/\n/g, "<br>");
-    }
-
-    // Highlight keywords from the query
-    const highlightedText = highlightKeywords(
-      resultText,
-      data.question || userInput
-    );
-
-    // Build the HTML for display - CLEAN VERSION to match support documentation style
-    const formattedResult = `
-      <div class="support-doc-results">
-        <div class="support-content-wrapper">
-          <div class="support-main-content">
-            <div class="support-answer">
-              ${highlightedText}
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-
-    // Remove any loading message
-    dispatch(chatAction.popChat());
-
-    // Add the result to chat
-    dispatch(
-      chatAction.chatStart({
-        useInput: {
-          user: data.question || "Agent query",
-          gemini: formattedResult,
-          isLoader: "no",
-          isSearch: true,
-          searchType: "agent", // Use agent format for clarity
-        },
-      })
-    );
-
-    // Use server-provided chat history ID if available or generate one
-    const chatId =
-      data.chatHistoryId ||
-      `agent_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-
-    console.log(
-      `Using chat history ID: ${chatId} (from server: ${!!data.chatHistoryId})`
-    );
-
-    // Set chat history ID
-    dispatch(
-      chatAction.chatHistoryIdHandler({
-        chatHistoryId: chatId,
-      })
-    );
-
-    // Store in localStorage for persistence across page refreshes
-    const storableChatData = {
-      id: chatId,
-      title: data.question || userInput || "Agent query",
-      searchType: "agent",
-      isSearch: true,
-      timestamp: new Date().toISOString(),
-      gemini: formattedResult,
-      user: data.question || userInput || "Agent query",
-    };
-
-    try {
-      // Save to local storage as backup
-      const savedChats = JSON.parse(localStorage.getItem("savedChats") || "[]");
-      // Check if this chat already exists
-      const existingIndex = savedChats.findIndex((chat) => chat.id === chatId);
-
-      if (existingIndex > -1) {
-        // Update existing
-        savedChats[existingIndex] = storableChatData;
       } else {
-        // Add new
-        savedChats.unshift(storableChatData);
+        resultText = "Agent returned no result data.";
       }
 
-      // Store back to localStorage (limit to 50 entries)
-      localStorage.setItem(
-        "savedChats",
-        JSON.stringify(savedChats.slice(0, 50))
+      const isPreformattedHTML =
+        resultText.includes("<") && resultText.includes(">");
+      const queryKeywords = (data.question || userInput)
+        .split(/\s+/)
+        .filter((word) => word.length > 3);
+
+      // Generate or use proper chat history ID
+      let finalChatHistoryId = data.chatHistoryId || chatHistoryId;
+      if (!finalChatHistoryId || finalChatHistoryId.length < 5) {
+        finalChatHistoryId = `agent_${Date.now()}_${Math.random()
+          .toString(36)
+          .substring(2, 9)}`;
+      }
+
+      console.log(
+        `[InputSection] Using chat history ID: ${finalChatHistoryId}`
       );
-      console.log("Saved agent chat to localStorage for persistence");
-    } catch (err) {
-      console.error("Failed to save chat to localStorage:", err);
-    }
 
-    // Update UI state
-    dispatch(uiAction.setLoading(false));
+      // Update the chat state with the final response
+      dispatch(
+        chatAction.chatStart({
+          useInput: {
+            user: data.question || userInput,
+            gemini: resultText,
+            isLoader: "no",
+            isSearch: true,
+            searchType: "agent",
+            queryKeywords: queryKeywords,
+            sources: data.sources || [],
+            relatedQuestions: data.relatedQuestions || [],
+            isPreformattedHTML: isPreformattedHTML,
+          },
+        })
+      );
 
-    // Fetch recent chats to update sidebar
-    setTimeout(() => {
-      dispatch(getRecentChat());
-    }, 500);
+      // Set chat history ID in Redux
+      dispatch(
+        chatAction.chatHistoryIdHandler({
+          chatHistoryId: finalChatHistoryId,
+        })
+      );
 
-    // Navigate to the chat page
-    navigate(`/app/${chatId}`);
-  };
+      // Update URL to show proper chat history ID
+      console.log(`[InputSection] Navigating to: /app/${finalChatHistoryId}`);
+      setTimeout(() => {
+        navigate(`/app/${finalChatHistoryId}`, { replace: true });
+      }, 500);
+
+      // Update UI state
+      dispatch(uiAction.setLoading(false));
+
+      // Fetch recent chats to update sidebar
+      setTimeout(() => {
+        dispatch(getRecentChat());
+      }, 800);
+    },
+    [dispatch, chatHistoryId, userInput, navigate]
+  );
 
   return (
     <div className={styles["input-container"]}>
-      {/* Render the AgentPollingManager if we have direct polling config */}
-      {directPollingConfig && (
-        <AgentPollingManager
-          agentId={directPollingConfig.agentId}
-          taskId={directPollingConfig.taskId}
-          endpoint={directPollingConfig.endpoint}
-          token={directPollingConfig.token}
-          onComplete={handlePollingComplete}
-        />
-      )}
-
       <div className={styles["input-main"]}>
         <form onSubmit={onSubmitHandler} className={styles["input-form"]}>
-          <input
-            ref={inputRef}
+          <textarea
+            ref={textareaRef}
             value={userInput}
             onChange={userInputHandler}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                onSubmitHandler(e);
+              }
+            }}
             autoComplete="off"
-            type="text"
+            rows={1}
             placeholder={
-              selectedAgents.length > 0
-                ? `Ask ${selectedAgents.length > 1 ? "agents" : "the agent"}...`
+              // CRITICAL FIX: Proper placeholder logic
+              isLoaderActive === "yes"
+                ? "Please wait for the response..."
+                : selectedAgents.length > 0
+                ? `Ask ${
+                    selectedAgents.length > 1
+                      ? "agents"
+                      : getAgentDisplayName(selectedAgents[0])
+                  }...`
                 : searchMode === "simple"
                 ? "Ask for a quick answer..."
                 : "Ask for detailed research..."
             }
             className={styles["input-field"]}
+            disabled={isLoaderActive === "yes"}
           />
           <button
             type="submit"
             className={`${styles["send-btn"]} ${
-              !userInput.trim() ? styles["disabled"] : ""
+              !userInput.trim() || isLoaderActive === "yes"
+                ? styles["disabled"]
+                : ""
             }`}
-            disabled={!userInput.trim()}>
+            disabled={!userInput.trim() || isLoaderActive === "yes"}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
               <path
                 d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"
@@ -648,7 +496,8 @@ const InputSection = () => {
                 type="button"
                 className={styles["upload-button"]}
                 onClick={toggleUploadOptions}
-                title="Add files">
+                title="Add files"
+                disabled={isLoaderActive === "yes"}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                   <path
                     d="M12 4V20M4 12H20"
@@ -710,7 +559,8 @@ const InputSection = () => {
                     searchMode === "simple" ? styles["active"] : ""
                   }`}
                   onClick={setSimpleSearch}
-                  title="Get a comprehensive answer (800 words max)">
+                  title="Get a comprehensive answer (800 words max)"
+                  disabled={isLoaderActive === "yes"}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                     <path
                       d="M21 21L15 15M17 10C17 13.866 13.866 17 10 17C6.13401 17 3 13.866 3 10C3 6.13401 6.13401 3 10 3C13.866 3 17 6.13401 17 10Z"
@@ -729,7 +579,8 @@ const InputSection = () => {
                     searchMode === "deep" ? styles["active"] : ""
                   }`}
                   onClick={setDeepSearch}
-                  title="Get a comprehensive research report">
+                  title="Get a comprehensive research report"
+                  disabled={isLoaderActive === "yes"}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                     <path
                       d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
@@ -756,18 +607,19 @@ const InputSection = () => {
                 <span>
                   {selectedAgents.length > 1
                     ? `${selectedAgents.length} Agents Selected`
-                    : `${
-                        selectedAgents[0] === "conf_ag"
-                          ? "Confluence Agent"
-                          : selectedAgents[0] === "monitor_ag"
-                          ? "Monitor Agent"
-                          : "Agent"
-                      } Selected`}
+                    : `${getAgentDisplayName(selectedAgents[0])} Selected`}
+                  {isDayOneStreamingAgent(selectedAgents[0]) && (
+                    <span className={styles["streaming-badge"]}></span>
+                  )}
                 </span>
               </div>
             )}
           </div>
         </div>
+      </div>
+
+      <div className={styles["input-help"]}>
+        <span>Press Shift + Enter for new line</span>
       </div>
     </div>
   );

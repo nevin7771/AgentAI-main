@@ -1,9 +1,7 @@
-// public/src/store/chat-action.js
-// Combined and reviewed version based on user feedback and previous iterations.
-// Ensures markdown rendering and keyword highlighting for historical chats.
+// public/src/store/chat-action.js - Fixed for continued conversations
 import { chatAction } from "./chat";
 import { userAction } from "./user";
-import { marked } from "marked"; // Ensure marked is imported
+import { marked } from "marked";
 
 const SERVER_ENDPOINT =
   process.env.REACT_APP_SERVER_ENDPOINT || "http://localhost:3030";
@@ -15,31 +13,31 @@ const extractKeywords = (queryStr) => {
   return queryStr
     .toLowerCase()
     .split(" ")
-    .filter((kw) => kw.trim().length > 1); // User's version had > 1, keeping it
+    .filter((kw) => kw.trim().length > 1);
 };
 
 const filterReasonActLines = (text) => {
   if (!text || typeof text !== "string") return text;
-  
-  // First, remove any REASON/ACT patterns with ** markers
-  let filteredText = text.replace(/\*\*REASON:\*\*.*?(?=\n\*\*ACT:|$)/gs, '');
-  filteredText = filteredText.replace(/\*\*ACT:\*\*.*?(?=\n\*\*REASON:|$)/gs, '');
-  
-  // Next, filter lines that start with REASON: or ACT:
-  const lines = filteredText.split("\n");
-  const filteredLines = lines.filter(
-    (line) => {
-      const trimmed = line.trim();
-      return !trimmed.startsWith("REASON:") && 
-             !trimmed.startsWith("ACT:") &&
-             !trimmed.match(/^#+\s+##\s*$/); // Also filter "# ##" pattern
-    }
+
+  let filteredText = text.replace(/\*\*REASON:\*\*.*?(?=\n\*\*ACT:|$)/gs, "");
+  filteredText = filteredText.replace(
+    /\*\*ACT:\*\*.*?(?=\n\*\*REASON:|$)/gs,
+    ""
   );
-  
+
+  const lines = filteredText.split("\n");
+  const filteredLines = lines.filter((line) => {
+    const trimmed = line.trim();
+    return (
+      !trimmed.startsWith("REASON:") &&
+      !trimmed.startsWith("ACT:") &&
+      !trimmed.match(/^#+\s+##\s*$/)
+    );
+  });
+
   return filteredLines.join("\n");
 };
 
-// Centralized content processing: markdown parsing and keyword highlighting
 const processContentForDisplay = (
   content,
   queryKeywords,
@@ -52,7 +50,6 @@ const processContentForDisplay = (
   let currentContent = content;
   let htmlContent;
 
-  // Always parse with marked if not already HTML, to ensure markdown is rendered.
   if (isAlreadyHTML) {
     htmlContent = currentContent;
   } else {
@@ -146,10 +143,9 @@ const processContentForDisplay = (
       console.error("DOM manipulation error during highlighting:", e);
     }
   }
-  return { processedContent: htmlContent, isHTML: true }; // Always return isHTML: true after processing
+  return { processedContent: htmlContent, isHTML: true };
 };
 
-// Helper to parse HTML and extract structured data (enhanced for robustness)
 const parseFormattedHTML = (htmlString) => {
   let mainAnswer = htmlString;
   const sources = [];
@@ -260,10 +256,19 @@ export const getRecentChat = () => {
 };
 
 export const sendChatData = (useInput) => {
-  return (dispatch) => {
+  return (dispatch, getState) => {
     const queryKeywords = extractKeywords(useInput.user);
+    const currentChatHistoryId =
+      useInput.chatHistoryId || getState().chat.chatHistoryId;
+    const previousChat = useInput.previousChat || getState().chat.previousChat;
+
+    // Use appendChatMessage for continued conversations if we have a chat history ID
+    const actionToUse = currentChatHistoryId
+      ? "appendChatMessage"
+      : "chatStart";
+
     dispatch(
-      chatAction.chatStart({
+      chatAction[actionToUse]({
         useInput: {
           ...useInput,
           queryKeywords,
@@ -274,18 +279,24 @@ export const sendChatData = (useInput) => {
         },
       })
     );
+
     const apiKey = process.env.REACT_APP_GEMINI_KEY;
     const url = `${BASE_URL}/gemini/api/chat`;
+
+    // Enhanced request body to include conversation context
+    const requestBody = {
+      userInput: useInput.user,
+      previousChat: previousChat || [],
+      chatHistoryId: currentChatHistoryId,
+      // Include conversation context for continued chats
+      isNewConversation: !currentChatHistoryId,
+    };
 
     fetch(url, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json", "X-Api-Key": apiKey },
-      body: JSON.stringify({
-        userInput: useInput.user,
-        previousChat: useInput.previousChat,
-        chatHistoryId: useInput.chatHistoryId,
-      }),
+      body: JSON.stringify(requestBody),
     })
       .then((response) => {
         if (!response.ok) {
@@ -297,21 +308,25 @@ export const sendChatData = (useInput) => {
         return response.json();
       })
       .then((data) => {
+        // Update previous chat context
         dispatch(
           chatAction.previousChatHandler({
             previousChat: [
+              ...(previousChat || []),
               { role: "user", parts: data.user },
               { role: "model", parts: data.gemini },
             ],
           })
         );
+
         dispatch(chatAction.popChat());
 
         const { processedContent: finalGeminiContent, isHTML: finalIsHTML } =
           processContentForDisplay(data.gemini, queryKeywords, false);
 
+        // Use the same action type we used for the loading message
         dispatch(
-          chatAction.chatStart({
+          chatAction[actionToUse]({
             useInput: {
               user: data.user,
               gemini: finalGeminiContent,
@@ -319,19 +334,29 @@ export const sendChatData = (useInput) => {
               queryKeywords: queryKeywords,
               sources: [],
               relatedQuestions: [],
-              isPreformattedHTML: finalIsHTML, // Use the flag from processing
+              isPreformattedHTML: finalIsHTML,
             },
           })
         );
-        if (!useInput.chatHistoryId || useInput.chatHistoryId.length < 2) {
+
+        // Update or set chat history ID
+        const finalChatHistoryId = data.chatHistoryId || currentChatHistoryId;
+        if (finalChatHistoryId) {
+          dispatch(
+            chatAction.chatHistoryIdHandler({
+              chatHistoryId: finalChatHistoryId,
+            })
+          );
+        }
+
+        // Only refresh recent chat list if this was a new conversation
+        if (!currentChatHistoryId || currentChatHistoryId.length < 2) {
           setTimeout(() => {
             dispatch(getRecentChat());
           }, 800);
         }
+
         dispatch(chatAction.newChatHandler());
-        dispatch(
-          chatAction.chatHistoryIdHandler({ chatHistoryId: data.chatHistoryId })
-        );
       })
       .catch((err) => {
         const statusCode = err.statusCode || 500;
@@ -341,7 +366,7 @@ export const sendChatData = (useInput) => {
             ? "Rate Limit Exceeded. Please wait before trying again."
             : "Oops! Something went wrong. Please refresh and try again.";
         dispatch(
-          chatAction.chatStart({
+          chatAction[actionToUse]({
             useInput: {
               user: useInput.user,
               gemini: `<p>${errorMessage}</p>`,
@@ -368,8 +393,13 @@ export const sendDeepSearchRequest = (searchRequest) => {
       ? "simple"
       : "deep";
 
+    // Use appendChatMessage for continued conversations
+    const actionToUse = currentChatHistoryId
+      ? "appendChatMessage"
+      : "chatStart";
+
     dispatch(
-      chatAction.chatStart({
+      chatAction[actionToUse]({
         useInput: {
           user: searchRequest.query,
           gemini: "",
@@ -406,6 +436,8 @@ export const sendDeepSearchRequest = (searchRequest) => {
             "zoom.us",
           ],
           chatHistoryId: currentChatHistoryId,
+          // Include context for continued conversations
+          isNewConversation: !currentChatHistoryId,
         }),
       });
 
@@ -457,7 +489,7 @@ export const sendDeepSearchRequest = (searchRequest) => {
         );
 
       dispatch(
-        chatAction.chatStart({
+        chatAction[actionToUse]({
           useInput: {
             user: searchRequest.query,
             gemini: finalGeminiContent,
@@ -468,12 +500,14 @@ export const sendDeepSearchRequest = (searchRequest) => {
             queryKeywords: queryKeywords,
             sources: sources,
             relatedQuestions: relatedQuestions,
-            isPreformattedHTML: finalIsHTML, // Use the flag from processing
+            isPreformattedHTML: finalIsHTML,
           },
         })
       );
 
-      let finalChatHistoryId = data.chatHistoryId;
+      let finalChatHistoryId = data.chatHistoryId || currentChatHistoryId;
+
+      // Only create new chat history if we don't have one
       if (!finalChatHistoryId && data.success) {
         try {
           const createHistoryUrl = `${BASE_URL}/api/create-chat-history`;
@@ -489,11 +523,11 @@ export const sendDeepSearchRequest = (searchRequest) => {
                 searchRequest.query.substring(0, 50) || `${searchType} Search`,
               message: {
                 user: searchRequest.query,
-                gemini: finalGeminiContent, // Store the processed content
+                gemini: finalGeminiContent,
                 sources,
                 relatedQuestions,
                 queryKeywords,
-                isPreformattedHTML: finalIsHTML, // Store this flag
+                isPreformattedHTML: finalIsHTML,
               },
               isSearch: true,
               searchType: searchType,
@@ -517,38 +551,43 @@ export const sendDeepSearchRequest = (searchRequest) => {
         dispatch(
           chatAction.chatHistoryIdHandler({ chatHistoryId: finalChatHistoryId })
         );
-        try {
-          const existingStorageHistory = JSON.parse(
-            localStorage.getItem("searchHistory") || "[]"
-          );
-          const historyItem = {
-            id: finalChatHistoryId,
-            title: searchRequest.query.substring(0, 50),
-            timestamp: new Date().toISOString(),
-            type: searchType,
-          };
-          if (
-            !existingStorageHistory.some(
-              (item) => item.id === finalChatHistoryId
-            )
-          ) {
-            existingStorageHistory.unshift(historyItem);
-            localStorage.setItem(
-              "searchHistory",
-              JSON.stringify(existingStorageHistory.slice(0, 50))
+
+        // Only update localStorage for new conversations
+        if (!currentChatHistoryId) {
+          try {
+            const existingStorageHistory = JSON.parse(
+              localStorage.getItem("searchHistory") || "[]"
             );
-            window.dispatchEvent(new Event("storage"));
+            const historyItem = {
+              id: finalChatHistoryId,
+              title: searchRequest.query.substring(0, 50),
+              timestamp: new Date().toISOString(),
+              type: searchType,
+            };
+            if (
+              !existingStorageHistory.some(
+                (item) => item.id === finalChatHistoryId
+              )
+            ) {
+              existingStorageHistory.unshift(historyItem);
+              localStorage.setItem(
+                "searchHistory",
+                JSON.stringify(existingStorageHistory.slice(0, 50))
+              );
+              window.dispatchEvent(new Event("storage"));
+            }
+          } catch (err) {
+            console.error("Error saving search history to localStorage:", err);
           }
-        } catch (err) {
-          console.error("Error saving search history to localStorage:", err);
         }
       }
+
       dispatch(chatAction.newChatHandler());
     } catch (error) {
       console.error(`Error in sendDeepSearchRequest (${searchType}):`, error);
       dispatch(chatAction.popChat());
       dispatch(
-        chatAction.chatStart({
+        chatAction[currentChatHistoryId ? "appendChatMessage" : "chatStart"]({
           useInput: {
             user: searchRequest.query,
             gemini: `<p>Search Error: ${error.message}</p>`,
@@ -661,6 +700,9 @@ export const getChat = (chatId) => {
           return;
         }
 
+        // Build previous chat context for continued conversations
+        const previousChatContext = [];
+
         const formattedChats = chatMessages.map((chatItem) => {
           const userMessageContent =
             chatItem.message && chatItem.message.user
@@ -670,7 +712,7 @@ export const getChat = (chatId) => {
             chatItem.message && chatItem.message.gemini
               ? chatItem.message.gemini
               : "";
-          // For historical chats, isPreformattedHTML might be stored. If not, assume it's raw markdown.
+
           let isContentAlreadyHTML =
             chatItem.message &&
             typeof chatItem.message.isPreformattedHTML === "boolean"
@@ -683,30 +725,30 @@ export const getChat = (chatId) => {
           let finalProcessedContent = geminiMessageContent;
           let finalIsHTML = isContentAlreadyHTML;
 
-          // Always process historical Gemini content to ensure markdown rendering and highlighting
           if (geminiMessageContent) {
             const { processedContent, isHTML } = processContentForDisplay(
               geminiMessageContent,
               currentQueryKeywords,
-              isContentAlreadyHTML // Pass the flag indicating if it's already HTML
+              isContentAlreadyHTML
             );
             finalProcessedContent = processedContent;
-            finalIsHTML = isHTML; // This will now be true after processing
+            finalIsHTML = isHTML;
           }
 
-          console.log(
-            `[getChat] Message ID ${
-              chatItem._id || chatItem.id
-            } processed. User: ${
-              userMessageContent
-                ? userMessageContent.substring(0, 50)
-                : "<empty>"
-            }, Gemini (first 100 chars): ${
-              finalProcessedContent
-                ? finalProcessedContent.substring(0, 100)
-                : "<empty>"
-            }`
-          );
+          // Add to previous chat context for future conversations
+          if (userMessageContent) {
+            previousChatContext.push({
+              role: "user",
+              parts: userMessageContent,
+            });
+          }
+          if (geminiMessageContent) {
+            previousChatContext.push({
+              role: "model",
+              parts: geminiMessageContent,
+            });
+          }
+
           return {
             id: chatItem._id || chatItem.id || Math.random().toString(),
             user: userMessageContent,
@@ -718,16 +760,22 @@ export const getChat = (chatId) => {
             sources: (chatItem.message && chatItem.message.sources) || [],
             relatedQuestions:
               (chatItem.message && chatItem.message.relatedQuestions) || [],
-            isPreformattedHTML: finalIsHTML, // Crucially, this is now true
+            isPreformattedHTML: finalIsHTML,
             error: chatItem.error || null,
             timestamp: chatItem.timestamp || new Date().toISOString(),
           };
         });
+
         console.log(
           "[getChat] Dispatching getChatHandler with formattedChats:",
           formattedChats
         );
         dispatch(chatAction.getChatHandler({ chats: formattedChats }));
+
+        // Set the previous chat context for continued conversations
+        dispatch(
+          chatAction.previousChatHandler({ previousChat: previousChatContext })
+        );
       })
       .catch((err) => {
         dispatch(chatAction.popChat());

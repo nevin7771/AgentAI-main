@@ -11,6 +11,8 @@ import {
   createChatHistory,
   getSingleChat,
   deleteChatHistoryController, // Import the new controller
+  updateChatHistory,
+  createChatHistoryEnhanced,
 } from "../controller/public.js";
 import {
   deepSearchHandler,
@@ -29,6 +31,8 @@ router.post("/api/chatdata", authMiddleware, postChat);
 router.get("/api/getsinglechat/:id", authMiddleware, getSingleChat);
 router.put("/api/updatelocation", authMiddleware, updateLocation);
 router.post("/api/create-chat-history", authMiddleware, createChatHistory);
+router.put("/api/update-chat-history", updateChatHistory);
+router.post("/api/create-chat-history-enhanced", createChatHistoryEnhanced);
 router.delete(
   "/api/deletechathistory",
   authMiddleware,

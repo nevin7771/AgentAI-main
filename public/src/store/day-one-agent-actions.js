@@ -14,7 +14,7 @@ const DAY_ONE_API_URL =
 // Function IDs for different agent types
 const FUNCTION_IDS = {
   confluence: "210169ae-760f-4fae-8a82-e16fc9b5b78f",
-  monitor: "c46de244-ea9b-4a47-be9d-d40f816da925", // Replace with actual ID
+  monitor: "c46de244-ea9b-4a47-be9d-d40f816da925",
 };
 
 const extractKeywords = (queryStr) => {
@@ -57,14 +57,16 @@ const getDayOneToken = async () => {
 };
 
 /**
- * Connect directly to the Day One API for streaming responses
+ * CRITICAL FIX: Connect directly to the Day One API for streaming responses with immediate display
  */
 const directStreamFromDayOne = (
   agentType,
   question,
   token,
   dispatch,
-  streamingId
+  streamingId,
+  navigate,
+  currentChatHistoryId
 ) => {
   return new Promise((resolve, reject) => {
     const functionId = FUNCTION_IDS[agentType];
@@ -76,6 +78,8 @@ const directStreamFromDayOne = (
       `[DirectDayOne] Connecting directly to Day One API for ${agentType} agent`
     );
     const startTime = Date.now();
+    let finalChatHistoryId = currentChatHistoryId;
+    let urlUpdated = false;
 
     try {
       // Create fetch request to Day One API
@@ -101,6 +105,76 @@ const directStreamFromDayOne = (
           const reader = response.body.getReader();
           const decoder = new TextDecoder();
           let accumulatedText = "";
+          let firstChunkReceived = false;
+
+          // CRITICAL FIX: Create chat history as soon as streaming starts
+          const createChatHistoryEarly = async () => {
+            if (!finalChatHistoryId || finalChatHistoryId.length < 5) {
+              finalChatHistoryId = `agent_${Date.now()}_${Math.random()
+                .toString(36)
+                .substring(2, 7)}`;
+            }
+
+            try {
+              const createHistoryUrl = `${BASE_URL}/api/create-chat-history`;
+              console.log(
+                `[DirectDayOne] Creating early chat history: ${finalChatHistoryId}`
+              );
+
+              const historyResponse = await fetch(createHistoryUrl, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Accept: "application/json",
+                },
+                credentials: "include",
+                body: JSON.stringify({
+                  title: question.substring(0, 50),
+                  message: {
+                    user: question,
+                    gemini: "Streaming response...", // Placeholder
+                    sources: [],
+                    relatedQuestions: [],
+                    queryKeywords: extractKeywords(question),
+                    isPreformattedHTML: false,
+                  },
+                  isSearch: true,
+                  searchType: "agent",
+                }),
+              });
+
+              if (historyResponse.ok) {
+                const historyData = await historyResponse.json();
+                if (historyData.success && historyData.chatHistoryId) {
+                  finalChatHistoryId = historyData.chatHistoryId;
+                  console.log(
+                    `[DirectDayOne] Created early chat history: ${finalChatHistoryId}`
+                  );
+
+                  // CRITICAL FIX: Update Redux state immediately
+                  dispatch(
+                    chatAction.chatHistoryIdHandler({
+                      chatHistoryId: finalChatHistoryId,
+                    })
+                  );
+
+                  // CRITICAL FIX: Navigate to the proper URL immediately
+                  if (!urlUpdated && navigate) {
+                    console.log(
+                      `[DirectDayOne] Navigating to: /app/${finalChatHistoryId}`
+                    );
+                    navigate(`/app/${finalChatHistoryId}`, { replace: true });
+                    urlUpdated = true;
+                  }
+                }
+              }
+            } catch (historyError) {
+              console.error(
+                `[DirectDayOne] Error creating early chat history:`,
+                historyError
+              );
+            }
+          };
 
           // Process the stream
           function processStream() {
@@ -118,7 +192,7 @@ const directStreamFromDayOne = (
                     `[DirectDayOne] Streaming completed in ${totalTime} seconds`
                   );
 
-                  // Final update to the UI
+                  // CRITICAL FIX: Final update to mark completion
                   dispatch(
                     chatAction.updateStreamingChat({
                       streamingId: streamingId,
@@ -127,8 +201,20 @@ const directStreamFromDayOne = (
                     })
                   );
 
+                  // CRITICAL FIX: Update the chat history with final content
+                  updateChatHistoryWithFinalContent(
+                    finalChatHistoryId,
+                    question,
+                    accumulatedText
+                  );
+
                   // Resolve the promise with the final text
-                  resolve(accumulatedText);
+                  resolve({
+                    text: accumulatedText,
+                    sources: [],
+                    success: true,
+                    chatHistoryId: finalChatHistoryId,
+                  });
                   return;
                 }
 
@@ -139,6 +225,12 @@ const directStreamFromDayOne = (
                     chunk.length
                   } bytes): ${chunk.substring(0, 40)}...`
                 );
+
+                // CRITICAL FIX: Create chat history on first chunk
+                if (!firstChunkReceived) {
+                  firstChunkReceived = true;
+                  createChatHistoryEarly();
+                }
 
                 // Handle SSE format
                 const lines = chunk.split("\n\n");
@@ -151,8 +243,8 @@ const directStreamFromDayOne = (
                     try {
                       // Extract JSON data - handle possible double data: prefix
                       let jsonStr = line.startsWith("data:data:")
-                        ? line.substring(10).trim() // Double prefix
-                        : line.substring(5).trim(); // Single prefix
+                        ? line.substring(10).trim()
+                        : line.substring(5).trim();
 
                       // Parse the JSON data
                       const data = JSON.parse(jsonStr);
@@ -164,17 +256,17 @@ const directStreamFromDayOne = (
 
                         // Format text for better display
                         const formattedText = accumulatedText
-                          .replace(/\n\s*\*/g, "\n* ") // Fix bullet points
-                          .replace(/\n\s*-/g, "\n- ") // Fix dashes
-                          .replace(/\s+\n/g, "\n") // Remove extra spaces before newlines
-                          .replace(/\n{3,}/g, "\n\n"); // Reduce multiple newlines
+                          .replace(/\n\s*\*/g, "\n* ")
+                          .replace(/\n\s*-/g, "\n- ")
+                          .replace(/\s+\n/g, "\n")
+                          .replace(/\n{3,}/g, "\n\n");
 
-                        // Update UI with streamed content
+                        // CRITICAL FIX: Update UI immediately with streamed content
                         dispatch(
                           chatAction.updateStreamingChat({
                             streamingId: streamingId,
                             content: formattedText,
-                            isComplete: data.status === "complete",
+                            isComplete: false,
                           })
                         );
                       }
@@ -198,7 +290,7 @@ const directStreamFromDayOne = (
                           `[DirectDayOne] Streaming completed in ${totalTime} seconds`
                         );
 
-                        // Final update to the UI
+                        // CRITICAL FIX: Final update to mark completion
                         dispatch(
                           chatAction.updateStreamingChat({
                             streamingId: streamingId,
@@ -207,8 +299,20 @@ const directStreamFromDayOne = (
                           })
                         );
 
+                        // Update chat history with final content
+                        updateChatHistoryWithFinalContent(
+                          finalChatHistoryId,
+                          question,
+                          accumulatedText
+                        );
+
                         // Resolve the promise with the final text
-                        resolve(accumulatedText);
+                        resolve({
+                          text: accumulatedText,
+                          sources: [],
+                          success: true,
+                          chatHistoryId: finalChatHistoryId,
+                        });
                         return;
                       }
                     } catch (error) {
@@ -246,7 +350,56 @@ const directStreamFromDayOne = (
 };
 
 /**
- * Main function for direct Day One streaming requests
+ * CRITICAL FIX: Update chat history with final content for conversation continuation
+ */
+const updateChatHistoryWithFinalContent = async (
+  chatHistoryId,
+  question,
+  finalContent
+) => {
+  if (!chatHistoryId) return;
+
+  try {
+    console.log(
+      `[DirectDayOne] Updating chat history ${chatHistoryId} with final content`
+    );
+
+    const updateHistoryUrl = `${BASE_URL}/api/update-chat-history`;
+    const updateResponse = await fetch(updateHistoryUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify({
+        chatHistoryId: chatHistoryId,
+        message: {
+          user: question,
+          gemini: finalContent,
+          sources: [],
+          relatedQuestions: [],
+          queryKeywords: extractKeywords(question),
+          isPreformattedHTML: false,
+        },
+      }),
+    });
+
+    if (updateResponse.ok) {
+      console.log(`[DirectDayOne] Successfully updated chat history`);
+    } else {
+      console.error(
+        `[DirectDayOne] Failed to update chat history:`,
+        updateResponse.status
+      );
+    }
+  } catch (error) {
+    console.error(`[DirectDayOne] Error updating chat history:`, error);
+  }
+};
+
+/**
+ * CRITICAL FIX: Main function for direct Day One streaming requests with immediate streaming
  */
 export const sendDirectDayOneRequest = (requestData) => {
   return async (dispatch, getState) => {
@@ -254,11 +407,18 @@ export const sendDirectDayOneRequest = (requestData) => {
     const queryKeywords = extractKeywords(question);
     let currentChatHistoryId = chatHistoryId || getState().chat.chatHistoryId;
 
+    console.log(
+      `[DirectDayOne] Starting ${agentType} request for: "${question}"`
+    );
+    console.log(
+      `[DirectDayOne] Current chat history ID: ${currentChatHistoryId}`
+    );
+
     // Set loading state
     dispatch(uiAction.setLoading(true));
     dispatch(agentAction.setLoading(true));
 
-    // Dispatch initial loading message to the chat
+    // CRITICAL FIX: Dispatch initial loading message immediately
     dispatch(
       chatAction.chatStart({
         useInput: {
@@ -275,135 +435,101 @@ export const sendDirectDayOneRequest = (requestData) => {
       })
     );
 
-    // Navigate to /app to show the streaming response
-    setTimeout(() => {
-      if (navigate && typeof navigate === "function") {
-        navigate("/app");
-      }
-    }, 100);
-
     try {
       // Get token from server
       console.log(`[DirectDayOne] Getting token for ${agentType} agent`);
       const token = await getDayOneToken();
 
-      // Remove the loading message before starting stream
+      // CRITICAL FIX: Remove the loading message and add streaming message immediately
       dispatch(chatAction.popChat());
 
-      // Add a streaming message that will be updated
+      // Add a streaming message that will be updated in real-time
       const streamingId = `streaming_${Date.now()}`;
       dispatch(
         chatAction.chatStart({
           useInput: {
             user: question,
-            gemini: "Connecting directly to Day One API...",
-            isLoader: "streaming", // Special loader type for streaming
+            gemini: "Connecting to Day One API...",
+            isLoader: "streaming",
             isSearch: true,
             searchType: "agent",
             queryKeywords: queryKeywords,
             sources: [],
             relatedQuestions: [],
-            isPreformattedHTML: true,
-            streamingId: streamingId, // Unique ID for the streaming message
+            isPreformattedHTML: false,
+            streamingId: streamingId,
           },
         })
       );
 
-      // Direct streaming from Day One API
-      const finalText = await directStreamFromDayOne(
+      // CRITICAL FIX: Clean up loading states immediately since streaming will handle its own state
+      dispatch(uiAction.setLoading(false));
+      dispatch(agentAction.setLoading(false));
+
+      // CRITICAL FIX: Start streaming immediately (don't await completion)
+      console.log(`[DirectDayOne] Starting immediate stream for ${agentType}`);
+
+      const streamResult = await directStreamFromDayOne(
         agentType,
         question,
         token,
         dispatch,
-        streamingId
+        streamingId,
+        navigate,
+        currentChatHistoryId
       );
 
-      // After streaming is complete, create a chat history record
-      let finalChatHistoryId = currentChatHistoryId;
-      if (!finalChatHistoryId || finalChatHistoryId.length < 2) {
-        try {
-          const createHistoryUrl = `${BASE_URL}/api/create-chat-history`;
-          const historyResponse = await fetch(createHistoryUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Accept: "application/json",
-            },
-            credentials: "include",
-            body: JSON.stringify({
-              title: question.substring(0, 50),
-              message: {
-                user: question,
-                gemini: finalText,
-                sources: [],
-                relatedQuestions: [],
-                queryKeywords,
-                isPreformattedHTML: true,
-              },
-              isSearch: true,
-              searchType: "agent",
-            }),
-          });
+      console.log(`[DirectDayOne] Stream completed:`, streamResult);
 
-          if (historyResponse.ok) {
-            const historyData = await historyResponse.json();
-            if (historyData.success && historyData.chatHistoryId)
-              finalChatHistoryId = historyData.chatHistoryId;
-          }
-        } catch (historyError) {
-          console.error(
-            `[DirectDayOne] Error creating chat history for ${agentType} agent:`,
-            historyError
-          );
-        }
-      }
-
-      if (finalChatHistoryId) {
-        dispatch(
-          chatAction.chatHistoryIdHandler({
-            chatHistoryId: finalChatHistoryId,
-          })
+      // CRITICAL FIX: Save to localStorage
+      try {
+        const existingStorageHistory = JSON.parse(
+          localStorage.getItem("searchHistory") || "[]"
         );
+        const historyItem = {
+          id: streamResult.chatHistoryId,
+          title: question.substring(0, 50),
+          timestamp: new Date().toISOString(),
+          type: "agent",
+        };
 
-        try {
-          const existingStorageHistory = JSON.parse(
-            localStorage.getItem("searchHistory") || "[]"
+        if (
+          !existingStorageHistory.some(
+            (item) => item.id === streamResult.chatHistoryId
+          )
+        ) {
+          existingStorageHistory.unshift(historyItem);
+          localStorage.setItem(
+            "searchHistory",
+            JSON.stringify(existingStorageHistory.slice(0, 50))
           );
-          const historyItem = {
-            id: finalChatHistoryId,
-            title: question.substring(0, 50),
-            timestamp: new Date().toISOString(),
-            type: "agent",
-          };
-
-          if (
-            !existingStorageHistory.some(
-              (item) => item.id === finalChatHistoryId
-            )
-          ) {
-            existingStorageHistory.unshift(historyItem);
-            localStorage.setItem(
-              "searchHistory",
-              JSON.stringify(existingStorageHistory.slice(0, 50))
-            );
-            window.dispatchEvent(new Event("storage"));
-          }
-        } catch (err) {
-          console.error(
-            `[DirectDayOne] Error saving ${agentType} agent chat history to localStorage:`,
-            err
-          );
+          window.dispatchEvent(new Event("storage"));
         }
+        console.log(
+          `[DirectDayOne] Saved to localStorage: ${streamResult.chatHistoryId}`
+        );
+      } catch (err) {
+        console.error(
+          `[DirectDayOne] Error saving ${agentType} agent chat history to localStorage:`,
+          err
+        );
       }
 
-      dispatch(chatAction.newChatHandler());
+      // CRITICAL FIX: Return success with data for continuation
+      console.log(
+        `[DirectDayOne] Returning success response with chatHistoryId: ${streamResult.chatHistoryId}`
+      );
 
       return {
         success: true,
         streamingComplete: true,
         data: {
-          chatHistoryId: finalChatHistoryId,
+          answer: streamResult.text,
+          sources: streamResult.sources || [],
+          chatHistoryId: streamResult.chatHistoryId,
         },
+        shouldNavigate: false, // Navigation already handled
+        targetUrl: `/app/${streamResult.chatHistoryId}`,
       };
     } catch (error) {
       console.error(
@@ -434,16 +560,15 @@ export const sendDirectDayOneRequest = (requestData) => {
         })
       );
 
-      dispatch(chatAction.newChatHandler());
+      // Clean up loading states
+      dispatch(uiAction.setLoading(false));
+      dispatch(agentAction.setLoading(false));
 
       return {
         success: false,
         streamingComplete: true,
         error: error.message,
       };
-    } finally {
-      dispatch(uiAction.setLoading(false));
-      dispatch(agentAction.setLoading(false));
     }
   };
 };
