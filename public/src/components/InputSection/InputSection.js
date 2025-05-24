@@ -1,4 +1,4 @@
-// public/src/components/InputSection/InputSection.js - FIXED FOR IMMEDIATE STREAMING
+// public/src/components/InputSection/InputSection.js - COMPLETE FIX
 import styles from "./InputSection.module.css";
 import { sendDeepSearchRequest, getRecentChat } from "../../store/chat-action";
 import { sendAgentQuestion } from "../../store/agent-actions";
@@ -6,6 +6,7 @@ import {
   sendDirectConfluenceQuestion,
   sendDirectMonitorQuestion,
 } from "../../store/day-one-agent-actions";
+import { sendChatData } from "../../store/chat-action"; // CRITICAL: Import for regular chat
 import pollAgentTask from "../../utils/agentTaskPoller";
 import { highlightKeywords } from "../../utils/highlightKeywords";
 import { useEffect, useState, useRef, useCallback } from "react";
@@ -24,6 +25,7 @@ const InputSection = () => {
   const uploadMenuRef = useRef(null);
   const chatHistoryId = useSelector((state) => state.chat.chatHistoryId);
   const suggestPrompt = useSelector((state) => state.chat.suggestPrompt);
+  const previousChat = useSelector((state) => state.chat.previousChat); // For conversation continuation
 
   // CRITICAL FIX: Check for any active loading state
   const isLoaderActive = useSelector((state) => {
@@ -119,7 +121,7 @@ const InputSection = () => {
     return agentId === "conf_ag" || agentId === "monitor_ag";
   }, []);
 
-  // CRITICAL FIX: Enhanced onSubmitHandler for immediate streaming
+  // CRITICAL FIX: Enhanced onSubmitHandler for immediate streaming and proper conversation continuation
   const onSubmitHandler = async (e) => {
     e.preventDefault();
     if (!userInput.trim() || isLoaderActive === "yes") return;
@@ -130,12 +132,23 @@ const InputSection = () => {
     console.log(`[InputSection] Submitting: "${currentInput}"`);
     console.log(`[InputSection] Current chat history ID: ${chatHistoryId}`);
     console.log(`[InputSection] Selected agents: ${selectedAgents.join(", ")}`);
+    console.log(
+      `[InputSection] Has previous chat context: ${previousChat?.length > 0}`
+    );
 
     try {
-      // CRITICAL FIX: Navigate immediately for all cases to show loading/streaming
-      const targetUrl = chatHistoryId ? `/app/${chatHistoryId}` : "/app";
-      console.log(`[InputSection] Navigating immediately to: ${targetUrl}`);
-      navigate(targetUrl);
+      // CRITICAL FIX: Only navigate if we don't have a chat history (new conversation)
+      if (!chatHistoryId) {
+        const targetUrl = "/app";
+        console.log(
+          `[InputSection] Navigating to new conversation: ${targetUrl}`
+        );
+        navigate(targetUrl);
+      } else {
+        console.log(
+          `[InputSection] Continuing existing conversation: ${chatHistoryId}`
+        );
+      }
 
       // Always show initial loading state
       dispatch(uiAction.setLoading(true));
@@ -152,7 +165,6 @@ const InputSection = () => {
           );
 
           // CRITICAL FIX: Start streaming process without awaiting completion
-          // This allows immediate navigation and streaming display
           if (selectedAgentId === "conf_ag") {
             // Don't await - let it stream in background
             dispatch(
@@ -296,8 +308,8 @@ const InputSection = () => {
             },
           });
         }
-      } else {
-        // No agents selected, use the normal search paths
+      } else if (searchMode === "deep" || searchMode === "simple") {
+        // CRITICAL FIX: Handle search modes with proper conversation continuation
         console.log(`[InputSection] Using ${searchMode} search`);
 
         let searchResponse;
@@ -307,7 +319,7 @@ const InputSection = () => {
               query: currentInput,
               sources: ["support.zoom.us", "community.zoom.us", "zoom.us"],
               endpoint: "/api/deepsearch",
-              chatHistoryId,
+              chatHistoryId, // CRITICAL: Pass existing chatHistoryId for continuation
             })
           );
         } else {
@@ -316,17 +328,55 @@ const InputSection = () => {
               query: currentInput,
               sources: ["support.zoom.us", "community.zoom.us", "zoom.us"],
               endpoint: "/api/simplesearch",
-              chatHistoryId,
+              chatHistoryId, // CRITICAL: Pass existing chatHistoryId for continuation
             })
           );
         }
 
         console.log(`[InputSection] Search response:`, searchResponse);
 
+        // CRITICAL FIX: Navigate to proper URL after search if it's a new conversation
+        if (searchResponse && searchResponse.chatHistoryId && !chatHistoryId) {
+          console.log(
+            `[InputSection] Navigating to search result: /app/${searchResponse.chatHistoryId}`
+          );
+          setTimeout(() => {
+            navigate(`/app/${searchResponse.chatHistoryId}`, { replace: true });
+          }, 500);
+        }
+
         // Refresh recent chats after search
         setTimeout(() => {
           dispatch(getRecentChat());
         }, 1500);
+      } else {
+        // CRITICAL FIX: Handle regular chat (no agents, no search) with conversation continuation
+        console.log(`[InputSection] Using regular chat mode`);
+
+        const chatResponse = await dispatch(
+          sendChatData({
+            user: currentInput,
+            previousChat: previousChat, // Include conversation context
+            chatHistoryId: chatHistoryId, // Pass existing chatHistoryId for continuation
+          })
+        );
+
+        console.log(`[InputSection] Chat response:`, chatResponse);
+
+        // CRITICAL FIX: Navigate to proper URL if it's a new conversation
+        if (chatResponse && chatResponse.chatHistoryId && !chatHistoryId) {
+          console.log(
+            `[InputSection] Navigating to chat result: /app/${chatResponse.chatHistoryId}`
+          );
+          setTimeout(() => {
+            navigate(`/app/${chatResponse.chatHistoryId}`, { replace: true });
+          }, 500);
+        }
+
+        // Refresh recent chats
+        setTimeout(() => {
+          dispatch(getRecentChat());
+        }, 1000);
       }
 
       console.log(`[InputSection] Query processing initiated successfully`);
@@ -342,7 +392,7 @@ const InputSection = () => {
               <p>Sorry, an unexpected error occurred: ${error.message}</p>
             </div>`,
             isLoader: "no",
-            isSearch: true,
+            isSearch: selectedAgents.length > 0 || searchMode !== "simple",
             searchType: selectedAgents.length > 0 ? "agent" : searchMode,
           },
         })
@@ -354,7 +404,7 @@ const InputSection = () => {
   useEffect(() => {
     if (suggestPrompt && suggestPrompt.length > 0) {
       setUserInput(suggestPrompt);
-      dispatch(chatAction.suggestPromptHandler({ suggestPrompt: "" }));
+      dispatch(chatAction.clearSuggestPrompt()); // Use proper action
     }
   }, [suggestPrompt, dispatch]);
 
@@ -386,7 +436,7 @@ const InputSection = () => {
         .split(/\s+/)
         .filter((word) => word.length > 3);
 
-      // Generate or use proper chat history ID
+      // CRITICAL FIX: Use existing chatHistoryId or generate proper one
       let finalChatHistoryId = data.chatHistoryId || chatHistoryId;
       if (!finalChatHistoryId || finalChatHistoryId.length < 5) {
         finalChatHistoryId = `agent_${Date.now()}_${Math.random()
@@ -422,11 +472,13 @@ const InputSection = () => {
         })
       );
 
-      // Update URL to show proper chat history ID
-      console.log(`[InputSection] Navigating to: /app/${finalChatHistoryId}`);
-      setTimeout(() => {
-        navigate(`/app/${finalChatHistoryId}`, { replace: true });
-      }, 500);
+      // Update URL to show proper chat history ID only if it's different
+      if (finalChatHistoryId !== chatHistoryId) {
+        console.log(`[InputSection] Navigating to: /app/${finalChatHistoryId}`);
+        setTimeout(() => {
+          navigate(`/app/${finalChatHistoryId}`, { replace: true });
+        }, 500);
+      }
 
       // Update UI state
       dispatch(uiAction.setLoading(false));

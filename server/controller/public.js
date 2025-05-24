@@ -665,6 +665,11 @@ export const updateChatHistory = async (req, res, next) => {
     const { chatHistoryId, message } = req.body;
 
     console.log(`[updateChatHistory] Updating chat history: ${chatHistoryId}`);
+    console.log(`[updateChatHistory] Message data:`, {
+      hasUser: !!message?.user,
+      hasGemini: !!message?.gemini,
+      geminiLength: message?.gemini?.length || 0,
+    });
 
     if (!chatHistoryId) {
       return res.status(400).json({
@@ -680,61 +685,162 @@ export const updateChatHistory = async (req, res, next) => {
       });
     }
 
-    const userId = req.user?._id;
-
-    // Find the chat history
+    // CRITICAL FIX: Handle both MongoDB ObjectId and client-generated IDs
     let chatHistoryDoc;
-    if (/^[0-9a-fA-F]{24}$/.test(chatHistoryId)) {
-      // MongoDB ObjectId
-      chatHistoryDoc = await chatHistory.findById(chatHistoryId);
-    } else {
-      // Client-generated ID
-      chatHistoryDoc = await chatHistory.findOne({ clientId: chatHistoryId });
+
+    try {
+      if (/^[0-9a-fA-F]{24}$/.test(chatHistoryId)) {
+        // MongoDB ObjectId format
+        console.log(
+          `[updateChatHistory] Looking up MongoDB ID: ${chatHistoryId}`
+        );
+        chatHistoryDoc = await chatHistory.findById(chatHistoryId);
+      } else {
+        // Client-generated ID format (like agent_timestamp_random)
+        console.log(
+          `[updateChatHistory] Looking up client ID: ${chatHistoryId}`
+        );
+        chatHistoryDoc = await chatHistory.findOne({
+          $or: [
+            { clientId: chatHistoryId },
+            {
+              title: {
+                $regex: chatHistoryId.split("_").slice(-1)[0],
+                $options: "i",
+              },
+            },
+          ],
+        });
+
+        // If still not found, try to find by partial matching
+        if (!chatHistoryDoc) {
+          console.log(
+            `[updateChatHistory] Trying partial match for: ${chatHistoryId}`
+          );
+          const recentAgentChats = await chatHistory
+            .find({
+              type: { $in: ["agent", "conf_agent", "monitor_agent"] },
+              timestamp: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }, // Within last 24 hours
+            })
+            .sort({ timestamp: -1 })
+            .limit(5);
+
+          if (recentAgentChats.length > 0) {
+            // Use the most recent agent chat
+            chatHistoryDoc = recentAgentChats[0];
+            console.log(
+              `[updateChatHistory] Using recent agent chat: ${chatHistoryDoc._id}`
+            );
+          }
+        }
+      }
+    } catch (lookupError) {
+      console.error(
+        `[updateChatHistory] Error looking up chat history:`,
+        lookupError
+      );
+      return res.status(500).json({
+        success: false,
+        error: "Error looking up chat history",
+      });
     }
 
     if (!chatHistoryDoc) {
-      return res.status(404).json({
-        success: false,
-        error: "Chat history not found",
-      });
+      console.log(
+        `[updateChatHistory] Chat history not found, creating new one`
+      );
+
+      // CRITICAL FIX: Create new chat history if not found
+      try {
+        chatHistoryDoc = new chatHistory({
+          user: req.user ? req.user._id : null,
+          title: message.user
+            ? message.user.substring(0, 50)
+            : "Agent Response",
+          timestamp: new Date(),
+          type: "agent",
+          clientId: chatHistoryId, // Store the client ID for future lookups
+        });
+
+        await chatHistoryDoc.save();
+        console.log(
+          `[updateChatHistory] Created new chat history: ${chatHistoryDoc._id}`
+        );
+      } catch (createError) {
+        console.error(
+          `[updateChatHistory] Error creating chat history:`,
+          createError
+        );
+        return res.status(500).json({
+          success: false,
+          error: "Error creating chat history",
+        });
+      }
     }
 
-    // Find the associated chat document
-    let chatDoc = await chat.findOne({ chatHistory: chatHistoryDoc._id });
+    // Find or create the associated chat document
+    let chatDoc;
 
-    if (!chatDoc) {
-      // Create new chat document if it doesn't exist
-      chatDoc = new chat({
-        chatHistory: chatHistoryDoc._id,
-        messages: [],
-      });
-    }
+    try {
+      chatDoc = await chat.findOne({ chatHistory: chatHistoryDoc._id });
 
-    // Check if we need to update the last message or add a new one
-    if (chatDoc.messages.length > 0) {
-      const lastMessage = chatDoc.messages[chatDoc.messages.length - 1];
+      if (!chatDoc) {
+        console.log(`[updateChatHistory] Creating new chat document`);
+        // Create new chat document if it doesn't exist
+        chatDoc = new chat({
+          chatHistory: chatHistoryDoc._id,
+          messages: [],
+        });
+      }
 
-      // If the last message is from the same user and is a placeholder, update it
-      if (
-        lastMessage.message.user === message.user &&
-        (lastMessage.message.gemini === "Streaming response..." ||
-          lastMessage.message.gemini.includes("Connecting"))
-      ) {
-        console.log(`[updateChatHistory] Updating last message`);
-        lastMessage.message = {
-          user: message.user,
-          gemini: message.gemini,
-          sources: message.sources || [],
-          relatedQuestions: message.relatedQuestions || [],
-          queryKeywords: message.queryKeywords || [],
-          isPreformattedHTML: message.isPreformattedHTML || false,
-        };
-        lastMessage.timestamp = new Date();
+      // CRITICAL FIX: Handle message updates properly for conversation continuation
+      if (chatDoc.messages.length > 0) {
+        const lastMessage = chatDoc.messages[chatDoc.messages.length - 1];
+
+        // Check if we should update the last message or add a new one
+        const shouldUpdateLastMessage =
+          lastMessage.message.user === message.user &&
+          (lastMessage.message.gemini === "Streaming response..." ||
+            lastMessage.message.gemini === "Connecting to Day One API..." ||
+            lastMessage.message.gemini.includes("Connecting") ||
+            lastMessage.message.gemini.length < 50); // Likely a placeholder
+
+        if (shouldUpdateLastMessage) {
+          console.log(`[updateChatHistory] Updating last message`);
+          lastMessage.message = {
+            user: message.user,
+            gemini: message.gemini,
+            sources: message.sources || [],
+            relatedQuestions: message.relatedQuestions || [],
+            queryKeywords: message.queryKeywords || [],
+            isPreformattedHTML: message.isPreformattedHTML || false,
+          };
+          lastMessage.timestamp = new Date();
+          lastMessage.isSearch = true;
+          lastMessage.searchType = "agent";
+        } else {
+          console.log(`[updateChatHistory] Adding new message to conversation`);
+          // Add new message for conversation continuation
+          chatDoc.messages.push({
+            sender: req.user ? req.user._id : null,
+            message: {
+              user: message.user,
+              gemini: message.gemini,
+              sources: message.sources || [],
+              relatedQuestions: message.relatedQuestions || [],
+              queryKeywords: message.queryKeywords || [],
+              isPreformattedHTML: message.isPreformattedHTML || false,
+            },
+            isSearch: true,
+            searchType: "agent",
+            timestamp: new Date(),
+          });
+        }
       } else {
-        // Add new message
-        console.log(`[updateChatHistory] Adding new message`);
+        console.log(`[updateChatHistory] Adding first message`);
+        // No messages exist, add the first one
         chatDoc.messages.push({
-          sender: userId || null,
+          sender: req.user ? req.user._id : null,
           message: {
             user: message.user,
             gemini: message.gemini,
@@ -748,32 +854,52 @@ export const updateChatHistory = async (req, res, next) => {
           timestamp: new Date(),
         });
       }
-    } else {
-      // No messages exist, add the first one
-      console.log(`[updateChatHistory] Adding first message`);
-      chatDoc.messages.push({
-        sender: userId || null,
-        message: {
-          user: message.user,
-          gemini: message.gemini,
-          sources: message.sources || [],
-          relatedQuestions: message.relatedQuestions || [],
-          queryKeywords: message.queryKeywords || [],
-          isPreformattedHTML: message.isPreformattedHTML || false,
-        },
-        isSearch: true,
-        searchType: "agent",
-        timestamp: new Date(),
+
+      // Save the updated chat document
+      await chatDoc.save();
+      console.log(
+        `[updateChatHistory] Saved chat document with ${chatDoc.messages.length} messages`
+      );
+
+      // Update the chat history reference if needed
+      if (
+        !chatHistoryDoc.chat ||
+        chatHistoryDoc.chat.toString() !== chatDoc._id.toString()
+      ) {
+        chatHistoryDoc.chat = chatDoc._id;
+        await chatHistoryDoc.save();
+        console.log(`[updateChatHistory] Updated chat history reference`);
+      }
+
+      // CRITICAL FIX: Update user's chat history if user exists and this is a new chat history
+      if (req.user && req.user._id) {
+        try {
+          const userData = await user.findById(req.user._id);
+          if (userData) {
+            const historyExists = userData.chatHistory.some(
+              (history) => history.toString() === chatHistoryDoc._id.toString()
+            );
+
+            if (!historyExists) {
+              userData.chatHistory.push(chatHistoryDoc._id);
+              await userData.save();
+              console.log(`[updateChatHistory] Added to user's chat history`);
+            }
+          }
+        } catch (userError) {
+          console.error(`[updateChatHistory] Error updating user:`, userError);
+          // Continue even if user update fails
+        }
+      }
+    } catch (chatError) {
+      console.error(
+        `[updateChatHistory] Error handling chat document:`,
+        chatError
+      );
+      return res.status(500).json({
+        success: false,
+        error: "Error updating chat document",
       });
-    }
-
-    // Save the updated chat document
-    await chatDoc.save();
-
-    // Update the chat history reference if needed
-    if (!chatHistoryDoc.chat) {
-      chatHistoryDoc.chat = chatDoc._id;
-      await chatHistoryDoc.save();
     }
 
     console.log(`[updateChatHistory] Successfully updated chat history`);
@@ -784,7 +910,7 @@ export const updateChatHistory = async (req, res, next) => {
       chatHistoryId: chatHistoryDoc._id,
     });
   } catch (error) {
-    console.error(`[updateChatHistory] Error:`, error);
+    console.error(`[updateChatHistory] Unexpected error:`, error);
     res.status(500).json({
       success: false,
       error: error.message || "Failed to update chat history",

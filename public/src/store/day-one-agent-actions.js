@@ -1,3 +1,4 @@
+// public/src/store/day-one-agent-actions.js - CRITICAL STREAMING FIX
 import { chatAction } from "./chat";
 import { uiAction } from "./ui-gemini";
 import { agentAction } from "./agent";
@@ -57,7 +58,7 @@ const getDayOneToken = async () => {
 };
 
 /**
- * CRITICAL FIX: Connect directly to the Day One API for streaming responses with immediate display
+ * CRITICAL FIX: Connect directly to the Day One API for streaming responses
  */
 const directStreamFromDayOne = (
   agentType,
@@ -107,8 +108,31 @@ const directStreamFromDayOne = (
           let accumulatedText = "";
           let firstChunkReceived = false;
 
-          // CRITICAL FIX: Create chat history as soon as streaming starts
+          // CRITICAL FIX: Create chat history early for conversation continuation
           const createChatHistoryEarly = async () => {
+            // CRITICAL FIX: Use existing chatHistoryId if available for continuation
+            if (currentChatHistoryId && currentChatHistoryId.length > 5) {
+              console.log(
+                `[DirectDayOne] Using existing chat history: ${currentChatHistoryId}`
+              );
+              finalChatHistoryId = currentChatHistoryId;
+
+              // CRITICAL FIX: Update Redux state with existing ID
+              dispatch(
+                chatAction.chatHistoryIdHandler({
+                  chatHistoryId: finalChatHistoryId,
+                })
+              );
+
+              // Don't navigate if we're continuing a conversation
+              console.log(
+                `[DirectDayOne] Continuing conversation, not navigating`
+              );
+              urlUpdated = true; // Prevent navigation
+              return;
+            }
+
+            // Only create new chat history if we don't have one
             if (!finalChatHistoryId || finalChatHistoryId.length < 5) {
               finalChatHistoryId = `agent_${Date.now()}_${Math.random()
                 .toString(36)
@@ -158,7 +182,7 @@ const directStreamFromDayOne = (
                     })
                   );
 
-                  // CRITICAL FIX: Navigate to the proper URL immediately
+                  // CRITICAL FIX: Navigate to the proper URL immediately for new conversations only
                   if (!urlUpdated && navigate) {
                     console.log(
                       `[DirectDayOne] Navigating to: /app/${finalChatHistoryId}`
@@ -399,7 +423,7 @@ const updateChatHistoryWithFinalContent = async (
 };
 
 /**
- * CRITICAL FIX: Main function for direct Day One streaming requests with immediate streaming
+ * CRITICAL FIX: Main function for direct Day One streaming requests
  */
 export const sendDirectDayOneRequest = (requestData) => {
   return async (dispatch, getState) => {
@@ -418,55 +442,99 @@ export const sendDirectDayOneRequest = (requestData) => {
     dispatch(uiAction.setLoading(true));
     dispatch(agentAction.setLoading(true));
 
-    // CRITICAL FIX: Dispatch initial loading message immediately
-    dispatch(
-      chatAction.chatStart({
-        useInput: {
-          user: question,
-          gemini: "",
-          isLoader: "yes",
-          isSearch: true,
-          searchType: "agent",
-          queryKeywords: queryKeywords,
-          sources: [],
-          relatedQuestions: [],
-          isPreformattedHTML: false,
-        },
-      })
-    );
-
-    try {
-      // Get token from server
-      console.log(`[DirectDayOne] Getting token for ${agentType} agent`);
-      const token = await getDayOneToken();
-
-      // CRITICAL FIX: Remove the loading message and add streaming message immediately
-      dispatch(chatAction.popChat());
-
-      // Add a streaming message that will be updated in real-time
-      const streamingId = `streaming_${Date.now()}`;
+    // CRITICAL FIX: Only dispatch initial loading message for NEW conversations
+    if (!currentChatHistoryId) {
       dispatch(
         chatAction.chatStart({
           useInput: {
             user: question,
-            gemini: "Connecting to Day One API...",
-            isLoader: "streaming",
+            gemini: "",
+            isLoader: "yes",
             isSearch: true,
             searchType: "agent",
             queryKeywords: queryKeywords,
             sources: [],
             relatedQuestions: [],
             isPreformattedHTML: false,
-            streamingId: streamingId,
           },
         })
       );
+    }
+
+    try {
+      // Get token from server
+      console.log(`[DirectDayOne] Getting token for ${agentType} agent`);
+      const token = await getDayOneToken();
+
+      // CRITICAL FIX: Handle streaming differently for new vs continuing conversations
+      let streamingId;
+
+      if (!currentChatHistoryId) {
+        // NEW CONVERSATION: Remove loading message and add streaming message
+        dispatch(chatAction.popChat());
+
+        streamingId = `streaming_${Date.now()}`;
+        dispatch(
+          chatAction.chatStart({
+            useInput: {
+              user: question,
+              gemini: "Connecting to Day One API...",
+              isLoader: "streaming",
+              isSearch: true,
+              searchType: "agent",
+              queryKeywords: queryKeywords,
+              sources: [],
+              relatedQuestions: [],
+              isPreformattedHTML: false,
+              streamingId: streamingId,
+            },
+          })
+        );
+      } else {
+        // CONTINUING CONVERSATION: Add new user message and streaming response
+        streamingId = `streaming_${Date.now()}`;
+
+        // Add user message first
+        dispatch(
+          chatAction.chatStart({
+            useInput: {
+              user: question,
+              gemini: "",
+              isLoader: "no",
+              isSearch: false,
+              searchType: null,
+              queryKeywords: [],
+              sources: [],
+              relatedQuestions: [],
+              isPreformattedHTML: false,
+            },
+          })
+        );
+
+        // Then add streaming agent response
+        dispatch(
+          chatAction.chatStart({
+            useInput: {
+              user: "", // Empty user for agent response
+              gemini: "Connecting to Day One API...",
+              isLoader: "streaming",
+              isSearch: true,
+              searchType: "agent",
+              queryKeywords: queryKeywords,
+              sources: [],
+              relatedQuestions: [],
+              isPreformattedHTML: false,
+              streamingId: streamingId,
+            },
+          })
+        );
+      }
 
       // CRITICAL FIX: Clean up loading states immediately since streaming will handle its own state
       dispatch(uiAction.setLoading(false));
       dispatch(agentAction.setLoading(false));
 
-      // CRITICAL FIX: Start streaming immediately (don't await completion)
+      // CRITICAL FIX: Start streaming immediately
       console.log(`[DirectDayOne] Starting immediate stream for ${agentType}`);
 
       const streamResult = await directStreamFromDayOne(
@@ -481,38 +549,40 @@ export const sendDirectDayOneRequest = (requestData) => {
 
       console.log(`[DirectDayOne] Stream completed:`, streamResult);
 
-      // CRITICAL FIX: Save to localStorage
-      try {
-        const existingStorageHistory = JSON.parse(
-          localStorage.getItem("searchHistory") || "[]"
-        );
-        const historyItem = {
-          id: streamResult.chatHistoryId,
-          title: question.substring(0, 50),
-          timestamp: new Date().toISOString(),
-          type: "agent",
-        };
-
-        if (
-          !existingStorageHistory.some(
-            (item) => item.id === streamResult.chatHistoryId
-          )
-        ) {
-          existingStorageHistory.unshift(historyItem);
-          localStorage.setItem(
-            "searchHistory",
-            JSON.stringify(existingStorageHistory.slice(0, 50))
+      // CRITICAL FIX: Save to localStorage only for new conversations
+      if (!currentChatHistoryId) {
+        try {
+          const existingStorageHistory = JSON.parse(
+            localStorage.getItem("searchHistory") || "[]"
           );
-          window.dispatchEvent(new Event("storage"));
+          const historyItem = {
+            id: streamResult.chatHistoryId,
+            title: question.substring(0, 50),
+            timestamp: new Date().toISOString(),
+            type: "agent",
+          };
+
+          if (
+            !existingStorageHistory.some(
+              (item) => item.id === streamResult.chatHistoryId
+            )
+          ) {
+            existingStorageHistory.unshift(historyItem);
+            localStorage.setItem(
+              "searchHistory",
+              JSON.stringify(existingStorageHistory.slice(0, 50))
+            );
+            window.dispatchEvent(new Event("storage"));
+          }
+          console.log(
+            `[DirectDayOne] Saved to localStorage: ${streamResult.chatHistoryId}`
+          );
+        } catch (err) {
+          console.error(
+            `[DirectDayOne] Error saving ${agentType} agent chat history to localStorage:`,
+            err
+          );
         }
-        console.log(
-          `[DirectDayOne] Saved to localStorage: ${streamResult.chatHistoryId}`
-        );
-      } catch (err) {
-        console.error(
-          `[DirectDayOne] Error saving ${agentType} agent chat history to localStorage:`,
-          err
-        );
       }
 
       // CRITICAL FIX: Return success with data for continuation
@@ -528,7 +598,7 @@ export const sendDirectDayOneRequest = (requestData) => {
           sources: streamResult.sources || [],
           chatHistoryId: streamResult.chatHistoryId,
         },
-        shouldNavigate: false, // Navigation already handled
+        shouldNavigate: !currentChatHistoryId, // Only navigate for new conversations
         targetUrl: `/app/${streamResult.chatHistoryId}`,
       };
     } catch (error) {
