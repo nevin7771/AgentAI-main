@@ -1,4 +1,4 @@
-// public/src/store/agent-actions.js - CORRECTED VERSION
+// public/src/store/agent-actions.js - ENHANCED JIRA AGENT WITH CONVERSATION CONTINUITY
 import { chatAction } from "./chat";
 import { uiAction } from "./ui-gemini";
 import { agentAction } from "./agent";
@@ -292,14 +292,24 @@ export const sendAgentQuestion = (questionData) => {
   };
 };
 
-// NEW: Dedicated Jira Agent handler
+// ENHANCED: Dedicated Jira Agent handler with conversation continuity
 export const sendJiraAgentQuestion = (questionData) => {
   return async (dispatch, getState) => {
     const { question, chatHistoryId, navigate } = questionData;
     const queryKeywords = extractKeywords(question);
     let currentChatHistoryId = chatHistoryId || getState().chat.chatHistoryId;
+    const currentChats = getState().chat.chats || [];
+    const previousChat = getState().chat.previousChat || [];
 
     console.log(`[sendJiraAgentQuestion] Processing Jira query: "${question}"`);
+    console.log(
+      `[sendJiraAgentQuestion] Current chat history ID: ${currentChatHistoryId}`
+    );
+    console.log(
+      `[sendJiraAgentQuestion] Existing conversation: ${
+        currentChats.length > 0
+      }`
+    );
 
     dispatch(uiAction.setLoading(true));
     dispatch(agentAction.setLoading(true));
@@ -321,11 +331,16 @@ export const sendJiraAgentQuestion = (questionData) => {
       })
     );
 
-    // Navigate to /app
-    if (navigate && typeof navigate === "function") {
+    // CRITICAL FIX: Only navigate if no existing conversation
+    if (!currentChatHistoryId && navigate && typeof navigate === "function") {
+      console.log(`[sendJiraAgentQuestion] Navigating to new conversation`);
       setTimeout(() => {
         navigate("/app");
       }, 100);
+    } else if (currentChatHistoryId) {
+      console.log(
+        `[sendJiraAgentQuestion] Continuing existing conversation: ${currentChatHistoryId}`
+      );
     }
 
     try {
@@ -363,8 +378,25 @@ export const sendJiraAgentQuestion = (questionData) => {
 
         jiraResponse = await response.json();
       } else {
-        // General Jira query
-        console.log(`[sendJiraAgentQuestion] Processing general query`);
+        // General Jira query with enhanced context
+        console.log(
+          `[sendJiraAgentQuestion] Processing general query with context`
+        );
+
+        // CRITICAL FIX: Build chat history context for better responses
+        const chatHistoryContext = currentChats
+          .filter(
+            (chat) =>
+              chat.user &&
+              chat.gemini &&
+              chat.isSearch &&
+              chat.searchType === "agent"
+          )
+          .slice(-3) // Last 3 exchanges for context
+          .map((chat) => ({
+            role: "user",
+            message: chat.user,
+          }));
 
         const response = await fetch(`${BASE_URL}/api/jira/query`, {
           method: "POST",
@@ -375,7 +407,8 @@ export const sendJiraAgentQuestion = (questionData) => {
           credentials: "include",
           body: JSON.stringify({
             query: question,
-            chatHistory: [], // Could include previous context if needed
+            chatHistory: chatHistoryContext, // Include conversation context
+            chatHistoryId: currentChatHistoryId, // Pass existing chat ID
           }),
         });
 
@@ -394,10 +427,68 @@ export const sendJiraAgentQuestion = (questionData) => {
         hasFormattedResponse: !!jiraResponse.formattedResponse,
         sourcesCount: jiraResponse.sources?.length || 0,
         hasResult: !!jiraResponse.result,
+        needsClarification:
+          jiraResponse.needsClarification || jiraResponse.needs_clarification,
       });
 
       // Remove loading message
       dispatch(chatAction.popChat());
+
+      // CRITICAL FIX: Handle clarification requests
+      if (jiraResponse.needsClarification || jiraResponse.needs_clarification) {
+        console.log(`[sendJiraAgentQuestion] Jira agent needs clarification`);
+
+        // Show clarification message
+        dispatch(
+          chatAction.chatStart({
+            useInput: {
+              user: question,
+              gemini: `
+                <div class="clarification-container">
+                  <h3>🤔 Need More Information</h3>
+                  <p>${jiraResponse.message}</p>
+                  ${
+                    jiraResponse.metadata?.suggestions
+                      ? `<div class="suggestions">
+                      <p><strong>Suggestions:</strong></p>
+                      ${Object.entries(jiraResponse.metadata.suggestions)
+                        .map(
+                          ([key, values]) =>
+                            `<p><strong>${key}:</strong> ${
+                              Array.isArray(values) ? values.join(", ") : values
+                            }</p>`
+                        )
+                        .join("")}
+                    </div>`
+                      : ""
+                  }
+                  <p><em>Please provide the missing information and ask your question again.</em></p>
+                </div>
+              `,
+              isLoader: "no",
+              isSearch: true,
+              searchType: "agent",
+              queryKeywords: queryKeywords,
+              sources: [],
+              relatedQuestions: jiraResponse.metadata?.suggestions
+                ? Object.values(jiraResponse.metadata.suggestions)
+                    .flat()
+                    .slice(0, 3)
+                : [],
+              isPreformattedHTML: true,
+            },
+          })
+        );
+
+        dispatch(uiAction.setLoading(false));
+        dispatch(agentAction.setLoading(false));
+
+        return {
+          success: true,
+          needsClarification: true,
+          orchestrationComplete: true,
+        };
+      }
 
       if (!jiraResponse.success) {
         throw new Error(
@@ -435,12 +526,18 @@ export const sendJiraAgentQuestion = (questionData) => {
         })
       );
 
-      // Handle chat history
+      // CRITICAL FIX: Enhanced chat history management for conversation continuity
       let finalChatHistoryId = currentChatHistoryId;
-      if (!finalChatHistoryId) {
+
+      if (currentChatHistoryId) {
+        // EXISTING CONVERSATION: Append to existing chat history
+        console.log(
+          `[sendJiraAgentQuestion] Appending to existing conversation: ${currentChatHistoryId}`
+        );
+
         try {
-          const createHistoryUrl = `${BASE_URL}/api/create-chat-history`;
-          const historyResponse = await fetch(createHistoryUrl, {
+          const appendUrl = `${BASE_URL}/api/append-chat-message`;
+          const appendResponse = await fetch(appendUrl, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -448,7 +545,7 @@ export const sendJiraAgentQuestion = (questionData) => {
             },
             credentials: "include",
             body: JSON.stringify({
-              title: question.substring(0, 50),
+              chatHistoryId: currentChatHistoryId,
               message: {
                 user: question,
                 gemini: responseContent,
@@ -462,17 +559,72 @@ export const sendJiraAgentQuestion = (questionData) => {
             }),
           });
 
+          if (appendResponse.ok) {
+            const appendData = await appendResponse.json();
+            console.log(
+              `[sendJiraAgentQuestion] Successfully appended to conversation:`,
+              appendData
+            );
+          } else {
+            console.warn(
+              `[sendJiraAgentQuestion] Failed to append to conversation:`,
+              appendResponse.status
+            );
+          }
+        } catch (appendError) {
+          console.error("Error appending to chat history:", appendError);
+        }
+      } else {
+        // NEW CONVERSATION: Create new chat history
+        console.log(`[sendJiraAgentQuestion] Creating new conversation`);
+
+        try {
+          const createHistoryUrl = `${BASE_URL}/api/create-chat-history-enhanced`;
+          const historyResponse = await fetch(createHistoryUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            credentials: "include",
+            body: JSON.stringify({
+              title: question.substring(0, 50) || "Jira Agent Query",
+              message: {
+                user: question,
+                gemini: responseContent,
+                sources: sources,
+                relatedQuestions: relatedQuestions,
+                queryKeywords,
+                isPreformattedHTML: true,
+              },
+              isSearch: true,
+              searchType: "agent",
+              clientId: `jira_${Date.now()}_${Math.random()
+                .toString(36)
+                .substring(2, 7)}`,
+            }),
+          });
+
           if (historyResponse.ok) {
             const historyData = await historyResponse.json();
             if (historyData.success && historyData.chatHistoryId) {
               finalChatHistoryId = historyData.chatHistoryId;
+              console.log(
+                `[sendJiraAgentQuestion] Created new conversation: ${finalChatHistoryId}`
+              );
             }
+          } else {
+            console.warn(
+              `[sendJiraAgentQuestion] Failed to create chat history:`,
+              historyResponse.status
+            );
           }
         } catch (historyError) {
           console.error("Error creating chat history:", historyError);
         }
       }
 
+      // Update Redux state with final chat history ID
       if (finalChatHistoryId) {
         dispatch(
           chatAction.chatHistoryIdHandler({
@@ -480,8 +632,15 @@ export const sendJiraAgentQuestion = (questionData) => {
           })
         );
 
-        // Navigate to final chat
-        if (navigate && typeof navigate === "function") {
+        // CRITICAL FIX: Navigate to proper URL only for new conversations
+        if (
+          !currentChatHistoryId &&
+          navigate &&
+          typeof navigate === "function"
+        ) {
+          console.log(
+            `[sendJiraAgentQuestion] Navigating to: /app/${finalChatHistoryId}`
+          );
           setTimeout(() => {
             navigate(`/app/${finalChatHistoryId}`, { replace: true });
           }, 500);

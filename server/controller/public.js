@@ -1,3 +1,4 @@
+// server/controller/public.js - ENHANCED VERSION FOR JIRA AGENT CONVERSATIONS
 import { user } from "../model/user.js";
 import { chat } from "../model/chat.js";
 import { chatHistory } from "../model/chatHistory.js";
@@ -8,18 +9,7 @@ export const getGeminiHome = (req, res, next) => {
   res.status(200).json({ message: "Welcome to Gemini Ai Api" });
 };
 
-// post gemini data add to db condition
-
-// if chatHistoryId -> check old chatHistory else create new chatHistory
-
-// if chatHistoryId -> push old chat -> create new chat
-
-// add chat to chatHistory only first one
-
-// add chatHistory to user
-
-let b = 0;
-
+// ENHANCED: Regular chat processing with better conversation continuity
 export const postGemini = async (req, res, next) => {
   const clientApikey = String(req.headers["x-api-key"]);
   const serverSideClientApiKey = String(process.env.CLIENT_API_KEY);
@@ -179,10 +169,6 @@ export const postGemini = async (req, res, next) => {
         throw new Error("Server Error");
       }
 
-      b += 1;
-
-      console.log("new chat ", b);
-
       res.status(200).json({
         user: query,
         gemini: text,
@@ -196,8 +182,6 @@ export const postGemini = async (req, res, next) => {
       next(err);
     });
 };
-
-let c = 0;
 
 const getDefaultUserId = async () => {
   try {
@@ -231,8 +215,6 @@ export const getChatHistory = (req, res, next) => {
         error.statusCode = 403;
         throw error;
       }
-      c += 1;
-      console.log("chat history", c);
 
       let chatHistory;
 
@@ -255,9 +237,7 @@ export const getChatHistory = (req, res, next) => {
     });
 };
 
-let a = 0;
-
-// server/controller/public.js - FIXED postChat function
+// CRITICAL FIX: Enhanced postChat function with better Jira agent support
 export const postChat = async (req, res, next) => {
   try {
     const chatHistoryId = req.body.chatHistoryId;
@@ -284,6 +264,7 @@ export const postChat = async (req, res, next) => {
     const isAgentChat =
       chatHistoryId &&
       (chatHistoryId.startsWith("agent_") ||
+        chatHistoryId.startsWith("jira_") ||
         chatHistoryId.includes("confluence") ||
         chatHistoryId.includes("monitor") ||
         chatHistoryId.includes("jira") ||
@@ -296,7 +277,7 @@ export const postChat = async (req, res, next) => {
     let chatHistoryDoc;
 
     // CRITICAL FIX: Enhanced retry logic for newly created chats
-    const maxRetries = 5; // Increased retries
+    const maxRetries = 5;
     let retryCount = 0;
 
     while (!chatHistoryDoc && retryCount < maxRetries) {
@@ -321,7 +302,7 @@ export const postChat = async (req, res, next) => {
           }
         }
 
-        // Strategy 2: Client ID lookup for agent chats
+        // Strategy 2: Client ID lookup for agent chats (including Jira agent)
         if (!chatHistoryDoc && isClientId) {
           console.log(`[postChat] Trying clientId lookup: ${chatHistoryId}`);
           chatHistoryDoc = await chatHistory
@@ -333,7 +314,7 @@ export const postChat = async (req, res, next) => {
           }
         }
 
-        // Strategy 3: Search by title patterns for agent chats
+        // Strategy 3: Search by title patterns for agent chats (including Jira)
         if (!chatHistoryDoc && isAgentChat) {
           console.log(
             `[postChat] Trying pattern-based lookup for: ${chatHistoryId}`
@@ -437,7 +418,7 @@ export const postChat = async (req, res, next) => {
               retryCount + 2
             }`
           );
-          await new Promise((resolve) => setTimeout(resolve, 2000)); // Increased wait time
+          await new Promise((resolve) => setTimeout(resolve, 2000));
         }
 
         retryCount++;
@@ -480,7 +461,7 @@ export const postChat = async (req, res, next) => {
       }`
     );
 
-    // CRITICAL FIX: Enhanced message processing with better error handling
+    // CRITICAL FIX: Enhanced message processing with better error handling for Jira agent
     if (chatHistoryDoc.chat && chatHistoryDoc.chat.messages) {
       console.log(
         `[postChat] Found chat with ${chatHistoryDoc.chat.messages.length} messages`
@@ -606,8 +587,6 @@ export const getSingleChat = async (req, res, next) => {
     });
   }
 };
-
-let d = 0;
 
 // API endpoint to create a new chat history entry
 export const createChatHistory = async (req, res, next) => {
@@ -766,6 +745,7 @@ export const deleteChatHistoryController = async (req, res, next) => {
   }
 };
 
+// CRITICAL FIX: Enhanced updateChatHistory for Jira agent conversations
 export const updateChatHistory = async (req, res, next) => {
   try {
     const { chatHistoryId, message } = req.body;
@@ -811,7 +791,7 @@ export const updateChatHistory = async (req, res, next) => {
         );
         chatHistoryDoc = await chatHistory.findById(chatHistoryId);
       } else {
-        // Client-generated ID format (like agent_timestamp_random)
+        // Client-generated ID format (like agent_timestamp_random or jira_timestamp_random)
         console.log(
           `[updateChatHistory] Looking up client ID: ${chatHistoryId}`
         );
@@ -834,7 +814,9 @@ export const updateChatHistory = async (req, res, next) => {
           );
           const recentAgentChats = await chatHistory
             .find({
-              type: { $in: ["agent", "conf_agent", "monitor_agent"] },
+              type: {
+                $in: ["agent", "conf_agent", "monitor_agent", "jira_agent"],
+              },
               timestamp: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }, // Within last 24 hours
             })
             .sort({ timestamp: -1 })
@@ -867,13 +849,23 @@ export const updateChatHistory = async (req, res, next) => {
 
       // CRITICAL FIX: Create new chat history if not found
       try {
+        // Determine chat type based on chatHistoryId
+        let chatType = "agent";
+        if (chatHistoryId.startsWith("jira_")) {
+          chatType = "jira_agent";
+        } else if (chatHistoryId.startsWith("conf_")) {
+          chatType = "conf_agent";
+        } else if (chatHistoryId.startsWith("monitor_")) {
+          chatType = "monitor_agent";
+        }
+
         chatHistoryDoc = new chatHistory({
           user: senderId,
           title: message.user
             ? message.user.substring(0, 50)
             : "Agent Response",
           timestamp: new Date(),
-          type: "agent",
+          type: chatType,
           clientId: chatHistoryId, // Store the client ID for future lookups
         });
 
@@ -916,7 +908,7 @@ export const updateChatHistory = async (req, res, next) => {
         const shouldUpdateLastMessage =
           lastMessage.message.user === message.user &&
           (lastMessage.message.gemini === "Streaming response..." ||
-            lastMessage.message.gemini === "Connecting to Day One API..." ||
+            lastMessage.message.gemini === "Connecting to Jira..." ||
             lastMessage.message.gemini.includes("Connecting") ||
             lastMessage.message.gemini.length < 50); // Likely a placeholder
 
@@ -1033,7 +1025,7 @@ export const updateChatHistory = async (req, res, next) => {
   }
 };
 
-// CRITICAL FIX: Add appendChatMessage API for conversation continuation
+// CRITICAL FIX: Enhanced appendChatMessage API for conversation continuation
 export const appendChatMessage = async (req, res, next) => {
   try {
     const { chatHistoryId, message, isSearch, searchType } = req.body;
@@ -1174,7 +1166,7 @@ export const appendChatMessage = async (req, res, next) => {
   }
 };
 
-// CRITICAL FIX: Enhanced createChatHistory for better streaming support
+// CRITICAL FIX: Enhanced createChatHistoryEnhanced for better Jira agent support
 export const createChatHistoryEnhanced = async (req, res, next) => {
   try {
     const { title, message, isSearch, searchType, clientId } = req.body;
@@ -1194,16 +1186,30 @@ export const createChatHistoryEnhanced = async (req, res, next) => {
       );
     }
 
+    // Determine appropriate chat type based on searchType or clientId
+    let chatType = searchType || "agent";
+    if (clientId) {
+      if (clientId.startsWith("jira_")) {
+        chatType = "jira_agent";
+      } else if (clientId.startsWith("conf_")) {
+        chatType = "conf_agent";
+      } else if (clientId.startsWith("monitor_")) {
+        chatType = "monitor_agent";
+      }
+    }
+
     // Create a new chat history document
     const chatHistoryDoc = new chatHistory({
       user: senderId,
       title: title || "Agent Response",
       timestamp: new Date(),
-      type: searchType || "agent",
-      // Use provided clientId or generate one
+      type: chatType,
+      // Use provided clientId or generate one based on type
       clientId:
         clientId ||
-        (searchType === "agent"
+        (chatType === "jira_agent"
+          ? `jira_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`
+          : searchType === "agent"
           ? `agent_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`
           : undefined),
     });
@@ -1228,7 +1234,7 @@ export const createChatHistoryEnhanced = async (req, res, next) => {
             isPreformattedHTML: message.isPreformattedHTML || false,
           },
           isSearch: isSearch || true,
-          searchType: searchType || "agent",
+          searchType: chatType,
           timestamp: new Date(),
         },
       ],

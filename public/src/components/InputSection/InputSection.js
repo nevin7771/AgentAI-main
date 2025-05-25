@@ -1,4 +1,4 @@
-// public/src/components/InputSection/InputSection.js - COMPLETE FIX
+// public/src/components/InputSection/InputSection.js - ENHANCED JIRA AGENT CONVERSATION FIX
 import styles from "./InputSection.module.css";
 import { sendDeepSearchRequest, getRecentChat } from "../../store/chat-action";
 import { sendAgentQuestion } from "../../store/agent-actions";
@@ -26,8 +26,9 @@ const InputSection = () => {
   const chatHistoryId = useSelector((state) => state.chat.chatHistoryId);
   const suggestPrompt = useSelector((state) => state.chat.suggestPrompt);
   const previousChat = useSelector((state) => state.chat.previousChat); // For conversation continuation
+  const currentChats = useSelector((state) => state.chat.chats); // Current conversation context
 
-  // CRITICAL FIX: Check for any active loading state
+  // CRITICAL FIX: Enhanced loading state detection for all agent types
   const isLoaderActive = useSelector((state) => {
     const chats = state.chat.chats;
     const hasLoadingChat = chats.some(
@@ -42,11 +43,11 @@ const InputSection = () => {
   // Get selectedAgents from Redux store
   const selectedAgents = useSelector((state) => state.agent.selectedAgents);
 
-  // Agent ID mapping for display names
+  // Enhanced agent ID mapping for display names
   const AGENT_DISPLAY_NAMES = {
     conf_ag: "Confluence Agent",
     monitor_ag: "Monitor Agent",
-    jira_ag: "Jira Agent",
+    jira_ag: "Jira Agent", // CRITICAL: Ensure Jira agent is properly mapped
     client_agent: "Client Agent",
     zr_ag: "ZR Agent",
     zp_ag: "ZP Agent",
@@ -121,7 +122,12 @@ const InputSection = () => {
     return agentId === "conf_ag" || agentId === "monitor_ag";
   }, []);
 
-  // CRITICAL FIX: Enhanced onSubmitHandler for immediate streaming and proper conversation continuation
+  // CRITICAL FIX: Check if agent is Jira agent
+  const isJiraAgent = useCallback((agentId) => {
+    return agentId === "jira_ag";
+  }, []);
+
+  // CRITICAL FIX: Enhanced onSubmitHandler with proper Jira agent conversation continuity
   const onSubmitHandler = async (e) => {
     e.preventDefault();
     if (!userInput.trim() || isLoaderActive === "yes") return;
@@ -132,13 +138,16 @@ const InputSection = () => {
     console.log(`[InputSection] Submitting: "${currentInput}"`);
     console.log(`[InputSection] Current chat history ID: ${chatHistoryId}`);
     console.log(`[InputSection] Selected agents: ${selectedAgents.join(", ")}`);
+    console.log(`[InputSection] Has existing conversation: ${!!chatHistoryId}`);
     console.log(
-      `[InputSection] Has previous chat context: ${previousChat?.length > 0}`
+      `[InputSection] Current conversation length: ${currentChats?.length || 0}`
     );
 
     try {
-      // CRITICAL FIX: Only navigate if we don't have a chat history (new conversation)
-      if (!chatHistoryId) {
+      // CRITICAL FIX: Enhanced navigation logic - only navigate if no existing conversation
+      const hasExistingConversation = chatHistoryId && currentChats?.length > 0;
+
+      if (!hasExistingConversation) {
         const targetUrl = "/app";
         console.log(
           `[InputSection] Navigating to new conversation: ${targetUrl}`
@@ -159,19 +168,90 @@ const InputSection = () => {
           `[InputSection] Processing agent request: ${selectedAgentId}`
         );
 
-        if (isDayOneStreamingAgent(selectedAgentId)) {
+        // CRITICAL FIX: Enhanced Jira agent handling with conversation continuity
+        if (isJiraAgent(selectedAgentId)) {
+          console.log(
+            `[InputSection] Using Jira Agent with conversation context`
+          );
+
+          // CRITICAL FIX: Pass existing conversation context to Jira agent
+          const jiraResponse = await dispatch(
+            sendAgentQuestion({
+              question: currentInput,
+              agents: selectedAgents,
+              chatHistoryId: chatHistoryId, // CRITICAL: Pass existing chat ID
+              navigate,
+              // Additional context for Jira agent
+              conversationContext: {
+                hasExisting: hasExistingConversation,
+                messageCount: currentChats?.length || 0,
+                previousQuestions:
+                  currentChats
+                    ?.filter(
+                      (chat) =>
+                        chat.user &&
+                        chat.isSearch &&
+                        chat.searchType === "agent"
+                    )
+                    ?.slice(-3) // Last 3 Jira questions for context
+                    ?.map((chat) => chat.user) || [],
+              },
+            })
+          );
+
+          console.log(`[InputSection] Jira agent response:`, jiraResponse);
+
+          // Handle Jira agent response
+          if (jiraResponse && jiraResponse.orchestrationComplete === true) {
+            console.log(`[InputSection] Jira agent response completed`);
+
+            // CRITICAL FIX: Enhanced URL management for existing conversations
+            const finalChatId =
+              jiraResponse.data?.chatHistoryId || chatHistoryId;
+
+            if (finalChatId && !hasExistingConversation) {
+              // Only navigate for new conversations
+              console.log(
+                `[InputSection] Updating URL to: /app/${finalChatId}`
+              );
+              setTimeout(() => {
+                navigate(`/app/${finalChatId}`, { replace: true });
+                dispatch(getRecentChat());
+              }, 1000);
+            } else if (hasExistingConversation) {
+              // For existing conversations, just refresh the recent chat list
+              console.log(
+                `[InputSection] Refreshing chat list for existing conversation`
+              );
+              setTimeout(() => {
+                dispatch(getRecentChat());
+              }, 500);
+            }
+
+            dispatch(uiAction.setLoading(false));
+            return;
+          }
+
+          // Handle any errors or unexpected responses
+          if (!jiraResponse || jiraResponse.success === false) {
+            throw new Error(jiraResponse?.error || "Jira agent request failed");
+          }
+        } else if (isDayOneStreamingAgent(selectedAgentId)) {
           console.log(
             `[InputSection] Using Day One streaming for ${selectedAgentId}`
           );
 
-          // CRITICAL FIX: Start streaming process without awaiting completion
+          // CRITICAL FIX: Enhanced streaming with conversation context
           if (selectedAgentId === "conf_ag") {
-            // Don't await - let it stream in background
             dispatch(
               sendDirectConfluenceQuestion({
                 question: currentInput,
-                chatHistoryId,
+                chatHistoryId: chatHistoryId, // Pass existing chat ID
                 navigate,
+                conversationContext: {
+                  hasExisting: hasExistingConversation,
+                  messageCount: currentChats?.length || 0,
+                },
               })
             )
               .then((response) => {
@@ -179,7 +259,6 @@ const InputSection = () => {
                   `[InputSection] Confluence streaming completed:`,
                   response
                 );
-                // Handle post-completion logic if needed
                 if (response && response.success) {
                   setTimeout(() => {
                     dispatch(getRecentChat());
@@ -193,12 +272,15 @@ const InputSection = () => {
                 );
               });
           } else if (selectedAgentId === "monitor_ag") {
-            // Don't await - let it stream in background
             dispatch(
               sendDirectMonitorQuestion({
                 question: currentInput,
-                chatHistoryId,
+                chatHistoryId: chatHistoryId, // Pass existing chat ID
                 navigate,
+                conversationContext: {
+                  hasExisting: hasExistingConversation,
+                  messageCount: currentChats?.length || 0,
+                },
               })
             )
               .then((response) => {
@@ -206,7 +288,6 @@ const InputSection = () => {
                   `[InputSection] Monitor streaming completed:`,
                   response
                 );
-                // Handle post-completion logic if needed
                 if (response && response.success) {
                   setTimeout(() => {
                     dispatch(getRecentChat());
@@ -221,7 +302,7 @@ const InputSection = () => {
           // Clean up loading state immediately since streaming will handle its own state
           dispatch(uiAction.setLoading(false));
         } else {
-          // Handle other (non-streaming) agents
+          // Handle other (non-streaming, non-Jira) agents
           console.log(
             `[InputSection] Using standard agent processing for ${selectedAgentId}`
           );
@@ -230,7 +311,7 @@ const InputSection = () => {
             sendAgentQuestion({
               question: currentInput,
               agents: selectedAgents,
-              chatHistoryId,
+              chatHistoryId: chatHistoryId, // Pass existing chat ID
               navigate,
             })
           );
@@ -243,7 +324,7 @@ const InputSection = () => {
 
             const finalChatId =
               agentResponse.data?.chatHistoryId || chatHistoryId;
-            if (finalChatId && finalChatId !== chatHistoryId) {
+            if (finalChatId && !hasExistingConversation) {
               console.log(
                 `[InputSection] Updating URL to: /app/${finalChatId}`
               );
@@ -276,8 +357,6 @@ const InputSection = () => {
             maxAttempts: 60,
             onComplete: (data) => {
               console.log(`[InputSection] Agent task completed:`, data);
-
-              // Handle final response
               handleAgentResponse({
                 ...data,
                 agentId: selectedAgentId,
@@ -310,7 +389,9 @@ const InputSection = () => {
         }
       } else if (searchMode === "deep" || searchMode === "simple") {
         // CRITICAL FIX: Handle search modes with proper conversation continuation
-        console.log(`[InputSection] Using ${searchMode} search`);
+        console.log(
+          `[InputSection] Using ${searchMode} search with conversation context`
+        );
 
         let searchResponse;
         if (searchMode === "deep") {
@@ -319,7 +400,7 @@ const InputSection = () => {
               query: currentInput,
               sources: ["support.zoom.us", "community.zoom.us", "zoom.us"],
               endpoint: "/api/deepsearch",
-              chatHistoryId, // CRITICAL: Pass existing chatHistoryId for continuation
+              chatHistoryId: chatHistoryId, // CRITICAL: Pass existing chatHistoryId for continuation
             })
           );
         } else {
@@ -328,15 +409,19 @@ const InputSection = () => {
               query: currentInput,
               sources: ["support.zoom.us", "community.zoom.us", "zoom.us"],
               endpoint: "/api/simplesearch",
-              chatHistoryId, // CRITICAL: Pass existing chatHistoryId for continuation
+              chatHistoryId: chatHistoryId, // CRITICAL: Pass existing chatHistoryId for continuation
             })
           );
         }
 
         console.log(`[InputSection] Search response:`, searchResponse);
 
-        // CRITICAL FIX: Navigate to proper URL after search if it's a new conversation
-        if (searchResponse && searchResponse.chatHistoryId && !chatHistoryId) {
+        // CRITICAL FIX: Navigate to proper URL after search only for new conversations
+        if (
+          searchResponse &&
+          searchResponse.chatHistoryId &&
+          !hasExistingConversation
+        ) {
           console.log(
             `[InputSection] Navigating to search result: /app/${searchResponse.chatHistoryId}`
           );
@@ -351,7 +436,9 @@ const InputSection = () => {
         }, 1500);
       } else {
         // CRITICAL FIX: Handle regular chat (no agents, no search) with conversation continuation
-        console.log(`[InputSection] Using regular chat mode`);
+        console.log(
+          `[InputSection] Using regular chat mode with conversation context`
+        );
 
         const chatResponse = await dispatch(
           sendChatData({
@@ -363,8 +450,12 @@ const InputSection = () => {
 
         console.log(`[InputSection] Chat response:`, chatResponse);
 
-        // CRITICAL FIX: Navigate to proper URL if it's a new conversation
-        if (chatResponse && chatResponse.chatHistoryId && !chatHistoryId) {
+        // CRITICAL FIX: Navigate to proper URL only for new conversations
+        if (
+          chatResponse &&
+          chatResponse.chatHistoryId &&
+          !hasExistingConversation
+        ) {
           console.log(
             `[InputSection] Navigating to chat result: /app/${chatResponse.chatHistoryId}`
           );
@@ -508,18 +599,22 @@ const InputSection = () => {
             autoComplete="off"
             rows={1}
             placeholder={
-              // CRITICAL FIX: Proper placeholder logic
+              // CRITICAL FIX: Enhanced placeholder logic with conversation awareness
               isLoaderActive === "yes"
                 ? "Please wait for the response..."
                 : selectedAgents.length > 0
-                ? `Ask ${
+                ? `${chatHistoryId ? "Continue asking" : "Ask"} ${
                     selectedAgents.length > 1
                       ? "agents"
                       : getAgentDisplayName(selectedAgents[0])
                   }...`
                 : searchMode === "simple"
-                ? "Ask for a quick answer..."
-                : "Ask for detailed research..."
+                ? `${
+                    chatHistoryId ? "Ask another" : "Ask for a"
+                  } quick answer...`
+                : `${
+                    chatHistoryId ? "Ask for more" : "Ask for"
+                  } detailed research...`
             }
             className={styles["input-field"]}
             disabled={isLoaderActive === "yes"}
@@ -660,8 +755,18 @@ const InputSection = () => {
                   {selectedAgents.length > 1
                     ? `${selectedAgents.length} Agents Selected`
                     : `${getAgentDisplayName(selectedAgents[0])} Selected`}
+                  {/* CRITICAL FIX: Enhanced badge indicators */}
+                  {isJiraAgent(selectedAgents[0]) && (
+                    <span className={styles["jira-badge"]}>JIRA</span>
+                  )}
                   {isDayOneStreamingAgent(selectedAgents[0]) && (
-                    <span className={styles["streaming-badge"]}></span>
+                    <span className={styles["streaming-badge"]}>STREAM</span>
+                  )}
+                  {/* Show conversation indicator if in existing conversation */}
+                  {chatHistoryId && currentChats?.length > 0 && (
+                    <span className={styles["conversation-badge"]}>
+                      ({currentChats.length} msgs)
+                    </span>
                   )}
                 </span>
               </div>
@@ -671,7 +776,15 @@ const InputSection = () => {
       </div>
 
       <div className={styles["input-help"]}>
-        <span>Press Shift + Enter for new line</span>
+        <span>
+          Press Shift + Enter for new line
+          {/* CRITICAL FIX: Show conversation context in help text */}
+          {chatHistoryId && currentChats?.length > 0 && (
+            <span className={styles["conversation-help"]}>
+              • Continuing conversation ({currentChats.length} messages)
+            </span>
+          )}
+        </span>
       </div>
     </div>
   );

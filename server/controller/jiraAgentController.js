@@ -1,13 +1,18 @@
-// server/controller/jiraAgentController.js - UPDATED VERSION
+// server/controller/jiraAgentController.js - ENHANCED VERSION WITH CONVERSATION CONTINUITY
 import jiraAgentService from "../agents/jira_agent/jiraAgentService.js";
 
 /**
- * Process a query and return a response
+ * ENHANCED: Process a query with conversation continuity support
  */
 export const processQuery = async (req, res) => {
   try {
-    const { query, chatHistory, clarificationResponse, clarificationContext } =
-      req.body;
+    const {
+      query,
+      chatHistory,
+      clarificationResponse,
+      clarificationContext,
+      chatHistoryId,
+    } = req.body;
 
     if (!query) {
       return res.status(400).json({
@@ -21,6 +26,9 @@ export const processQuery = async (req, res) => {
       `[JiraAgentController] Chat history length: ${chatHistory?.length || 0}`
     );
     console.log(
+      `[JiraAgentController] Chat history ID: ${chatHistoryId || "none"}`
+    );
+    console.log(
       `[JiraAgentController] Clarification response: ${
         clarificationResponse || "none"
       }`
@@ -28,40 +36,64 @@ export const processQuery = async (req, res) => {
 
     let response;
 
-    // Check if this is a follow-up to a clarification request
-    if (clarificationResponse || clarificationContext) {
-      console.log(
-        `[JiraAgentController] Processing clarification response: "${clarificationResponse}"`
-      );
+    try {
+      // Check if this is a follow-up to a clarification request
+      if (clarificationResponse || clarificationContext) {
+        console.log(
+          `[JiraAgentController] Processing clarification response: "${clarificationResponse}"`
+        );
 
-      // Create enhanced chat history with clarification context
-      const enhancedChatHistory = [...(chatHistory || [])];
+        // Create enhanced chat history with clarification context
+        const enhancedChatHistory = [...(chatHistory || [])];
 
-      if (clarificationContext) {
-        // Add metadata to help track context
-        enhancedChatHistory.push({
-          role: "_metadata",
-          message: JSON.stringify({
-            metadata: {
-              originalQuery: clarificationContext.originalQuery || query,
-              clarificationType: clarificationContext.clarificationType,
-              ...clarificationContext.metadata,
-            },
-          }),
-        });
+        if (clarificationContext) {
+          // Add metadata to help track context
+          enhancedChatHistory.push({
+            role: "_metadata",
+            message: JSON.stringify({
+              metadata: {
+                originalQuery: clarificationContext.originalQuery || query,
+                clarificationType: clarificationContext.clarificationType,
+                ...clarificationContext.metadata,
+              },
+            }),
+          });
+        }
+
+        response = await jiraAgentService.handleClarificationResponse(
+          clarificationContext?.originalQuery || query,
+          clarificationResponse || query,
+          enhancedChatHistory
+        );
+      } else {
+        // Regular query processing with conversation context
+        response = await jiraAgentService.processQuery(
+          query,
+          chatHistory || []
+        );
       }
+    } catch (serviceError) {
+      console.error("[JiraAgentController] Service error:", serviceError);
 
-      response = await jiraAgentService.handleClarificationResponse(
-        clarificationContext?.originalQuery || query,
-        clarificationResponse || query,
-        enhancedChatHistory
-      );
-    } else {
-      // Regular query processing
-      response = await jiraAgentService.processQuery(query, chatHistory || []);
+      // Create a fallback response in case of service error
+      response = {
+        success: false,
+        error: serviceError.message,
+        formattedResponse: `Error: ${serviceError.message}`,
+      };
     }
 
-    // Handle clarification requests
+    // If no response was received or response is undefined
+    if (!response) {
+      console.error("[JiraAgentController] Service returned no response");
+      response = {
+        success: false,
+        error: "No response received from service",
+        formattedResponse: "Error: No response received from service",
+      };
+    }
+
+    // ENHANCED: Handle clarification requests with better formatting
     if (response.needsClarification) {
       console.log(`[JiraAgentController] Agent needs clarification:`, {
         message: response.message,
@@ -84,6 +116,8 @@ export const processQuery = async (req, res) => {
           queryType: response.queryType,
           missingFields: response.missingFields || [],
           timestamp: new Date().toISOString(),
+          chatHistoryId: chatHistoryId,
+          ...response.metadata,
         },
         // Ensure the result structure exists for frontend compatibility
         result: {
@@ -94,8 +128,23 @@ export const processQuery = async (req, res) => {
       });
     }
 
-    // Handle successful responses
-    if (response.success) {
+    // Ensure formattedResponse exists - this is the critical fix
+    if (!response.formattedResponse) {
+      if (response.error) {
+        response.formattedResponse = `Error: ${response.error}`;
+      } else if (response.message) {
+        response.formattedResponse = response.message;
+      } else {
+        response.formattedResponse =
+          "Processing complete, but no detailed response was generated.";
+      }
+      console.warn(
+        "[JiraAgentController] Missing formattedResponse, created fallback"
+      );
+    }
+
+    // ENHANCED: Handle successful responses
+    if (response.success !== false) {
       console.log(`[JiraAgentController] Query processed successfully`);
 
       return res.status(200).json({
@@ -104,12 +153,21 @@ export const processQuery = async (req, res) => {
         formattedResponse: response.formattedResponse,
         sources: response.sources || [],
         visualization: response.visualization || null,
-        metadata: response.metadata || {},
+        relatedQuestions: response.relatedQuestions || [],
+        metadata: {
+          queryType: response.queryType,
+          executionTime: response.metadata?.executionTime,
+          totalResults: response.metadata?.totalResults,
+          jqlQueries: response.metadata?.jqlQueries,
+          chatHistoryId: chatHistoryId,
+          ...response.metadata,
+        },
         // Properly formatted result for frontend
         result: {
           answer: response.formattedResponse || response.message || "",
           sources: response.sources || [],
           visualization: response.visualization || null,
+          relatedQuestions: response.relatedQuestions || [],
           metadata: response.metadata || {},
         },
       });
@@ -145,14 +203,90 @@ export const processQuery = async (req, res) => {
 };
 
 /**
- * Enhanced ticket summary with better error handling
+ * ENHANCED: Create a visualization with better error handling
  */
-export const getTicketSummary = async (req, res) => {
-  // Set CORS headers
-  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
-  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+export const createVisualization = async (req, res) => {
+  try {
+    const { visualizationType, params } = req.body;
 
+    if (!visualizationType || !params) {
+      return res.status(400).json({
+        success: false,
+        message: "Visualization type and parameters are required",
+        result: {
+          answer:
+            "❌ **Missing Parameters**: Visualization type and parameters are required",
+          sources: [],
+        },
+      });
+    }
+
+    console.log(
+      `[JiraAgentController] Creating visualization: ${visualizationType}`
+    );
+
+    // Validate required parameters for visualization
+    if (!params.issueArea && !params.project) {
+      return res.status(400).json({
+        success: false,
+        message: "Issue Area and Project are required for visualization",
+        result: {
+          answer:
+            "❌ **Missing Information**: Please specify Issue Area and Project for visualization",
+          sources: [],
+        },
+      });
+    }
+
+    const result = await jiraAgentService.createVisualization(
+      visualizationType,
+      params
+    );
+
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        message: result.error || "Visualization creation failed",
+        result: {
+          answer: `❌ **Visualization Failed**: ${result.error}`,
+          sources: result.sources || [],
+        },
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Visualization created successfully",
+      formattedResponse: result.formattedResponse,
+      sources: result.sources || [],
+      visualization: result.visualization,
+      metadata: result.metadata || {},
+      result: {
+        answer: result.formattedResponse || "",
+        sources: result.sources || [],
+        visualization: result.visualization,
+        metadata: result.metadata || {},
+      },
+    });
+  } catch (error) {
+    console.error("[JiraAgentController] Error creating visualization:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error during visualization creation",
+      error: error.message,
+      result: {
+        answer: `❌ **Server Error**: ${error.message}`,
+        sources: [],
+      },
+    });
+  }
+};
+
+/**
+ * ENHANCED: Get ticket sentiment analysis with better error handling
+ */
+export const getTicketSentiment = async (req, res) => {
   try {
     const { issueKey } = req.params;
 
@@ -164,91 +298,6 @@ export const getTicketSummary = async (req, res) => {
           answer: "❌ **Error**: Issue key is required",
           sources: [],
         },
-      });
-    }
-
-    // Validate issue key format
-    const jiraKeyPattern = /^[A-Z]+-\d+$/;
-    if (!jiraKeyPattern.test(issueKey)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid Jira issue key format",
-        result: {
-          answer: `❌ **Invalid Issue Key**: ${issueKey} is not a valid Jira issue key format (expected: PROJECT-123)`,
-          sources: [],
-        },
-      });
-    }
-
-    console.log(
-      `[JiraAgentController] Getting summary for ticket: ${issueKey}`
-    );
-
-    const result = await jiraAgentService.getTicketSummary(issueKey);
-
-    if (!result.success) {
-      console.log(`[JiraAgentController] Ticket summary failed:`, result);
-
-      return res.status(404).json({
-        success: false,
-        message: result.error || "Ticket not found",
-        result: {
-          answer:
-            result.formattedResponse ||
-            `❌ **Ticket Not Found**: ${result.error}`,
-          sources: result.sources || [],
-        },
-      });
-    }
-
-    console.log(
-      `[JiraAgentController] Ticket summary successful for ${issueKey}`
-    );
-
-    return res.status(200).json({
-      success: true,
-      message: "Ticket summary retrieved successfully",
-      formattedResponse: result.formattedResponse,
-      sources: result.sources || [],
-      metadata: result.metadata || {},
-      issueKey: result.issueKey,
-      // Properly formatted result for frontend
-      result: {
-        answer: result.formattedResponse || "",
-        sources: result.sources || [],
-        visualization: null,
-        metadata: result.metadata || {},
-        issueKey: result.issueKey,
-      },
-    });
-  } catch (error) {
-    console.error("[JiraAgentController] Error getting ticket summary:", error);
-
-    const issueKey = req.params.issueKey || "unknown";
-
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error while getting ticket summary",
-      error: error.message,
-      result: {
-        answer: `❌ **Server Error**: Failed to retrieve summary for ${issueKey}. ${error.message}`,
-        sources: [],
-      },
-    });
-  }
-};
-
-/**
- * Enhanced sentiment analysis with better error handling
- */
-export const getTicketSentiment = async (req, res) => {
-  try {
-    const { issueKey } = req.params;
-
-    if (!issueKey) {
-      return res.status(400).json({
-        success: false,
-        message: "Issue key is required",
       });
     }
 
@@ -313,7 +362,7 @@ export const getTicketSentiment = async (req, res) => {
 };
 
 /**
- * Enhanced MTTR calculation
+ * ENHANCED: Calculate MTTR with better error handling
  */
 export const calculateMTTR = async (req, res) => {
   try {
@@ -384,82 +433,101 @@ export const calculateMTTR = async (req, res) => {
 };
 
 /**
- * Enhanced visualization creation
+ * ENHANCED: Get ticket summary with enhanced conversation support
  */
-export const createVisualization = async (req, res) => {
-  try {
-    const { visualizationType, params } = req.body;
+export const getTicketSummary = async (req, res) => {
+  // Set CORS headers
+  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
-    if (!visualizationType || !params) {
+  try {
+    const { issueKey } = req.params;
+
+    if (!issueKey) {
       return res.status(400).json({
         success: false,
-        message: "Visualization type and parameters are required",
+        message: "Issue key is required",
         result: {
-          answer:
-            "❌ **Missing Parameters**: Visualization type and parameters are required",
+          answer: "❌ **Error**: Issue key is required",
+          sources: [],
+        },
+      });
+    }
+
+    // Validate issue key format
+    const jiraKeyPattern = /^[A-Z]+-\d+$/;
+    if (!jiraKeyPattern.test(issueKey)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid Jira issue key format",
+        result: {
+          answer: `❌ **Invalid Issue Key**: ${issueKey} is not a valid Jira issue key format (expected: PROJECT-123)`,
           sources: [],
         },
       });
     }
 
     console.log(
-      `[JiraAgentController] Creating visualization: ${visualizationType}`
+      `[JiraAgentController] Getting summary for ticket: ${issueKey}`
     );
 
-    // Validate required parameters for visualization
-    if (!params.issueArea && !params.project) {
-      return res.status(400).json({
-        success: false,
-        message: "Issue Area and Project are required for visualization",
-        result: {
-          answer:
-            "❌ **Missing Information**: Please specify Issue Area and Project for visualization",
-          sources: [],
-        },
-      });
-    }
-
-    const result = await jiraAgentService.handleVisualizationRequest(
-      `Create a ${visualizationType} for ${params.issueArea} in ${params.project}`,
-      [], // Will be populated by the service based on params
-      visualizationType,
-      params
-    );
+    const result = await jiraAgentService.getTicketSummary(issueKey);
 
     if (!result.success) {
-      return res.status(400).json({
+      console.log(`[JiraAgentController] Ticket summary failed:`, result);
+
+      return res.status(404).json({
         success: false,
-        message: result.error || "Visualization creation failed",
+        message: result.error || "Ticket not found",
         result: {
-          answer: `❌ **Visualization Failed**: ${result.error}`,
+          answer:
+            result.formattedResponse ||
+            `❌ **Ticket Not Found**: ${result.error}`,
           sources: result.sources || [],
         },
       });
     }
 
+    console.log(
+      `[JiraAgentController] Ticket summary successful for ${issueKey}`
+    );
+
     return res.status(200).json({
       success: true,
-      message: "Visualization created successfully",
+      message: "Ticket summary retrieved successfully",
       formattedResponse: result.formattedResponse,
       sources: result.sources || [],
-      visualization: result.visualization,
-      metadata: result.metadata || {},
+      relatedQuestions: result.relatedQuestions || [],
+      metadata: {
+        issueKey: issueKey,
+        ticket: result.ticket,
+        ...result.metadata,
+      },
+      // Properly formatted result for frontend
       result: {
         answer: result.formattedResponse || "",
         sources: result.sources || [],
-        visualization: result.visualization,
-        metadata: result.metadata || {},
+        visualization: null,
+        relatedQuestions: result.relatedQuestions || [],
+        metadata: {
+          issueKey: issueKey,
+          ticket: result.ticket,
+          ...result.metadata,
+        },
       },
     });
   } catch (error) {
-    console.error("[JiraAgentController] Error creating visualization:", error);
+    console.error("[JiraAgentController] Error getting ticket summary:", error);
+
+    const issueKey = req.params.issueKey || "unknown";
 
     return res.status(500).json({
       success: false,
-      message: "Internal server error during visualization creation",
+      message: "Internal server error while getting ticket summary",
       error: error.message,
       result: {
-        answer: `❌ **Server Error**: ${error.message}`,
+        answer: `❌ **Server Error**: Failed to retrieve summary for ${issueKey}. ${error.message}`,
         sources: [],
       },
     });
