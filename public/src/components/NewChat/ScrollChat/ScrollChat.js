@@ -9,7 +9,7 @@ import React, {
   useCallback,
   useMemo,
 } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import {
   getChat,
   sendChatData,
@@ -82,63 +82,131 @@ const extractKeywords = (text) => {
 };
 
 const ScrollChat = () => {
-  const navigate = useNavigate();
   const dispatch = useDispatch();
   const { historyId } = useParams();
   const chatRef = useRef(null);
+
   const chat = useSelector((state) => state.chat.chats);
   const chatHistoryId = useSelector((state) => state.chat.chatHistoryId);
   const userImage = useSelector((state) => state.user.user.profileImg);
   const previousChat = useSelector((state) => state.chat.previousChat);
 
+  const [isLoadingChat, setIsLoadingChat] = useState(false);
+  const [lastLoadedHistoryId, setLastLoadedHistoryId] = useState(null);
+
   const userLogo = userImage || commonIcon.avatarIcon;
   const geminiLogo = commonIcon.chatGeminiIcon;
   const agentLogo = commonIcon.advanceGeminiIcon;
 
-  // Enhanced loading text variations
-  const loadingTexts = [
-    "Generating response...",
-    "Just a moment...",
-    "Processing your request...",
-    "Thinking...",
-    "Searching for information...",
-    "Reading relevant documents...",
-    "Reviewing sources...",
-    "Crafting a response...",
-    "Almost ready...",
-    "Synthesizing information...",
-    "Organizing thoughts...",
-    "Connecting ideas...",
-  ];
+  // Enhanced loading text variations - moved outside of useEffect to fix dependency issue
+  const loadingTexts = useMemo(
+    () => [
+      "Generating response...",
+      "Just a moment...",
+      "Processing your request...",
+      "Thinking...",
+      "Searching for information...",
+      "Reading relevant documents...",
+      "Reviewing sources...",
+      "Crafting a response...",
+      "Almost ready...",
+      "Synthesizing information...",
+      "Organizing thoughts...",
+      "Connecting ideas...",
+    ],
+    []
+  );
 
   const [currentLoadingText, setCurrentLoadingText] = useState(loadingTexts[0]);
   const [showScrollButton, setShowScrollButton] = useState(false);
 
-  // Effect to handle chat history loading
+  // CRITICAL FIX: Load ALL chat histories when historyId changes
   useEffect(() => {
-    if (historyId && historyId !== chatHistoryId) {
+    // Only load if we have a historyId and it's different from the last loaded one
+    if (historyId && historyId !== lastLoadedHistoryId && !isLoadingChat) {
       console.log(`[ScrollChat] Loading chat history: ${historyId}`);
-      dispatch(getChat(historyId));
-      dispatch(chatAction.chatHistoryIdHandler({ chatHistoryId: historyId }));
-    }
-  }, [dispatch, historyId, chatHistoryId]);
 
-  // CRITICAL FIX: Enhanced auto-scroll effect with proper dependency handling
+      setIsLoadingChat(true);
+      setLastLoadedHistoryId(historyId);
+
+      // Clear existing chat first to prevent mixing
+      dispatch(chatAction.getChatHandler({ chats: [] }));
+
+      // Load the chat history
+      dispatch(getChat(historyId))
+        .then((result) => {
+          console.log(
+            `[ScrollChat] Successfully loaded chat: ${historyId}`,
+            result
+          );
+          // Update the chatHistoryId in Redux store
+          dispatch(
+            chatAction.chatHistoryIdHandler({ chatHistoryId: historyId })
+          );
+        })
+        .catch((error) => {
+          console.error(`[ScrollChat] Error loading chat: ${historyId}`, error);
+          // On error, still set the history ID to prevent infinite reload attempts
+          dispatch(
+            chatAction.chatHistoryIdHandler({ chatHistoryId: historyId })
+          );
+        })
+        .finally(() => {
+          setIsLoadingChat(false);
+        });
+    } else if (
+      historyId &&
+      historyId === chatHistoryId &&
+      chat.length === 0 &&
+      !isLoadingChat
+    ) {
+      // If we have a historyId but no chat messages, try to load them
+      console.log(
+        `[ScrollChat] No messages found, attempting to load: ${historyId}`
+      );
+
+      setIsLoadingChat(true);
+
+      dispatch(getChat(historyId))
+        .then((result) => {
+          console.log(
+            `[ScrollChat] Loaded missing messages for: ${historyId}`,
+            result
+          );
+        })
+        .catch((error) => {
+          console.error(
+            `[ScrollChat] Error loading missing messages: ${historyId}`,
+            error
+          );
+        })
+        .finally(() => {
+          setIsLoadingChat(false);
+        });
+    }
+  }, [
+    dispatch,
+    historyId,
+    lastLoadedHistoryId,
+    isLoadingChat,
+    chatHistoryId,
+    chat.length,
+  ]);
+
+  // Enhanced auto-scroll effect
   useEffect(() => {
     const chatContainer = chatRef.current;
     if (chatContainer && chat.length > 0) {
-      // Always scroll to bottom when new messages are added
       const scrollToBottom = () => {
         chatContainer.scrollTop = chatContainer.scrollHeight;
       };
 
-      // Use requestAnimationFrame to ensure DOM has updated
       requestAnimationFrame(() => {
         scrollToBottom();
         setShowScrollButton(false);
       });
     }
-  }, [chat.length, chat]); // CRITICAL FIX: Depend on both length and chat array
+  }, [chat.length, chat]);
 
   const handleScroll = useCallback(() => {
     const chatContainer = chatRef.current;
@@ -159,7 +227,7 @@ const ScrollChat = () => {
     }
   }, [handleScroll]);
 
-  // Effect for rotating loading texts
+  // Effect for rotating loading texts - fixed dependency
   useEffect(() => {
     const hasStandardLoadingMessage = chat.some(
       (c) =>
@@ -182,7 +250,7 @@ const ScrollChat = () => {
     }
 
     return () => clearInterval(intervalId);
-  }, [chat]);
+  }, [chat, loadingTexts]);
 
   // Force scroll to bottom when scroll button is clicked
   const forceScrollToBottom = useCallback(() => {
@@ -192,22 +260,17 @@ const ScrollChat = () => {
     }
   }, []);
 
-  // CRITICAL FIX: Enhanced message content processing with proper HTML cleaning
+  // Enhanced message content processing with proper HTML cleaning
   const processMessageContent = useCallback(
     (text, queryKeywords = [], isPreformattedHTML = false) => {
       if (text === null || typeof text === "undefined") return "";
       let processedText = String(text);
 
-      console.log(
-        `[processMessageContent] Processing: isPreformattedHTML=${isPreformattedHTML}, length=${processedText.length}`
-      );
-
-      // CRITICAL FIX: Clean up HTML artifacts first
+      // Clean up HTML artifacts first
       if (
         isPreformattedHTML ||
         processedText.includes('<div class="llm-gateway-search-results">')
       ) {
-        // Remove the wrapper div that's causing display issues
         processedText = processedText
           .replace(/<div class="llm-gateway-search-results">/g, "")
           .replace(/<div class="search-answer-container">/g, "")
@@ -218,19 +281,17 @@ const ScrollChat = () => {
           .replace(/^<div class="search-answer-container">\s*/g, "")
           .replace(/\s*<\/div>$/g, "");
 
-        // Clean up markdown artifacts that weren't processed
         processedText = processedText
-          .replace(/^# /gm, "") // Remove markdown headers
+          .replace(/^# /gm, "")
           .replace(/^## /gm, "")
           .replace(/^### /gm, "")
-          .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>") // Convert **bold**
-          .replace(/\*([^*]+)\*/g, "<em>$1</em>") // Convert *italic*
-          .replace(/```[\s\S]*?```/g, "") // Remove code blocks
-          .replace(/`([^`]+)`/g, "$1") // Remove inline code markers
-          .replace(/\n{3,}/g, "\n\n") // Clean up excessive line breaks
+          .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+          .replace(/\*([^*]+)\*/g, "<em>$1</em>")
+          .replace(/```[\s\S]*?```/g, "")
+          .replace(/`([^`]+)`/g, "$1")
+          .replace(/\n{3,}/g, "\n\n")
           .trim();
 
-        // Convert line breaks to proper HTML
         if (
           !processedText.includes("<p>") &&
           !processedText.includes("<div>")
@@ -249,8 +310,6 @@ const ScrollChat = () => {
       }
 
       // Apply markdown processing for non-preformatted content
-      console.log(`[processMessageContent] Applying markdown processing`);
-
       processedText = processedText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
       // Code blocks
@@ -352,7 +411,7 @@ const ScrollChat = () => {
     [processMessageContent]
   );
 
-  // CRITICAL FIX: Enhanced related question click with conversation context
+  // Enhanced related question click with conversation context
   const handleRelatedQuestionClick = useCallback(
     (question, originalSearchType, originalIsSearch) => {
       console.log(`[ScrollChat] Related question clicked: ${question}`);
@@ -374,7 +433,6 @@ const ScrollChat = () => {
           })
         );
       } else {
-        // CRITICAL FIX: Include previous chat context for conversation continuation
         dispatch(
           sendChatData({
             user: question,
@@ -387,16 +445,25 @@ const ScrollChat = () => {
     [dispatch, chatHistoryId, previousChat]
   );
 
-  // CRITICAL FIX: Memoize chat section to prevent unnecessary re-renders and fix duplicate keys
+  // Enhanced unique key generation to prevent duplicates
+  const generateUniqueKey = useCallback((chatItem, index) => {
+    const baseId = chatItem?.id || chatItem?._id || `msg_${index}`;
+    const timestamp = chatItem?.timestamp || Date.now();
+    const userHash = chatItem?.user
+      ? chatItem.user.substring(0, 10).replace(/\s/g, "")
+      : "empty";
+    const geminiHash = chatItem?.gemini
+      ? chatItem.gemini.substring(0, 10).replace(/\s/g, "")
+      : "empty";
+    const streamingId = chatItem?.streamingId || "nostream";
+
+    return `chat-${baseId}-${timestamp}-${userHash}-${geminiHash}-${streamingId}-${index}`;
+  }, []);
+
+  // CRITICAL FIX: Move useMemo BEFORE any conditional returns
   const chatSection = useMemo(() => {
     return chat.map((c, chatIndex) => {
-      // CRITICAL FIX: Create unique key using multiple identifiers
-      const uniqueKey = c?.id
-        ? `chat-${c.id}`
-        : `chat-${chatIndex}-${c?.timestamp || Date.now()}-${
-            c?.user?.substring(0, 10) || "empty"
-          }`;
-
+      const uniqueKey = generateUniqueKey(c, chatIndex);
       const answerKeywords = getAnswerKeywords(c?.gemini);
 
       return (
@@ -416,7 +483,6 @@ const ScrollChat = () => {
                 </div>
               )}
 
-              {/* CRITICAL FIX: Enhanced AI/Agent chat bubble with better streaming support */}
               {(c?.gemini ||
                 c?.isLoader === "yes" ||
                 c?.isLoader === "streaming" ||
@@ -476,7 +542,6 @@ const ScrollChat = () => {
                           </div>
                         ) : c?.isLoader === "streaming" ||
                           c?.isLoader === "partial" ? (
-                          // CRITICAL FIX: Enhanced streaming display
                           <div className={styles["streaming-container"]}>
                             <div
                               className={styles["streaming-content"]}
@@ -489,7 +554,6 @@ const ScrollChat = () => {
                                   ) || "Connecting...",
                               }}
                             />
-                            {/* Show typing indicator for active streaming */}
                             {c?.isLoader === "streaming" && (
                               <span className={styles["typing-indicator"]}>
                                 <span className={styles["typing-dot"]}></span>
@@ -499,7 +563,6 @@ const ScrollChat = () => {
                             )}
                           </div>
                         ) : (
-                          // Completed message
                           <div
                             className="gemini-answer"
                             dangerouslySetInnerHTML={{
@@ -514,7 +577,6 @@ const ScrollChat = () => {
                         )}
                       </div>
 
-                      {/* Show sources and related questions only for completed messages */}
                       {c.isLoader === "no" && (
                         <>
                           {c.sources && c.sources.length > 0 && (
@@ -525,7 +587,6 @@ const ScrollChat = () => {
                                 </h3>
                                 <div className={styles["sources-grid"]}>
                                   {c.sources.map((source, idx) => {
-                                    // CRITICAL FIX: Create unique key for sources
                                     const sourceKey = source.id
                                       ? `source-${source.id}`
                                       : `source-${uniqueKey}-${idx}`;
@@ -686,7 +747,6 @@ const ScrollChat = () => {
                         </>
                       )}
 
-                      {/* Show copy and share buttons only for completed messages */}
                       {c?.gemini && c?.isLoader === "no" && !c.error && (
                         <div className={styles["message-actions-toolbar"]}>
                           <CopyBtn data={c?.gemini} />
@@ -701,7 +761,6 @@ const ScrollChat = () => {
               )}
             </div>
           ) : (
-            // Error display
             <div className={styles["single-chat"]}>
               <div className={styles["gemini-chat-container"]}>
                 <div
@@ -738,7 +797,26 @@ const ScrollChat = () => {
     userLogo,
     geminiLogo,
     agentLogo,
+    generateUniqueKey,
   ]);
+
+  // Show loading indicator while chat is loading - MOVED AFTER ALL HOOKS
+  if (isLoadingChat && chat.length === 0) {
+    return (
+      <div className={styles["scroll-chat-container"]}>
+        <div className={styles["scroll-chat-main"]}>
+          <div className={styles["loading-container"]}>
+            <img
+              src={commonIcon.geminiLaoder}
+              alt="Loading"
+              className={styles["loading-animation"]}
+            />
+            <p>Loading conversation...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={styles["scroll-chat-container"]}>

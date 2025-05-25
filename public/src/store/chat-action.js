@@ -257,7 +257,7 @@ export const getRecentChat = () => {
 
 // CRITICAL FIX: Enhanced sendChatData for proper conversation continuation
 export const sendChatData = (useInput) => {
-  return (dispatch, getState) => {
+  return async (dispatch, getState) => {
     const queryKeywords = extractKeywords(useInput.user);
     const currentChatHistoryId =
       useInput.chatHistoryId || getState().chat.chatHistoryId;
@@ -270,7 +270,7 @@ export const sendChatData = (useInput) => {
       `[sendChatData] Has previous chat: ${previousChat?.length > 0}`
     );
 
-    // CRITICAL FIX: Always use chatStart for consistency - no need for different actions
+    // CRITICAL FIX: Always use chatStart for consistency
     dispatch(
       chatAction.chatStart({
         useInput: {
@@ -303,112 +303,114 @@ export const sendChatData = (useInput) => {
       isNewConversation: requestBody.isNewConversation,
     });
 
-    return fetch(url, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json", "X-Api-Key": apiKey },
-      body: JSON.stringify(requestBody),
-    })
-      .then((response) => {
-        if (!response.ok) {
-          const statusCode = response.status;
-          const error = new Error(`Server Error: ${statusCode}`);
-          error.statusCode = statusCode;
-          throw error;
-        }
-        return response.json();
-      })
-      .then((data) => {
-        console.log(`[sendChatData] Received response:`, {
-          hasUser: !!data.user,
-          hasGemini: !!data.gemini,
-          chatHistoryId: data.chatHistoryId,
-        });
-
-        // Update previous chat context
-        dispatch(
-          chatAction.previousChatHandler({
-            previousChat: [
-              ...(previousChat || []),
-              { role: "user", parts: data.user },
-              { role: "model", parts: data.gemini },
-            ],
-          })
-        );
-
-        dispatch(chatAction.popChat());
-
-        const { processedContent: finalGeminiContent, isHTML: finalIsHTML } =
-          processContentForDisplay(data.gemini, queryKeywords, false);
-
-        // CRITICAL FIX: Always use chatStart for consistency
-        dispatch(
-          chatAction.chatStart({
-            useInput: {
-              user: data.user,
-              gemini: finalGeminiContent,
-              isLoader: "no",
-              queryKeywords: queryKeywords,
-              sources: [],
-              relatedQuestions: [],
-              isPreformattedHTML: finalIsHTML,
-            },
-          })
-        );
-
-        // Update or set chat history ID
-        const finalChatHistoryId = data.chatHistoryId || currentChatHistoryId;
-        if (finalChatHistoryId) {
-          dispatch(
-            chatAction.chatHistoryIdHandler({
-              chatHistoryId: finalChatHistoryId,
-            })
-          );
-        }
-
-        // Only refresh recent chat list if this was a new conversation
-        if (!currentChatHistoryId || currentChatHistoryId.length < 2) {
-          setTimeout(() => {
-            dispatch(getRecentChat());
-          }, 800);
-        }
-
-        // CRITICAL FIX: Return the response for navigation handling
-        return {
-          success: true,
-          chatHistoryId: finalChatHistoryId,
-          user: data.user,
-          gemini: finalGeminiContent,
-        };
-      })
-      .catch((err) => {
-        const statusCode = err.statusCode || 500;
-        dispatch(chatAction.popChat());
-        const errorMessage =
-          statusCode === 429
-            ? "Rate Limit Exceeded. Please wait before trying again."
-            : "Oops! Something went wrong. Please refresh and try again.";
-        dispatch(
-          chatAction.chatStart({
-            useInput: {
-              user: useInput.user,
-              gemini: `<p>${errorMessage}</p>`,
-              isLoader: "no",
-              queryKeywords: queryKeywords,
-              sources: [],
-              relatedQuestions: [],
-              error: true,
-              isPreformattedHTML: true,
-            },
-          })
-        );
-
-        // CRITICAL FIX: Return error response
-        return {
-          success: false,
-          error: errorMessage,
-        };
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-Api-Key": apiKey },
+        body: JSON.stringify(requestBody),
       });
+
+      if (!response.ok) {
+        const statusCode = response.status;
+        const error = new Error(`Server Error: ${statusCode}`);
+        error.statusCode = statusCode;
+        throw error;
+      }
+
+      const data = await response.json();
+      console.log(`[sendChatData] Received response:`, {
+        hasUser: !!data.user,
+        hasGemini: !!data.gemini,
+        chatHistoryId: data.chatHistoryId,
+      });
+
+      // Update previous chat context
+      dispatch(
+        chatAction.previousChatHandler({
+          previousChat: [
+            ...(previousChat || []),
+            { role: "user", parts: data.user },
+            { role: "model", parts: data.gemini },
+          ],
+        })
+      );
+
+      // Remove loading message
+      dispatch(chatAction.popChat());
+
+      const { processedContent: finalGeminiContent, isHTML: finalIsHTML } =
+        processContentForDisplay(data.gemini, queryKeywords, false);
+
+      // CRITICAL FIX: Always use chatStart for consistency
+      dispatch(
+        chatAction.chatStart({
+          useInput: {
+            user: data.user,
+            gemini: finalGeminiContent,
+            isLoader: "no",
+            queryKeywords: queryKeywords,
+            sources: [],
+            relatedQuestions: [],
+            isPreformattedHTML: finalIsHTML,
+          },
+        })
+      );
+
+      // Update or set chat history ID
+      const finalChatHistoryId = data.chatHistoryId || currentChatHistoryId;
+      if (finalChatHistoryId) {
+        dispatch(
+          chatAction.chatHistoryIdHandler({
+            chatHistoryId: finalChatHistoryId,
+          })
+        );
+      }
+
+      // Only refresh recent chat list if this was a new conversation
+      if (!currentChatHistoryId || currentChatHistoryId.length < 2) {
+        setTimeout(() => {
+          dispatch(getRecentChat());
+        }, 800);
+      }
+
+      // CRITICAL FIX: Return the response for navigation handling
+      return Promise.resolve({
+        success: true,
+        chatHistoryId: finalChatHistoryId,
+        user: data.user,
+        gemini: finalGeminiContent,
+      });
+    } catch (err) {
+      console.error("[sendChatData] Error:", err);
+
+      const statusCode = err.statusCode || 500;
+      dispatch(chatAction.popChat());
+      const errorMessage =
+        statusCode === 429
+          ? "Rate Limit Exceeded. Please wait before trying again."
+          : "Oops! Something went wrong. Please refresh and try again.";
+      dispatch(
+        chatAction.chatStart({
+          useInput: {
+            user: useInput.user,
+            gemini: `<p>${errorMessage}</p>`,
+            isLoader: "no",
+            queryKeywords: queryKeywords,
+            sources: [],
+            relatedQuestions: [],
+            error: true,
+            isPreformattedHTML: true,
+          },
+        })
+      );
+
+      // CRITICAL FIX: Return error response
+      return Promise.reject({
+        success: false,
+        error: errorMessage,
+      });
+    }
   };
 };
 
@@ -652,12 +654,12 @@ export const sendDeepSearchRequest = (searchRequest) => {
       }
 
       // CRITICAL FIX: Return response for navigation handling
-      return {
+      return Promise.resolve({
         success: true,
         chatHistoryId: finalChatHistoryId,
         result: data.result,
         searchType: searchType,
-      };
+      });
     } catch (error) {
       console.error(`Error in sendDeepSearchRequest (${searchType}):`, error);
       dispatch(chatAction.popChat());
@@ -679,18 +681,18 @@ export const sendDeepSearchRequest = (searchRequest) => {
       );
 
       // CRITICAL FIX: Return error response
-      return {
+      return Promise.reject({
         success: false,
         error: error.message,
         searchType: searchType,
-      };
+      });
     }
   };
 };
 
 // CRITICAL FIX: Enhanced getChat with proper conversation loading
 export const getChat = (chatId) => {
-  return (dispatch) => {
+  return async (dispatch) => {
     console.log("[getChat] Attempting to fetch chat with ID:", chatId);
     if (!chatId) {
       console.error("[getChat] Error: chatId is undefined or null.");
@@ -705,16 +707,18 @@ export const getChat = (chatId) => {
           },
         })
       );
-      return;
+      return Promise.reject(new Error("Chat ID is missing"));
     }
 
     // CRITICAL FIX: Clear existing chats first to prevent mixing
     dispatch(chatAction.getChatHandler({ chats: [] }));
+
+    // Show loading state
     dispatch(
       chatAction.chatStart({
         useInput: {
           user: "",
-          gemini: "Gathering previous conversation...",
+          gemini: "Loading conversation...",
           isLoader: "yes",
           isSearch: false,
           queryKeywords: [],
@@ -727,170 +731,188 @@ export const getChat = (chatId) => {
 
     const url = `${BASE_URL}/api/chatdata`;
     console.log("[getChat] Fetching from URL:", url, "with chatId:", chatId);
-    fetch(url, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chatHistoryId: chatId }),
-    })
-      .then(async (response) => {
-        console.log("[getChat] Received response status:", response.status);
-        if (!response.ok) {
-          let errorMessage = `Server error: ${response.status} ${response.statusText}`;
-          if (response.status === 404) {
-            errorMessage = `Chat history not found (404): The requested chat with ID ${chatId} could not be found.`;
-            console.warn(
-              "[getChat] Chat ID not found (404), clearing chatHistoryId from store."
-            );
-            dispatch(chatAction.chatHistoryIdHandler({ chatHistoryId: null }));
-            dispatch(chatAction.newChatHandler());
-          } else {
-            try {
-              const errorBody = await response.text();
-              errorMessage += `. Details: ${errorBody}`;
-            } catch (e) {}
-          }
-          const error = new Error(errorMessage);
-          error.status = response.status;
-          console.error("[getChat] Fetch error:", error);
-          throw error;
-        }
-        return response.json();
-      })
-      .then((data) => {
-        console.log("[getChat] Received data:", data);
-        dispatch(chatAction.popChat());
 
-        const chatMessages =
-          (data.chatHistory && data.chatHistory.chats) || data.chats || [];
-        console.log(
-          "[getChat] Processing chatMessages:",
-          chatMessages.length,
-          "messages"
-        );
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chatHistoryId: chatId }),
+      });
 
-        if (chatMessages.length === 0) {
-          console.log(
-            "[getChat] No messages found in history for chatId:",
-            chatId
+      console.log("[getChat] Received response status:", response.status);
+
+      if (!response.ok) {
+        let errorMessage = `Server error: ${response.status} ${response.statusText}`;
+        if (response.status === 404) {
+          errorMessage = `Chat history not found: The requested chat with ID ${chatId} could not be found.`;
+          console.warn(
+            "[getChat] Chat ID not found (404), clearing chatHistoryId from store."
           );
-          dispatch(
-            chatAction.chatStart({
-              useInput: {
-                user: "",
-                gemini: "<p>No messages found in this chat history.</p>",
-                isLoader: "no",
-                isPreformattedHTML: true,
-              },
-            })
-          );
-          return;
+          dispatch(chatAction.chatHistoryIdHandler({ chatHistoryId: null }));
+          dispatch(chatAction.newChatHandler());
+        } else {
+          try {
+            const errorBody = await response.text();
+            errorMessage += `. Details: ${errorBody}`;
+          } catch (e) {
+            console.error("[getChat] Error reading error response:", e);
+          }
         }
+        throw new Error(errorMessage);
+      }
 
-        // Build previous chat context for continued conversations
-        const previousChatContext = [];
+      const data = await response.json();
+      console.log("[getChat] Received data:", {
+        success: data.success,
+        chatHistoryId: data.chatHistory,
+        messageCount: data.chats?.length || 0,
+        chatType: data.chatType,
+      });
 
-        // CRITICAL FIX: Process all messages in the conversation
-        const formattedChats = chatMessages.map((chatItem, messageIndex) => {
-          const userMessageContent =
-            chatItem.message && chatItem.message.user
-              ? chatItem.message.user
-              : "";
-          let geminiMessageContent =
-            chatItem.message && chatItem.message.gemini
-              ? chatItem.message.gemini
-              : "";
+      // Remove loading message
+      dispatch(chatAction.popChat());
 
-          let isContentAlreadyHTML =
-            chatItem.message &&
-            typeof chatItem.message.isPreformattedHTML === "boolean"
-              ? chatItem.message.isPreformattedHTML
-              : false;
-          let currentQueryKeywords =
-            (chatItem.message && chatItem.message.queryKeywords) ||
-            extractKeywords(userMessageContent);
+      const chatMessages = data.chats || [];
+      console.log(
+        "[getChat] Processing chatMessages:",
+        chatMessages.length,
+        "messages"
+      );
 
-          let finalProcessedContent = geminiMessageContent;
-          let finalIsHTML = isContentAlreadyHTML;
-
-          if (geminiMessageContent) {
-            const { processedContent, isHTML } = processContentForDisplay(
-              geminiMessageContent,
-              currentQueryKeywords,
-              isContentAlreadyHTML
-            );
-            finalProcessedContent = processedContent;
-            finalIsHTML = isHTML;
-          }
-
-          // Add to previous chat context for future conversations
-          if (userMessageContent) {
-            previousChatContext.push({
-              role: "user",
-              parts: userMessageContent,
-            });
-          }
-          if (geminiMessageContent) {
-            previousChatContext.push({
-              role: "model",
-              parts: geminiMessageContent,
-            });
-          }
-
-          return {
-            id:
-              chatItem._id ||
-              chatItem.id ||
-              `msg_${messageIndex}_${Date.now()}`,
-            user: userMessageContent,
-            gemini: finalProcessedContent,
-            isLoader: "no",
-            isSearch: chatItem.isSearch || false,
-            searchType: chatItem.searchType,
-            queryKeywords: currentQueryKeywords,
-            sources: (chatItem.message && chatItem.message.sources) || [],
-            relatedQuestions:
-              (chatItem.message && chatItem.message.relatedQuestions) || [],
-            isPreformattedHTML: finalIsHTML,
-            error: chatItem.error || null,
-            timestamp: chatItem.timestamp || new Date().toISOString(),
-          };
-        });
-
+      if (chatMessages.length === 0) {
         console.log(
-          "[getChat] Dispatching getChatHandler with formattedChats:",
-          formattedChats.length,
-          "messages"
+          "[getChat] No messages found in history for chatId:",
+          chatId
         );
-
-        // CRITICAL FIX: Load all messages at once
-        dispatch(chatAction.getChatHandler({ chats: formattedChats }));
-
-        // Set the previous chat context for continued conversations
-        console.log(
-          "[getChat] Setting previous chat context:",
-          previousChatContext.length,
-          "entries"
-        );
-        dispatch(
-          chatAction.previousChatHandler({ previousChat: previousChatContext })
-        );
-      })
-      .catch((err) => {
-        dispatch(chatAction.popChat());
         dispatch(
           chatAction.chatStart({
             useInput: {
               user: "",
-              gemini: `<p>Error loading chat: ${err.message}</p>`,
+              gemini: "<p>No messages found in this chat history.</p>",
               isLoader: "no",
               isPreformattedHTML: true,
-              error: true,
             },
           })
         );
-        console.error("Error in getChat catch block:", err);
+        return Promise.resolve({ success: true, messageCount: 0 });
+      }
+
+      // Build previous chat context for continued conversations
+      const previousChatContext = [];
+
+      // CRITICAL FIX: Process all messages in the conversation
+      const formattedChats = chatMessages.map((chatItem, messageIndex) => {
+        const userMessageContent =
+          chatItem.message && chatItem.message.user
+            ? chatItem.message.user
+            : "";
+        let geminiMessageContent =
+          chatItem.message && chatItem.message.gemini
+            ? chatItem.message.gemini
+            : "";
+
+        let isContentAlreadyHTML =
+          chatItem.message &&
+          typeof chatItem.message.isPreformattedHTML === "boolean"
+            ? chatItem.message.isPreformattedHTML
+            : false;
+        let currentQueryKeywords =
+          (chatItem.message && chatItem.message.queryKeywords) ||
+          extractKeywords(userMessageContent);
+
+        let finalProcessedContent = geminiMessageContent;
+        let finalIsHTML = isContentAlreadyHTML;
+
+        if (geminiMessageContent) {
+          const { processedContent, isHTML } = processContentForDisplay(
+            geminiMessageContent,
+            currentQueryKeywords,
+            isContentAlreadyHTML
+          );
+          finalProcessedContent = processedContent;
+          finalIsHTML = isHTML;
+        }
+
+        // Add to previous chat context for future conversations
+        if (userMessageContent) {
+          previousChatContext.push({
+            role: "user",
+            parts: userMessageContent,
+          });
+        }
+        if (geminiMessageContent) {
+          previousChatContext.push({
+            role: "model",
+            parts: geminiMessageContent,
+          });
+        }
+
+        return {
+          id:
+            chatItem._id ||
+            chatItem.id ||
+            `msg_${chatId}_${messageIndex}_${Date.now()}`,
+          user: userMessageContent,
+          gemini: finalProcessedContent,
+          isLoader: "no",
+          isSearch: chatItem.isSearch || false,
+          searchType: chatItem.searchType,
+          queryKeywords: currentQueryKeywords,
+          sources: (chatItem.message && chatItem.message.sources) || [],
+          relatedQuestions:
+            (chatItem.message && chatItem.message.relatedQuestions) || [],
+          isPreformattedHTML: finalIsHTML,
+          error: chatItem.error || null,
+          timestamp: chatItem.timestamp || new Date().toISOString(),
+        };
       });
+
+      console.log(
+        "[getChat] Dispatching getChatHandler with formattedChats:",
+        formattedChats.length,
+        "messages"
+      );
+
+      // CRITICAL FIX: Load all messages at once
+      dispatch(chatAction.getChatHandler({ chats: formattedChats }));
+
+      // Set the previous chat context for continued conversations
+      console.log(
+        "[getChat] Setting previous chat context:",
+        previousChatContext.length,
+        "entries"
+      );
+      dispatch(
+        chatAction.previousChatHandler({ previousChat: previousChatContext })
+      );
+
+      return Promise.resolve({
+        success: true,
+        messageCount: formattedChats.length,
+        chatHistoryId: data.chatHistory,
+      });
+    } catch (err) {
+      console.error("Error in getChat:", err);
+
+      // Remove loading message
+      dispatch(chatAction.popChat());
+
+      // Show error message
+      dispatch(
+        chatAction.chatStart({
+          useInput: {
+            user: "",
+            gemini: `<p>Error loading chat: ${err.message}</p>`,
+            isLoader: "no",
+            isPreformattedHTML: true,
+            error: true,
+          },
+        })
+      );
+
+      return Promise.reject(err);
+    }
   };
 };
 
