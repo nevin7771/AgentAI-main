@@ -1,4 +1,4 @@
-// public/src/store/day-one-agent-actions.js - CRITICAL STREAMING FIX
+// public/src/store/day-one-agent-actions.js - ENHANCED CONVERSATION FIX
 import { chatAction } from "./chat";
 import { uiAction } from "./ui-gemini";
 import { agentAction } from "./agent";
@@ -58,7 +58,7 @@ const getDayOneToken = async () => {
 };
 
 /**
- * CRITICAL FIX: Connect directly to the Day One API for streaming responses
+ * CRITICAL FIX: Enhanced conversation-aware streaming
  */
 const directStreamFromDayOne = (
   agentType,
@@ -67,7 +67,8 @@ const directStreamFromDayOne = (
   dispatch,
   streamingId,
   navigate,
-  currentChatHistoryId
+  currentChatHistoryId,
+  isNewConversation = false
 ) => {
   return new Promise((resolve, reject) => {
     const functionId = FUNCTION_IDS[agentType];
@@ -76,7 +77,7 @@ const directStreamFromDayOne = (
     }
 
     console.log(
-      `[DirectDayOne] Connecting directly to Day One API for ${agentType} agent`
+      `[DirectDayOne] Starting ${agentType} stream - New: ${isNewConversation}, ChatID: ${currentChatHistoryId}`
     );
     const startTime = Date.now();
     let finalChatHistoryId = currentChatHistoryId;
@@ -108,31 +109,31 @@ const directStreamFromDayOne = (
           let accumulatedText = "";
           let firstChunkReceived = false;
 
-          // CRITICAL FIX: Create chat history early for conversation continuation
-          const createChatHistoryEarly = async () => {
-            // CRITICAL FIX: Use existing chatHistoryId if available for continuation
-            if (currentChatHistoryId && currentChatHistoryId.length > 5) {
+          // CRITICAL FIX: Enhanced chat history management for conversations
+          const manageChatHistory = async () => {
+            if (
+              !isNewConversation &&
+              currentChatHistoryId &&
+              currentChatHistoryId.length > 5
+            ) {
               console.log(
-                `[DirectDayOne] Using existing chat history: ${currentChatHistoryId}`
+                `[DirectDayOne] Continuing existing conversation: ${currentChatHistoryId}`
               );
               finalChatHistoryId = currentChatHistoryId;
 
-              // CRITICAL FIX: Update Redux state with existing ID
+              // Update Redux state with existing ID
               dispatch(
                 chatAction.chatHistoryIdHandler({
                   chatHistoryId: finalChatHistoryId,
                 })
               );
 
-              // Don't navigate if we're continuing a conversation
-              console.log(
-                `[DirectDayOne] Continuing conversation, not navigating`
-              );
-              urlUpdated = true; // Prevent navigation
+              // Don't navigate for existing conversations
+              urlUpdated = true;
               return;
             }
 
-            // Only create new chat history if we don't have one
+            // Create new chat history for new conversations
             if (!finalChatHistoryId || finalChatHistoryId.length < 5) {
               finalChatHistoryId = `agent_${Date.now()}_${Math.random()
                 .toString(36)
@@ -140,9 +141,9 @@ const directStreamFromDayOne = (
             }
 
             try {
-              const createHistoryUrl = `${BASE_URL}/api/create-chat-history`;
+              const createHistoryUrl = `${BASE_URL}/api/create-chat-history-enhanced`;
               console.log(
-                `[DirectDayOne] Creating early chat history: ${finalChatHistoryId}`
+                `[DirectDayOne] Creating new chat history: ${finalChatHistoryId}`
               );
 
               const historyResponse = await fetch(createHistoryUrl, {
@@ -156,7 +157,7 @@ const directStreamFromDayOne = (
                   title: question.substring(0, 50),
                   message: {
                     user: question,
-                    gemini: "Streaming response...", // Placeholder
+                    gemini: "Streaming response...",
                     sources: [],
                     relatedQuestions: [],
                     queryKeywords: extractKeywords(question),
@@ -164,6 +165,7 @@ const directStreamFromDayOne = (
                   },
                   isSearch: true,
                   searchType: "agent",
+                  clientId: finalChatHistoryId,
                 }),
               });
 
@@ -172,18 +174,18 @@ const directStreamFromDayOne = (
                 if (historyData.success && historyData.chatHistoryId) {
                   finalChatHistoryId = historyData.chatHistoryId;
                   console.log(
-                    `[DirectDayOne] Created early chat history: ${finalChatHistoryId}`
+                    `[DirectDayOne] Created chat history: ${finalChatHistoryId}`
                   );
 
-                  // CRITICAL FIX: Update Redux state immediately
+                  // Update Redux state immediately
                   dispatch(
                     chatAction.chatHistoryIdHandler({
                       chatHistoryId: finalChatHistoryId,
                     })
                   );
 
-                  // CRITICAL FIX: Navigate to the proper URL immediately for new conversations only
-                  if (!urlUpdated && navigate) {
+                  // Navigate to new conversation
+                  if (!urlUpdated && navigate && isNewConversation) {
                     console.log(
                       `[DirectDayOne] Navigating to: /app/${finalChatHistoryId}`
                     );
@@ -194,7 +196,7 @@ const directStreamFromDayOne = (
               }
             } catch (historyError) {
               console.error(
-                `[DirectDayOne] Error creating early chat history:`,
+                `[DirectDayOne] Error creating chat history:`,
                 historyError
               );
             }
@@ -208,7 +210,6 @@ const directStreamFromDayOne = (
                 if (done) {
                   console.log("[DirectDayOne] Stream complete");
 
-                  // Calculate total time
                   const totalTime = ((Date.now() - startTime) / 1000).toFixed(
                     2
                   );
@@ -225,14 +226,14 @@ const directStreamFromDayOne = (
                     })
                   );
 
-                  // CRITICAL FIX: Update the chat history with final content
+                  // CRITICAL FIX: Update chat history with final content
                   updateChatHistoryWithFinalContent(
                     finalChatHistoryId,
                     question,
-                    accumulatedText
+                    accumulatedText,
+                    isNewConversation
                   );
 
-                  // Resolve the promise with the final text
                   resolve({
                     text: accumulatedText,
                     sources: [],
@@ -245,15 +246,13 @@ const directStreamFromDayOne = (
                 // Process the chunk
                 const chunk = decoder.decode(value, { stream: true });
                 console.log(
-                  `[DirectDayOne] Raw chunk (${
-                    chunk.length
-                  } bytes): ${chunk.substring(0, 40)}...`
+                  `[DirectDayOne] Processing chunk (${chunk.length} bytes)`
                 );
 
                 // CRITICAL FIX: Create chat history on first chunk
                 if (!firstChunkReceived) {
                   firstChunkReceived = true;
-                  createChatHistoryEarly();
+                  manageChatHistory();
                 }
 
                 // Handle SSE format
@@ -262,19 +261,14 @@ const directStreamFromDayOne = (
                 for (const line of lines) {
                   if (line.trim() === "") continue;
 
-                  // Handle data lines
                   if (line.startsWith("data:")) {
                     try {
-                      // Extract JSON data - handle possible double data: prefix
                       let jsonStr = line.startsWith("data:data:")
                         ? line.substring(10).trim()
                         : line.substring(5).trim();
 
-                      // Parse the JSON data
                       const data = JSON.parse(jsonStr);
-                      console.log("[DirectDayOne] Parsed data:", data);
 
-                      // Update accumulated text
                       if (data.message) {
                         accumulatedText += data.message;
 
@@ -285,7 +279,7 @@ const directStreamFromDayOne = (
                           .replace(/\s+\n/g, "\n")
                           .replace(/\n{3,}/g, "\n\n");
 
-                        // CRITICAL FIX: Update UI immediately with streamed content
+                        // CRITICAL FIX: Update UI with streamed content
                         dispatch(
                           chatAction.updateStreamingChat({
                             streamingId: streamingId,
@@ -295,7 +289,6 @@ const directStreamFromDayOne = (
                         );
                       }
 
-                      // Check if streaming is complete
                       if (
                         data.status === "complete" ||
                         data.complete === true
@@ -305,16 +298,15 @@ const directStreamFromDayOne = (
                         );
                         reader.cancel();
 
-                        // Calculate total time
                         const totalTime = (
                           (Date.now() - startTime) /
                           1000
                         ).toFixed(2);
                         console.log(
-                          `[DirectDayOne] Streaming completed in ${totalTime} seconds`
+                          `[DirectDayOne] Completed in ${totalTime} seconds`
                         );
 
-                        // CRITICAL FIX: Final update to mark completion
+                        // Final update
                         dispatch(
                           chatAction.updateStreamingChat({
                             streamingId: streamingId,
@@ -323,14 +315,14 @@ const directStreamFromDayOne = (
                           })
                         );
 
-                        // Update chat history with final content
+                        // Update chat history
                         updateChatHistoryWithFinalContent(
                           finalChatHistoryId,
                           question,
-                          accumulatedText
+                          accumulatedText,
+                          isNewConversation
                         );
 
-                        // Resolve the promise with the final text
                         resolve({
                           text: accumulatedText,
                           sources: [],
@@ -342,15 +334,12 @@ const directStreamFromDayOne = (
                     } catch (error) {
                       console.error(
                         "[DirectDayOne] Error processing SSE data:",
-                        error,
-                        "Raw line:",
-                        line
+                        error
                       );
                     }
                   }
                 }
 
-                // Continue reading
                 return processStream();
               })
               .catch((error) => {
@@ -359,7 +348,6 @@ const directStreamFromDayOne = (
               });
           }
 
-          // Start processing the stream
           return processStream();
         })
         .catch((error) => {
@@ -374,18 +362,28 @@ const directStreamFromDayOne = (
 };
 
 /**
- * CRITICAL FIX: Update chat history with final content for conversation continuation
+ * CRITICAL FIX: Enhanced chat history update with proper conversation handling
  */
 const updateChatHistoryWithFinalContent = async (
   chatHistoryId,
   question,
-  finalContent
+  finalContent,
+  isNewConversation = false
 ) => {
-  if (!chatHistoryId) return;
+  if (!chatHistoryId) {
+    console.warn(`[DirectDayOne] No chat history ID to update`);
+    return;
+  }
+
+  // Skip update for new conversations as they're handled during creation
+  if (isNewConversation) {
+    console.log(`[DirectDayOne] Skipping update for new conversation`);
+    return;
+  }
 
   try {
     console.log(
-      `[DirectDayOne] Updating chat history ${chatHistoryId} with final content`
+      `[DirectDayOne] Updating existing chat history: ${chatHistoryId}`
     );
 
     const updateHistoryUrl = `${BASE_URL}/api/update-chat-history`;
@@ -410,11 +408,12 @@ const updateChatHistoryWithFinalContent = async (
     });
 
     if (updateResponse.ok) {
-      console.log(`[DirectDayOne] Successfully updated chat history`);
+      const result = await updateResponse.json();
+      console.log(`[DirectDayOne] Successfully updated chat history:`, result);
     } else {
+      const errorText = await updateResponse.text();
       console.error(
-        `[DirectDayOne] Failed to update chat history:`,
-        updateResponse.status
+        `[DirectDayOne] Failed to update chat history: ${updateResponse.status} - ${errorText}`
       );
     }
   } catch (error) {
@@ -423,78 +422,72 @@ const updateChatHistoryWithFinalContent = async (
 };
 
 /**
- * CRITICAL FIX: Main function for direct Day One streaming requests
+ * CRITICAL FIX: Enhanced main function with proper conversation awareness
  */
 export const sendDirectDayOneRequest = (requestData) => {
   return async (dispatch, getState) => {
     const { question, agentType, chatHistoryId, navigate } = requestData;
     const queryKeywords = extractKeywords(question);
     let currentChatHistoryId = chatHistoryId || getState().chat.chatHistoryId;
+    const isNewConversation = !currentChatHistoryId;
 
     console.log(
-      `[DirectDayOne] Starting ${agentType} request for: "${question}"`
-    );
-    console.log(
-      `[DirectDayOne] Current chat history ID: ${currentChatHistoryId}`
+      `[DirectDayOne] Processing ${agentType} - New: ${isNewConversation}, ChatID: ${currentChatHistoryId}`
     );
 
     // Set loading state
     dispatch(uiAction.setLoading(true));
     dispatch(agentAction.setLoading(true));
 
-    // CRITICAL FIX: Only dispatch initial loading message for NEW conversations
-    if (!currentChatHistoryId) {
-      dispatch(
-        chatAction.chatStart({
-          useInput: {
-            user: question,
-            gemini: "",
-            isLoader: "yes",
-            isSearch: true,
-            searchType: "agent",
-            queryKeywords: queryKeywords,
-            sources: [],
-            relatedQuestions: [],
-            isPreformattedHTML: false,
-          },
-        })
-      );
-    }
-
     try {
       // Get token from server
-      console.log(`[DirectDayOne] Getting token for ${agentType} agent`);
       const token = await getDayOneToken();
 
-      // CRITICAL FIX: Handle streaming differently for new vs continuing conversations
-      let streamingId;
+      // CRITICAL FIX: Handle streaming differently based on conversation state
+      let streamingId = `streaming_${Date.now()}_${Math.random()
+        .toString(36)
+        .substring(2, 7)}`;
 
-      if (!currentChatHistoryId) {
-        // NEW CONVERSATION: Remove loading message and add streaming message
-        dispatch(chatAction.popChat());
-
-        streamingId = `streaming_${Date.now()}`;
+      if (isNewConversation) {
+        // NEW CONVERSATION: Add loading then streaming message
         dispatch(
           chatAction.chatStart({
             useInput: {
               user: question,
-              gemini: "Connecting to Day One API...",
-              isLoader: "streaming",
+              gemini: "",
+              isLoader: "yes",
               isSearch: true,
               searchType: "agent",
               queryKeywords: queryKeywords,
               sources: [],
               relatedQuestions: [],
               isPreformattedHTML: false,
-              streamingId: streamingId,
             },
           })
         );
-      } else {
-        // CONTINUING CONVERSATION: Add new user message and streaming response
-        streamingId = `streaming_${Date.now()}`;
 
-        // Add user message first
+        // Replace with streaming message
+        setTimeout(() => {
+          dispatch(chatAction.popChat());
+          dispatch(
+            chatAction.chatStart({
+              useInput: {
+                user: question,
+                gemini: "Connecting to Day One API...",
+                isLoader: "streaming",
+                isSearch: true,
+                searchType: "agent",
+                queryKeywords: queryKeywords,
+                sources: [],
+                relatedQuestions: [],
+                isPreformattedHTML: false,
+                streamingId: streamingId,
+              },
+            })
+          );
+        }, 100);
+      } else {
+        // CONTINUING CONVERSATION: Add user message then agent streaming response
         dispatch(
           chatAction.chatStart({
             useInput: {
@@ -511,7 +504,7 @@ export const sendDirectDayOneRequest = (requestData) => {
           })
         );
 
-        // Then add streaming agent response
+        // Add streaming agent response
         dispatch(
           chatAction.chatStart({
             useInput: {
@@ -530,13 +523,11 @@ export const sendDirectDayOneRequest = (requestData) => {
         );
       }
 
-      // CRITICAL FIX: Clean up loading states immediately since streaming will handle its own state
+      // Clean up loading states
       dispatch(uiAction.setLoading(false));
       dispatch(agentAction.setLoading(false));
 
-      // CRITICAL FIX: Start streaming immediately
-      console.log(`[DirectDayOne] Starting immediate stream for ${agentType}`);
-
+      // Start streaming
       const streamResult = await directStreamFromDayOne(
         agentType,
         question,
@@ -544,13 +535,14 @@ export const sendDirectDayOneRequest = (requestData) => {
         dispatch,
         streamingId,
         navigate,
-        currentChatHistoryId
+        currentChatHistoryId,
+        isNewConversation
       );
 
       console.log(`[DirectDayOne] Stream completed:`, streamResult);
 
-      // CRITICAL FIX: Save to localStorage only for new conversations
-      if (!currentChatHistoryId) {
+      // Save to localStorage only for new conversations
+      if (isNewConversation) {
         try {
           const existingStorageHistory = JSON.parse(
             localStorage.getItem("searchHistory") || "[]"
@@ -574,21 +566,10 @@ export const sendDirectDayOneRequest = (requestData) => {
             );
             window.dispatchEvent(new Event("storage"));
           }
-          console.log(
-            `[DirectDayOne] Saved to localStorage: ${streamResult.chatHistoryId}`
-          );
         } catch (err) {
-          console.error(
-            `[DirectDayOne] Error saving ${agentType} agent chat history to localStorage:`,
-            err
-          );
+          console.error(`[DirectDayOne] Error saving to localStorage:`, err);
         }
       }
-
-      // CRITICAL FIX: Return success with data for continuation
-      console.log(
-        `[DirectDayOne] Returning success response with chatHistoryId: ${streamResult.chatHistoryId}`
-      );
 
       return {
         success: true,
@@ -598,14 +579,11 @@ export const sendDirectDayOneRequest = (requestData) => {
           sources: streamResult.sources || [],
           chatHistoryId: streamResult.chatHistoryId,
         },
-        shouldNavigate: !currentChatHistoryId, // Only navigate for new conversations
+        shouldNavigate: isNewConversation,
         targetUrl: `/app/${streamResult.chatHistoryId}`,
       };
     } catch (error) {
-      console.error(
-        `[DirectDayOne] Error in ${agentType} streaming request:`,
-        error.message
-      );
+      console.error(`[DirectDayOne] Error in ${agentType} request:`, error);
 
       // Remove loading or streaming message
       dispatch(chatAction.popChat());
@@ -630,7 +608,6 @@ export const sendDirectDayOneRequest = (requestData) => {
         })
       );
 
-      // Clean up loading states
       dispatch(uiAction.setLoading(false));
       dispatch(agentAction.setLoading(false));
 

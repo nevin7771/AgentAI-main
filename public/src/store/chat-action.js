@@ -1,4 +1,4 @@
-// public/src/store/chat-action.js - FIXED FOR CONVERSATION CONTINUATION
+// public/src/store/chat-action.js - COMPLETE FIXED VERSION
 import { chatAction } from "./chat";
 import { userAction } from "./user";
 import { marked } from "marked";
@@ -255,7 +255,7 @@ export const getRecentChat = () => {
   };
 };
 
-// CRITICAL FIX: Enhanced sendChatData for conversation continuation
+// CRITICAL FIX: Enhanced sendChatData for proper conversation continuation
 export const sendChatData = (useInput) => {
   return (dispatch, getState) => {
     const queryKeywords = extractKeywords(useInput.user);
@@ -270,7 +270,7 @@ export const sendChatData = (useInput) => {
       `[sendChatData] Has previous chat: ${previousChat?.length > 0}`
     );
 
-    // CRITICAL FIX: Use chatStart for all cases to maintain consistency
+    // CRITICAL FIX: Always use chatStart for consistency - no need for different actions
     dispatch(
       chatAction.chatStart({
         useInput: {
@@ -303,7 +303,7 @@ export const sendChatData = (useInput) => {
       isNewConversation: requestBody.isNewConversation,
     });
 
-    fetch(url, {
+    return fetch(url, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json", "X-Api-Key": apiKey },
@@ -341,7 +341,7 @@ export const sendChatData = (useInput) => {
         const { processedContent: finalGeminiContent, isHTML: finalIsHTML } =
           processContentForDisplay(data.gemini, queryKeywords, false);
 
-        // CRITICAL FIX: Use chatStart for consistency
+        // CRITICAL FIX: Always use chatStart for consistency
         dispatch(
           chatAction.chatStart({
             useInput: {
@@ -412,7 +412,7 @@ export const sendChatData = (useInput) => {
   };
 };
 
-// CRITICAL FIX: Enhanced sendDeepSearchRequest for conversation continuation
+// CRITICAL FIX: Enhanced sendDeepSearchRequest for proper conversation continuation
 export const sendDeepSearchRequest = (searchRequest) => {
   return async (dispatch, getState) => {
     const queryKeywords = extractKeywords(searchRequest.query);
@@ -426,7 +426,7 @@ export const sendDeepSearchRequest = (searchRequest) => {
       `[sendDeepSearchRequest] Processing ${searchType} search with historyId: ${currentChatHistoryId}`
     );
 
-    // CRITICAL FIX: Use chatStart for all cases to maintain consistency
+    // CRITICAL FIX: Always use chatStart for consistency
     dispatch(
       chatAction.chatStart({
         useInput: {
@@ -523,7 +523,7 @@ export const sendDeepSearchRequest = (searchRequest) => {
           isContentPreformattedByAgent
         );
 
-      // CRITICAL FIX: Use chatStart for consistency
+      // CRITICAL FIX: Always use chatStart for consistency
       dispatch(
         chatAction.chatStart({
           useInput: {
@@ -543,8 +543,41 @@ export const sendDeepSearchRequest = (searchRequest) => {
 
       let finalChatHistoryId = data.chatHistoryId || currentChatHistoryId;
 
-      // Only create new chat history if we don't have one
-      if (!finalChatHistoryId && data.success) {
+      // CRITICAL FIX: Handle chat history properly for conversation continuation
+      if (currentChatHistoryId) {
+        // For existing conversations, append to existing chat history
+        console.log(
+          `[sendDeepSearchRequest] Appending to existing conversation: ${currentChatHistoryId}`
+        );
+        try {
+          const appendUrl = `${BASE_URL}/api/append-chat-message`;
+          await fetch(appendUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            credentials: "include",
+            body: JSON.stringify({
+              chatHistoryId: currentChatHistoryId,
+              message: {
+                user: searchRequest.query,
+                gemini: finalGeminiContent,
+                sources,
+                relatedQuestions,
+                queryKeywords,
+                isPreformattedHTML: finalIsHTML,
+              },
+              isSearch: true,
+              searchType: searchType,
+            }),
+          });
+          finalChatHistoryId = currentChatHistoryId;
+        } catch (appendError) {
+          console.error("Error appending to chat history:", appendError);
+        }
+      } else if (!finalChatHistoryId && data.success) {
+        // Only create new chat history if we don't have one
         try {
           const createHistoryUrl = `${BASE_URL}/api/create-chat-history`;
           const historyResponse = await fetch(createHistoryUrl, {
@@ -655,6 +688,7 @@ export const sendDeepSearchRequest = (searchRequest) => {
   };
 };
 
+// CRITICAL FIX: Enhanced getChat with proper conversation loading
 export const getChat = (chatId) => {
   return (dispatch) => {
     console.log("[getChat] Attempting to fetch chat with ID:", chatId);
@@ -674,6 +708,7 @@ export const getChat = (chatId) => {
       return;
     }
 
+    // CRITICAL FIX: Clear existing chats first to prevent mixing
     dispatch(chatAction.getChatHandler({ chats: [] }));
     dispatch(
       chatAction.chatStart({
@@ -728,7 +763,11 @@ export const getChat = (chatId) => {
 
         const chatMessages =
           (data.chatHistory && data.chatHistory.chats) || data.chats || [];
-        console.log("[getChat] Processing chatMessages:", chatMessages);
+        console.log(
+          "[getChat] Processing chatMessages:",
+          chatMessages.length,
+          "messages"
+        );
 
         if (chatMessages.length === 0) {
           console.log(
@@ -751,7 +790,8 @@ export const getChat = (chatId) => {
         // Build previous chat context for continued conversations
         const previousChatContext = [];
 
-        const formattedChats = chatMessages.map((chatItem) => {
+        // CRITICAL FIX: Process all messages in the conversation
+        const formattedChats = chatMessages.map((chatItem, messageIndex) => {
           const userMessageContent =
             chatItem.message && chatItem.message.user
               ? chatItem.message.user
@@ -798,7 +838,10 @@ export const getChat = (chatId) => {
           }
 
           return {
-            id: chatItem._id || chatItem.id || Math.random().toString(),
+            id:
+              chatItem._id ||
+              chatItem.id ||
+              `msg_${messageIndex}_${Date.now()}`,
             user: userMessageContent,
             gemini: finalProcessedContent,
             isLoader: "no",
@@ -816,11 +859,19 @@ export const getChat = (chatId) => {
 
         console.log(
           "[getChat] Dispatching getChatHandler with formattedChats:",
-          formattedChats
+          formattedChats.length,
+          "messages"
         );
+
+        // CRITICAL FIX: Load all messages at once
         dispatch(chatAction.getChatHandler({ chats: formattedChats }));
 
         // Set the previous chat context for continued conversations
+        console.log(
+          "[getChat] Setting previous chat context:",
+          previousChatContext.length,
+          "entries"
+        );
         dispatch(
           chatAction.previousChatHandler({ previousChat: previousChatContext })
         );

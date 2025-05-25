@@ -1,4 +1,4 @@
-// server/agents/llmGatewaySearchAgent.js - CRITICAL FIX: Remove markdown formatting issues
+// server/agents/llmGatewaySearchAgent.js - COMPLETE FIX: Remove HTML wrappers
 import BaseAgent from "./baseAgent.js";
 import llmGatewayService from "../services/llmGatewayService.js";
 
@@ -47,7 +47,7 @@ export default class LLMGatewaySearchAgent extends BaseAgent {
         );
       }
 
-      // CRITICAL FIX: Extract the answer text properly
+      // CRITICAL FIX: Extract the answer text properly and clean it
       let answerText = "";
       if (response.content) {
         answerText = response.content;
@@ -61,7 +61,7 @@ export default class LLMGatewaySearchAgent extends BaseAgent {
         answerText = "No response content found.";
       }
 
-      // CRITICAL FIX: Clean up the answer text to remove markdown artifacts
+      // CRITICAL FIX: Clean up the answer text completely
       answerText = this.cleanAnswerText(answerText);
 
       // Extract sources from the answer text
@@ -70,7 +70,7 @@ export default class LLMGatewaySearchAgent extends BaseAgent {
       return {
         success: true,
         query,
-        answer: answerText,
+        answer: answerText, // CRITICAL: Return clean text, not HTML
         sources: sources,
         rawResponse: response,
       };
@@ -79,14 +79,19 @@ export default class LLMGatewaySearchAgent extends BaseAgent {
     }
   }
 
-  // CRITICAL FIX: Clean up answer text to remove markdown artifacts
+  // CRITICAL FIX: Comprehensive text cleaning
   cleanAnswerText(text) {
     if (!text || typeof text !== "string") {
       return text;
     }
 
-    // Remove any stray markdown that wasn't processed properly
+    // Remove any HTML tags and content
     let cleanedText = text
+      // Remove any div wrappers that might be causing issues
+      .replace(/<div[^>]*>/gi, "")
+      .replace(/<\/div>/gi, "")
+      // Remove other HTML tags
+      .replace(/<[^>]*>/g, "")
       // Remove markdown headers that weren't converted
       .replace(/^#{1,6}\s*/gm, "")
       // Remove bold/italic markers that weren't converted
@@ -103,107 +108,30 @@ export default class LLMGatewaySearchAgent extends BaseAgent {
     return cleanedText;
   }
 
+  // CRITICAL FIX: Return plain text, not HTML
   formatResponse(result) {
     if (!result.success) {
-      return `<div class="llm-gateway-search-results error">
-        <h3>Search Error</h3>
-        <p>Sorry, there was an error processing your request: ${result.error}</p>
-      </div>`;
+      return `Search Error: ${result.error}`;
     }
 
-    // CRITICAL FIX: Process the answer text to convert basic formatting
-    const processedAnswer = this.processAnswerForDisplay(result.answer);
+    // CRITICAL FIX: Return just the text content without any HTML wrappers
+    let formattedText = result.answer || "";
 
-    // Format the answer with proper HTML
-    return `
-      <div class="llm-gateway-search-results">
-        <div class="search-answer-container">
-          ${processedAnswer}
-        </div>
-        
-        ${
-          result.sources && result.sources.length > 0
-            ? `
-          <div class="search-sources">
-            <h4>Sources (${result.sources.length})</h4>
-            <ul>
-              ${result.sources
-                .map(
-                  (source) => `
-                <li>
-                  <a href="${
-                    source.url
-                  }" target="_blank" rel="noopener noreferrer">${
-                    source.title || source.url
-                  }</a>
-                  ${source.snippet ? `<p>${source.snippet}</p>` : ""}
-                </li>
-              `
-                )
-                .join("")}
-            </ul>
-          </div>
-        `
-            : ""
+    // Add sources as plain text if available
+    if (result.sources && result.sources.length > 0) {
+      formattedText += "\n\nSources:\n";
+      result.sources.forEach((source, index) => {
+        formattedText += `${index + 1}. ${source.title || source.url}\n`;
+        if (source.url) {
+          formattedText += `   ${source.url}\n`;
         }
-      </div>
-    `;
-  }
-
-  // CRITICAL FIX: Process answer text for proper display
-  processAnswerForDisplay(text) {
-    if (!text || typeof text !== "string") {
-      return text;
+        if (source.snippet) {
+          formattedText += `   ${source.snippet}\n`;
+        }
+        formattedText += "\n";
+      });
     }
 
-    // Convert basic text formatting to HTML
-    let processedText = text
-      // Convert line breaks to paragraphs
-      .split("\n\n")
-      .filter((para) => para.trim().length > 0)
-      .map((para) => {
-        // Handle numbered lists
-        if (/^\d+\.\s/.test(para.trim())) {
-          const items = para
-            .split(/(?=\n\d+\.\s)/)
-            .filter((item) => item.trim());
-          if (items.length > 1) {
-            return `<ol>${items
-              .map((item) => `<li>${item.replace(/^\d+\.\s/, "").trim()}</li>`)
-              .join("")}</ol>`;
-          } else {
-            return `<p>${para.trim()}</p>`;
-          }
-        }
-        // Handle bullet lists
-        else if (/^[-*]\s/.test(para.trim())) {
-          const items = para
-            .split(/(?=\n[-*]\s)/)
-            .filter((item) => item.trim());
-          if (items.length > 1) {
-            return `<ul>${items
-              .map((item) => `<li>${item.replace(/^[-*]\s/, "").trim()}</li>`)
-              .join("")}</ul>`;
-          } else {
-            return `<p>${para.trim()}</p>`;
-          }
-        }
-        // Handle regular paragraphs
-        else {
-          return `<p>${para.trim()}</p>`;
-        }
-      })
-      .join("");
-
-    // Handle inline formatting
-    processedText = processedText
-      // Convert **bold** to <strong>
-      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-      // Convert *italic* to <em>
-      .replace(/\*([^*]+)\*/g, "<em>$1</em>")
-      // Convert single line breaks to <br> within paragraphs
-      .replace(/<p>([^<]*)\n([^<]*)<\/p>/g, "<p>$1<br>$2</p>");
-
-    return processedText;
+    return formattedText.trim();
   }
 }

@@ -1,4 +1,3 @@
-// public/src/components/ChatSection/ScrollChat/ScrollChat.js - COMPLETE FIX
 import styles from "./ScrollChat.module.css";
 import { commonIcon } from "../../../asset";
 import { useSelector, useDispatch } from "react-redux";
@@ -210,6 +209,8 @@ const ScrollChat = () => {
       ) {
         // Remove the wrapper div that's causing display issues
         processedText = processedText
+          .replace(/<div class="llm-gateway-search-results">/g, "")
+          .replace(/<div class="search-answer-container">/g, "")
           .replace(
             /<\/div>\s*<div class="search-sources">/g,
             '<div class="search-sources">'
