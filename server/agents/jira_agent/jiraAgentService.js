@@ -1,4 +1,4 @@
-// server/agents/jira_agent/jiraAgentService.js - ENHANCED WITH COMMENT PROCESSING
+// server/agents/jira_agent/jiraAgentService.js - FIXED COMPONENT FIELD VERSION
 import llmGatewayService from "../../services/llmGatewayService.js";
 import jiraClient from "./jiraClient.js";
 import piiSanitizer from "./piiSanitizer.js";
@@ -7,37 +7,95 @@ import visualizationGenerator from "./visualizationGenerator.js";
 class JiraAgentService {
   constructor() {
     this.maxConcurrentQueries = 4;
-    this.maxCommentsForAnalysis = 10;
+    this.maxCommentsForAnalysis = 5;
   }
 
   /**
-   * Main query processing - handles all types of Jira queries
+   * CRITICAL FIX: Add the missing getTicketSummary function
+   */
+  async getTicketSummary(ticketId) {
+    console.log(`[JiraAgentService] Getting ticket summary for: ${ticketId}`);
+
+    try {
+      // Fetch ticket details
+      const ticket = await jiraClient.getIssue(ticketId);
+
+      // Fetch comments (last 5 for summarization)
+      const comments = await jiraClient.fetchAllComments(ticketId);
+      const lastFiveComments = comments.slice(0, 5);
+
+      console.log(
+        `[JiraAgentService] Found ${comments.length} comments, using last 5 for summary`
+      );
+
+      // Create enhanced summary with proper comment summarization
+      const formattedResponse =
+        await this.createTicketSummaryWithCommentSummary(
+          ticket,
+          lastFiveComments
+        );
+
+      return {
+        success: true,
+        formattedResponse: formattedResponse,
+        sources: [],
+        ticket: ticket,
+        relatedQuestions: [
+          `Do sentiment analysis for ${ticketId}`,
+          `Find similar issues to ${ticketId}`,
+          `What is the resolution timeline for ${ticketId}?`,
+        ],
+      };
+    } catch (error) {
+      console.error(`[JiraAgentService] Error getting ticket summary:`, error);
+      return {
+        success: false,
+        error: error.message,
+        formattedResponse: `Error retrieving ticket ${ticketId}: ${error.message}`,
+        sources: [],
+      };
+    }
+  }
+
+  /**
+   * CRITICAL FIX: Enhanced query processing with chat history support
    */
   async processQuery(query, chatHistory = [], options = {}) {
+    console.log(`[JiraAgentService] Processing query: "${query}"`);
     console.log(
-      `[JiraAgentService] Processing comprehensive query: "${query}"`
+      `[JiraAgentService] Chat history length: ${chatHistory.length}`
     );
 
     try {
-      // Step 1: Analyze the query (with fallback)
-      const analysisResult = await this.analyzeUserQueryWithFallback(
+      // STEP 1: Check if user provided required information
+      const missingInfo = this.checkRequiredInformation(query);
+      if (missingInfo.needsClarification) {
+        return {
+          success: true,
+          needsClarification: true,
+          message: missingInfo.message,
+          promptType: missingInfo.promptType,
+          metadata: missingInfo.metadata,
+        };
+      }
+
+      // STEP 2: Enhanced query analysis with better keyword extraction
+      const analysisResult = await this.enhancedQueryAnalysis(
         query,
         chatHistory
       );
+      console.log(`[JiraAgentService] Analysis result:`, analysisResult);
 
-      if (analysisResult.needsClarification) {
-        return analysisResult;
-      }
-
-      // Step 2: Generate JQL queries based on the analysis
-      const jqlQueries = await this.generateJQLQueriesWithFallback(
-        analysisResult
+      // STEP 3: Generate multiple JQL queries with different keyword combinations
+      const jqlQueries = await this.generateMultipleJQLQueries(analysisResult);
+      console.log(
+        `[JiraAgentService] Generated ${jqlQueries.length} JQL queries`
       );
 
-      // Step 3: Execute all JQL queries concurrently
+      // STEP 4: Execute all queries concurrently
       const jiraResults = await this.executeMultipleQueries(jqlQueries);
 
-      // Step 4: Process results based on query intent
+      // STEP 5: Process results based on query intent
       const processedResult = await this.processResultsByIntent(
         query,
         analysisResult,
@@ -47,7 +105,7 @@ class JiraAgentService {
       return {
         success: true,
         formattedResponse: processedResult.response,
-        sources: processedResult.sources,
+        sources: [], // No separate sources as requested
         visualization: processedResult.visualization,
         relatedQuestions: processedResult.relatedQuestions,
         queryType: analysisResult.queryType,
@@ -61,832 +119,901 @@ class JiraAgentService {
         },
       };
     } catch (error) {
-      console.error(
-        "[JiraAgentService] Error in comprehensive processing:",
-        error
-      );
-
-      // Enhanced fallback to basic processing with comments
+      console.error("[JiraAgentService] Error in processing:", error);
       return await this.enhancedFallbackProcessing(query, error);
     }
   }
 
   /**
-   * Enhanced fallback processing WITH comment fetching and summarization
+   * CRITICAL FIX: Handle clarification responses for continued conversations
    */
-  async enhancedFallbackProcessing(query, originalError) {
-    console.log(
-      `[JiraAgentService] Using enhanced fallback processing for: "${query}"`
-    );
+  async handleClarificationResponse(
+    originalQuery,
+    clarificationResponse,
+    chatHistory = []
+  ) {
+    console.log(`[JiraAgentService] Handling clarification response`);
+    console.log(`[JiraAgentService] Original query: "${originalQuery}"`);
+    console.log(`[JiraAgentService] Clarification: "${clarificationResponse}"`);
 
-    try {
-      // Simple rule-based processing
-      const ticketMatch = query.match(/([A-Z]+-\d+)/);
+    // Combine original query with clarification
+    const enhancedQuery = `${originalQuery} ${clarificationResponse}`;
 
-      if (ticketMatch) {
-        // Direct ticket summary WITH COMMENTS
-        const ticketId = ticketMatch[1];
-        console.log(
-          `[JiraAgentService] Fetching ticket and comments for: ${ticketId}`
-        );
+    // Process the enhanced query
+    return await this.processQuery(enhancedQuery, chatHistory);
+  }
 
-        // Fetch ticket details
-        const ticket = await jiraClient.getIssue(ticketId);
+  /**
+   * Check if user provided required information (Issue Area, Project Name, Engineer Name)
+   */
+  checkRequiredInformation(query) {
+    const lowerQuery = query.toLowerCase();
 
-        // Fetch comments - this was missing!
-        const comments = await jiraClient.fetchAllComments(ticketId);
-        console.log(
-          `[JiraAgentService] Found ${comments.length} comments for ${ticketId}`
-        );
+    // For charts/visualizations, ALWAYS need Issue Area or Engineer Name
+    const isVisualizationQuery =
+      lowerQuery.includes("heatmap") ||
+      lowerQuery.includes("pie chart") ||
+      lowerQuery.includes("bar chart") ||
+      lowerQuery.includes("chart") ||
+      lowerQuery.includes("graph") ||
+      lowerQuery.includes("visualization");
 
-        // Process comments (use latest 10 if more than 20)
-        const relevantComments = this.selectRelevantComments(comments);
+    // For analysis queries that need specific information
+    const needsIssueArea =
+      lowerQuery.includes("mttr") ||
+      lowerQuery.includes("sentiment analysis") ||
+      lowerQuery.includes("insights") ||
+      isVisualizationQuery ||
+      (lowerQuery.includes("analysis") &&
+        !lowerQuery.includes("frameserverclient"));
 
-        // Create enhanced summary with comments
-        const response = await this.createEnhancedTicketSummary(
-          ticket,
-          relevantComments
-        );
+    if (isVisualizationQuery) {
+      // Charts MUST have Issue Area or Engineer Name
+      const issueAreaKeywords = [
+        "desktop",
+        "client",
+        "streaming",
+        "pwa",
+        "web client",
+        "chat",
+        "audio",
+        "video",
+        "sharing",
+        "breakout",
+        "join meeting",
+        "whiteboard",
+        "zoom node",
+        "vdi",
+        "mail client",
+        "dashboard",
+        "reports",
+        "meetings",
+        "webinar",
+        "zoom ai",
+      ];
 
+      const engineerKeywords = [
+        "engineer",
+        "assignee",
+        "assigned to",
+        "developer",
+        "team member",
+      ];
+
+      const hasIssueArea = issueAreaKeywords.some((keyword) =>
+        lowerQuery.includes(keyword)
+      );
+      const hasEngineer = engineerKeywords.some((keyword) =>
+        lowerQuery.includes(keyword)
+      );
+      const hasProject =
+        lowerQuery.includes("zsee") || lowerQuery.includes("project");
+
+      if (!hasIssueArea && !hasEngineer) {
         return {
-          success: true,
-          formattedResponse: response,
-          sources: [
-            {
-              title: `${ticket.key}: ${ticket.fields?.summary}`,
-              url: `${process.env.JIRA_API_URL}/browse/${ticket.key}`,
-              source: "Jira",
-              type: "jira",
+          needsClarification: true,
+          message:
+            "For charts and visualizations, I need either an Issue Area/Component OR Engineer Name. Please specify:",
+          promptType: "visualization_data",
+          metadata: {
+            originalQuery: query,
+            missingInfo: ["Issue Area or Engineer Name"],
+            suggestions: {
+              issueAreas: [
+                "Desktop Clients", // FIXED: Use proper field value
+                "Live Streaming",
+                "PWA/WebClient",
+                "Chat",
+                "Audio",
+                "Video",
+                "Sharing",
+                "Breakout",
+                "Join Meeting",
+                "Whiteboard - Client",
+                "Zoom Node",
+                "VDI",
+                "Zoom Mail Client",
+                "Web_Dashboard/Reports",
+                "Web_Meetings/Webinars",
+                "Zoom AI",
+              ],
+              engineers: [
+                "John Smith",
+                "Sarah Johnson",
+                "Mike Chen",
+                "Lisa Wang",
+                "David Brown",
+              ],
             },
-          ],
-          relatedQuestions: [
-            `What is the sentiment of comments on ${ticket.key}?`,
-            `Find similar issues to ${ticket.key}`,
-            `What are the recent updates on ${ticket.key}?`,
-          ],
-          queryType: "summarize_ticket",
+          },
         };
-      } else {
-        // Basic search with comment processing
-        const searchTerms = this.extractSimpleTerms(query);
-        const jql = `project = ZSEE AND text ~ "${searchTerms.join(
-          " "
-        )}" ORDER BY created DESC`;
-        const issues = await jiraClient.searchIssues(jql, 10);
+      }
 
-        // Fetch comments for top 3 issues
-        const issuesWithComments = await this.fetchCommentsForTopIssues(
-          issues.slice(0, 3)
-        );
-
-        const response = await this.createEnhancedSearchSummary(
-          query,
-          issuesWithComments,
-          issues
-        );
-
+      if (!hasProject) {
         return {
-          success: true,
-          formattedResponse: response,
-          sources: issues.map((issue) => ({
-            title: `${issue.key}: ${issue.fields?.summary}`,
-            url: `${process.env.JIRA_API_URL}/browse/${issue.key}`,
-            source: "Jira",
-            type: "jira",
-          })),
-          relatedQuestions: [
-            "Show me more details on these issues",
-            "What is the sentiment of these issues?",
-            "Find similar patterns in other tickets",
-          ],
-          queryType: "general_search",
+          needsClarification: true,
+          message:
+            "Which project should I analyze for the chart? Please specify the project name.",
+          promptType: "project_name",
+          metadata: {
+            originalQuery: query,
+            missingInfo: ["Project Name"],
+            suggestions: ["ZSEE", "ZOOM", "CLIENT"],
+          },
         };
       }
-    } catch (fallbackError) {
-      console.error(
-        `[JiraAgentService] Enhanced fallback processing also failed:`,
-        fallbackError
+    } else if (needsIssueArea) {
+      // Regular analysis queries
+      const issueAreaKeywords = [
+        "desktop",
+        "client",
+        "streaming",
+        "pwa",
+        "web client",
+        "chat",
+        "audio",
+        "video",
+        "sharing",
+        "breakout",
+        "join meeting",
+        "whiteboard",
+        "zoom node",
+        "vdi",
+        "mail client",
+        "dashboard",
+        "reports",
+        "meetings",
+        "webinar",
+        "zoom ai",
+      ];
+
+      const hasIssueArea = issueAreaKeywords.some((keyword) =>
+        lowerQuery.includes(keyword)
       );
+      const hasProject =
+        lowerQuery.includes("zsee") || lowerQuery.includes("project");
 
-      return {
-        success: false,
-        formattedResponse: `I encountered an error processing your Jira query: "${query}". 
-
-**Original Error:** ${originalError.message}
-**Fallback Error:** ${fallbackError.message}
-
-Please try:
-1. A simpler query like "summarize ticket ZSEE-12345"
-2. Check if the ticket number is correct
-3. Try again in a few moments
-
-If the problem persists, please contact support.`,
-        sources: [],
-        relatedQuestions: [],
-        error: true,
-      };
-    }
-  }
-
-  /**
-   * Select relevant comments (latest 10 if more than 20)
-   */
-  selectRelevantComments(comments) {
-    if (!comments || comments.length === 0) {
-      return [];
-    }
-
-    console.log(`[JiraAgentService] Processing ${comments.length} comments`);
-
-    // If 20 or fewer comments, use all
-    if (comments.length <= 20) {
-      return comments;
-    }
-
-    // If more than 20, use latest 10
-    console.log(
-      `[JiraAgentService] Using latest ${this.maxCommentsForAnalysis} of ${comments.length} comments`
-    );
-    return comments.slice(0, this.maxCommentsForAnalysis);
-  }
-
-  /**
-   * Create enhanced ticket summary with comments
-   */
-  async createEnhancedTicketSummary(ticket, comments) {
-    const formatDate = (dateStr) => {
-      try {
-        return new Date(dateStr).toLocaleDateString("en-US", {
-          year: "numeric",
-          month: "short",
-          day: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        });
-      } catch (e) {
-        return dateStr;
-      }
-    };
-
-    const calculateAge = (createdDate) => {
-      try {
-        const created = new Date(createdDate);
-        const now = new Date();
-        const diffTime = Math.abs(now - created);
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-        if (diffDays === 1) return "1 day";
-        if (diffDays < 30) return `${diffDays} days`;
-        if (diffDays < 365)
-          return `${Math.floor(diffDays / 30)} month${
-            Math.floor(diffDays / 30) > 1 ? "s" : ""
-          }`;
-        return `${Math.floor(diffDays / 365)} year${
-          Math.floor(diffDays / 365) > 1 ? "s" : ""
-        }`;
-      } catch (e) {
-        return "Unknown";
-      }
-    };
-
-    // Process comments
-    const commentSummary = this.summarizeCommentsBasic(comments);
-
-    // Enhanced ticket summary with comments
-    let response = `# Jira Ticket Summary (Enhanced)
-
-🆔 **Ticket:** ${ticket.key}
-📋 **Summary:** ${ticket.fields?.summary || "No summary available"}
-🎯 **Priority:** ${ticket.fields?.priority?.name || "Not specified"}
-🛠 **Status:** ${ticket.fields?.status?.name}
-👤 **Assignee:** ${ticket.fields?.assignee?.displayName || "Unassigned"}
-👥 **Reporter:** ${ticket.fields?.reporter?.displayName || "Not specified"}
-
-## 📅 Timeline
-- **Created:** ${formatDate(ticket.fields?.created)}
-- **Updated:** ${formatDate(ticket.fields?.updated)}
-- **Age:** ${calculateAge(ticket.fields?.created)}
-
-## 🔍 Issue Description
-${
-  this.extractTextFromDescription(ticket.fields?.description) ||
-  "No description available"
-}
-
-## 💬 Comment Activity (${comments.length} total comments)
-${commentSummary}
-
-## 📊 Ticket Statistics
-- **Comments:** ${comments.length}
-- **Watchers:** ${ticket.fields?.watches?.watchCount || 0}
-- **Votes:** ${ticket.fields?.votes?.votes || 0}
-
-## ✨ Key Insights
-- This ticket is currently in "${ticket.fields?.status?.name}" status
-- Created ${calculateAge(ticket.fields?.created)} ago
-- ${
-      comments.length > 0
-        ? `Has ${comments.length} comment${
-            comments.length === 1 ? "" : "s"
-          } with recent activity`
-        : "No comments yet"
-    }
-- ${
-      ticket.fields?.assignee
-        ? `Assigned to ${ticket.fields.assignee.displayName}`
-        : "Currently unassigned"
-    }
-
-*Enhanced summary generated: ${new Date().toLocaleString()}*`;
-
-    return response;
-  }
-
-  /**
-   * Basic comment summarization (without LLM)
-   */
-  summarizeCommentsBasic(comments) {
-    if (!comments || comments.length === 0) {
-      return "**No comments available**";
-    }
-
-    let summary = `**Recent Activity (${comments.length} comments):**\n\n`;
-
-    // Show latest 5 comments with basic formatting
-    const recentComments = comments.slice(0, 5);
-
-    recentComments.forEach((comment, index) => {
-      const commentDate = new Date(comment.created).toLocaleDateString();
-      const commentText = comment.text
-        ? comment.text.length > 150
-          ? comment.text.substring(0, 150) + "..."
-          : comment.text
-        : "No text content";
-
-      summary += `**${comment.author}** (${commentDate}):\n`;
-      summary += `${commentText}\n\n`;
-    });
-
-    // Add summary stats
-    if (comments.length > 5) {
-      summary += `*Showing latest 5 of ${comments.length} comments*\n\n`;
-    }
-
-    // Basic analysis
-    const uniqueAuthors = [...new Set(comments.map((c) => c.author))];
-    summary += `**Comment Analysis:**\n`;
-    summary += `- **Total Comments:** ${comments.length}\n`;
-    summary += `- **Contributors:** ${uniqueAuthors.length} people\n`;
-    summary += `- **Most Recent:** ${new Date(
-      comments[0]?.created
-    ).toLocaleDateString()}\n`;
-
-    if (comments.length > 20) {
-      summary += `- **Note:** Showing latest ${this.maxCommentsForAnalysis} comments (total: ${comments.length})\n`;
-    }
-
-    return summary;
-  }
-
-  /**
-   * Fetch comments for top issues in search results
-   */
-  async fetchCommentsForTopIssues(issues) {
-    console.log(
-      `[JiraAgentService] Fetching comments for ${issues.length} top issues`
-    );
-
-    const issuesWithComments = await Promise.all(
-      issues.map(async (issue) => {
-        try {
-          const comments = await jiraClient.fetchAllComments(issue.key);
-          const relevantComments = this.selectRelevantComments(comments);
-          return {
-            ...issue,
-            comments: relevantComments,
-            commentCount: comments.length,
-          };
-        } catch (error) {
-          console.error(
-            `[JiraAgentService] Error fetching comments for ${issue.key}:`,
-            error
-          );
-          return {
-            ...issue,
-            comments: [],
-            commentCount: 0,
-          };
-        }
-      })
-    );
-
-    return issuesWithComments;
-  }
-
-  /**
-   * Create enhanced search summary with comments
-   */
-  async createEnhancedSearchSummary(query, issuesWithComments, allIssues) {
-    let response = `# Enhanced Search Results for "${query}"
-
-Found ${allIssues.length} matching issues. Analyzed comments for top ${issuesWithComments.length} issues:
-
-`;
-
-    issuesWithComments.forEach((issue, index) => {
-      const commentSummary =
-        issue.comments.length > 0
-          ? `${issue.commentCount} comments (latest: ${new Date(
-              issue.comments[0]?.created
-            ).toLocaleDateString()})`
-          : "No comments";
-
-      response += `## ${index + 1}. ${issue.key}: ${issue.fields?.summary}
-- **Status:** ${issue.fields?.status?.name || "Unknown"}
-- **Priority:** ${issue.fields?.priority?.name || "Not specified"}
-- **Assignee:** ${issue.fields?.assignee?.displayName || "Unassigned"}
-- **Created:** ${new Date(issue.fields?.created).toLocaleDateString()}
-- **Activity:** ${commentSummary}
-
-`;
-
-      // Add latest comment preview if available
-      if (issue.comments.length > 0) {
-        const latestComment = issue.comments[0];
-        const commentPreview = latestComment.text
-          ? latestComment.text.length > 100
-            ? latestComment.text.substring(0, 100) + "..."
-            : latestComment.text
-          : "No text content";
-
-        response += `   💬 **Latest comment** (${latestComment.author}): ${commentPreview}\n\n`;
-      }
-    });
-
-    // Add remaining issues without comment analysis
-    if (allIssues.length > issuesWithComments.length) {
-      response += `## Additional Issues (${
-        allIssues.length - issuesWithComments.length
-      } more):\n`;
-
-      allIssues
-        .slice(issuesWithComments.length, Math.min(allIssues.length, 10))
-        .forEach((issue, index) => {
-          response += `${issuesWithComments.length + index + 1}. **${
-            issue.key
-          }**: ${issue.fields?.summary} (${issue.fields?.status?.name})\n`;
-        });
-    }
-
-    response += `\n## 📊 Search Summary
-- **Total Issues Found:** ${allIssues.length}
-- **Detailed Analysis:** ${issuesWithComments.length} issues
-- **Total Comments Analyzed:** ${issuesWithComments.reduce(
-      (sum, issue) => sum + issue.commentCount,
-      0
-    )}
-- **Active Issues:** ${
-      allIssues.filter(
-        (i) =>
-          i.fields?.status?.name !== "Closed" &&
-          i.fields?.status?.name !== "Resolved"
-      ).length
-    }
-
-*Enhanced search completed: ${new Date().toLocaleString()}*`;
-
-    return response;
-  }
-
-  /**
-   * Extract text from Jira description (handles ADF format)
-   */
-  extractTextFromDescription(description) {
-    if (!description) return "";
-
-    if (typeof description === "string") {
-      return description.length > 500
-        ? description.substring(0, 500) + "..."
-        : description;
-    }
-
-    try {
-      // Handle Atlassian Document Format
-      if (description.content && Array.isArray(description.content)) {
-        let text = "";
-        const extractText = (node) => {
-          if (node.type === "text" && node.text) {
-            text += node.text + " ";
-          } else if (node.content && Array.isArray(node.content)) {
-            node.content.forEach(extractText);
-          }
+      if (!hasIssueArea) {
+        return {
+          needsClarification: true,
+          message:
+            "To provide accurate analysis, I need to know which Issue Area/Component you want me to analyze. Please specify:",
+          promptType: "issue_area",
+          metadata: {
+            originalQuery: query,
+            missingInfo: ["Issue Area"],
+            suggestions: [
+              "Desktop Clients", // FIXED: Use proper field value
+              "Live Streaming",
+              "PWA/WebClient",
+              "Chat",
+              "Audio",
+              "Video",
+              "Sharing",
+              "Breakout",
+              "Join Meeting",
+              "Whiteboard - Client",
+              "Zoom Node",
+              "VDI",
+              "Zoom Mail Client",
+              "Web_Dashboard/Reports",
+              "Web_Meetings/Webinars",
+              "Zoom AI",
+            ],
+          },
         };
-        description.content.forEach(extractText);
-        const cleanText = text.trim();
-        return cleanText.length > 500
-          ? cleanText.substring(0, 500) + "..."
-          : cleanText;
       }
-    } catch (error) {
-      console.warn(
-        `[JiraAgentService] Error extracting description text:`,
-        error
-      );
+
+      if (!hasProject) {
+        return {
+          needsClarification: true,
+          message:
+            "Which project should I analyze? Please specify the project name.",
+          promptType: "project_name",
+          metadata: {
+            originalQuery: query,
+            missingInfo: ["Project Name"],
+            suggestions: ["ZSEE", "ZOOM", "CLIENT"],
+          },
+        };
+      }
     }
 
-    return "Description format not supported";
+    return { needsClarification: false };
   }
 
-  // Keep all the other existing methods (analyzeUserQueryWithFallback, generateJQLQueriesWithFallback, etc.)
-  // from the previous version...
-
   /**
-   * Analyze user query with robust error handling and fallback
+   * Enhanced query analysis with better keyword extraction
    */
-  async analyzeUserQueryWithFallback(query, chatHistory = []) {
+  async enhancedQueryAnalysis(query, chatHistory = []) {
+    console.log(`[JiraAgentService] Enhanced analysis for: "${query}"`);
+
     try {
-      const analysisPrompt = `Analyze this Jira query and respond with valid JSON only:
+      // Use Claude to understand time constraints and main keywords
+      const analysisPrompt = `Analyze this Jira query and extract key information:
 
 Query: "${query}"
 
-Respond with only this JSON format (no extra text):
+Extract:
+1. Main technical keywords (like "frameserverclient", "crash", "bug")  
+2. Time constraints (recently = this week, this month, last month, etc.)
+3. Query intent (search, analysis, visualization, etc.)
+4. Issue area if mentioned (Desktop, Mobile, Web, etc.)
+
+Respond with JSON:
 {
-  "queryType": "summarize_ticket",
-  "searchTerms": ["key", "terms"],
-  "timeConstraint": {"type": "none", "value": "", "days": 7},
-  "priority": null,
-  "customer": null,
-  "ticketId": null,
-  "limit": 10,
-  "needsClarification": false
-}
-
-Query types: summarize_ticket, sentiment_analysis, create_chart, find_similar, mttr_analysis, top_issues, trending_tickets, customer_issues, general_search`;
-
-      console.log(
-        `[JiraAgentService] Calling LLM Gateway for query analysis...`
-      );
-
-      const response = await llmGatewayService.query(analysisPrompt, [], {
-        model: "claude-3-7-sonnet-20250219",
-        temperature: 0.1,
-      });
-
-      console.log(`[JiraAgentService] LLM Gateway response:`, response);
-
-      if (!response || !response.content) {
-        console.warn(`[JiraAgentService] Empty response from LLM Gateway`);
-        throw new Error("Empty response from LLM Gateway");
-      }
-
-      let analysis;
-      try {
-        let cleanContent = response.content.trim();
-
-        if (cleanContent.startsWith("```json")) {
-          cleanContent = cleanContent
-            .replace(/```json\n?/, "")
-            .replace(/\n?```$/, "");
-        } else if (cleanContent.startsWith("```")) {
-          cleanContent = cleanContent
-            .replace(/```\n?/, "")
-            .replace(/\n?```$/, "");
-        }
-
-        console.log(
-          `[JiraAgentService] Cleaned response content:`,
-          cleanContent
-        );
-
-        analysis = JSON.parse(cleanContent);
-        console.log(
-          `[JiraAgentService] Successfully parsed analysis:`,
-          analysis
-        );
-      } catch (parseError) {
-        console.error(`[JiraAgentService] JSON parse error:`, parseError);
-        console.error(
-          `[JiraAgentService] Raw response content:`,
-          response.content
-        );
-        throw new Error(`Invalid JSON response: ${parseError.message}`);
-      }
-
-      analysis = this.validateAndDefaultAnalysis(analysis, query);
-      return analysis;
-    } catch (error) {
-      console.error("[JiraAgentService] Error in LLM query analysis:", error);
-      console.log(`[JiraAgentService] Using fallback rule-based analysis`);
-      return this.fallbackQueryAnalysis(query);
-    }
-  }
-
-  /**
-   * Validate analysis result and set defaults
-   */
-  validateAndDefaultAnalysis(analysis, query) {
-    const validated = {
-      queryType: analysis.queryType || "general_search",
-      searchTerms: Array.isArray(analysis.searchTerms)
-        ? analysis.searchTerms
-        : this.extractSimpleTerms(query),
-      timeConstraint: analysis.timeConstraint || {
-        type: "none",
-        value: "",
-        days: 7,
-      },
-      priority: analysis.priority || null,
-      customer: analysis.customer || null,
-      ticketId: analysis.ticketId || this.extractTicketId(query),
-      limit: analysis.limit || 10,
-      needsClarification: analysis.needsClarification || false,
-      clarificationQuestion: analysis.clarificationQuestion || null,
-    };
-
-    if (!validated.ticketId) {
-      const ticketMatch = query.match(/([A-Z]+-\d+)/);
-      if (ticketMatch) {
-        validated.ticketId = ticketMatch[1];
-        validated.queryType = "summarize_ticket";
-      }
-    }
-
-    const lowerQuery = query.toLowerCase();
-    if (lowerQuery.includes("sentiment") || lowerQuery.includes("feeling")) {
-      validated.queryType = "sentiment_analysis";
-    } else if (
-      lowerQuery.includes("chart") ||
-      lowerQuery.includes("graph") ||
-      lowerQuery.includes("visual")
-    ) {
-      validated.queryType = "create_chart";
-    } else if (
-      lowerQuery.includes("similar") ||
-      lowerQuery.includes("like this")
-    ) {
-      validated.queryType = "find_similar";
-    } else if (
-      lowerQuery.includes("mttr") ||
-      lowerQuery.includes("resolution time")
-    ) {
-      validated.queryType = "mttr_analysis";
-    } else if (lowerQuery.includes("top") || lowerQuery.includes("highest")) {
-      validated.queryType = "top_issues";
-    } else if (lowerQuery.includes("trend") || lowerQuery.includes("pattern")) {
-      validated.queryType = "trending_tickets";
-    }
-
-    console.log(`[JiraAgentService] Validated analysis:`, validated);
-    return validated;
-  }
-
-  /**
-   * Fallback rule-based query analysis
-   */
-  fallbackQueryAnalysis(query) {
-    console.log(
-      `[JiraAgentService] Performing rule-based analysis for: "${query}"`
-    );
-
-    const lowerQuery = query.toLowerCase();
-    let queryType = "general_search";
-
-    const ticketMatch = query.match(/([A-Z]+-\d+)/);
-    const ticketId = ticketMatch ? ticketMatch[1] : null;
-
-    if (ticketId) {
-      queryType = "summarize_ticket";
-    } else if (lowerQuery.includes("sentiment")) {
-      queryType = "sentiment_analysis";
-    } else if (lowerQuery.includes("chart") || lowerQuery.includes("graph")) {
-      queryType = "create_chart";
-    } else if (lowerQuery.includes("similar")) {
-      queryType = "find_similar";
-    } else if (lowerQuery.includes("mttr")) {
-      queryType = "mttr_analysis";
-    } else if (lowerQuery.includes("top")) {
-      queryType = "top_issues";
-    }
-
-    const searchTerms = this.extractSimpleTerms(query);
-
-    let timeConstraint = { type: "none", value: "", days: 7 };
-    if (lowerQuery.includes("this week")) {
-      timeConstraint = { type: "relative", value: "this_week", days: 7 };
-    } else if (lowerQuery.includes("last week")) {
-      timeConstraint = { type: "relative", value: "last_week", days: 14 };
-    } else if (lowerQuery.includes("recently")) {
-      timeConstraint = { type: "relative", value: "recently", days: 7 };
-    }
-
-    return {
-      queryType,
-      searchTerms,
-      timeConstraint,
-      priority: null,
-      customer: null,
-      ticketId,
-      limit: 10,
-      needsClarification: false,
-    };
-  }
-
-  /**
-   * Extract simple search terms from query
-   */
-  extractSimpleTerms(query) {
-    const stopWords = new Set([
-      "the",
-      "and",
-      "or",
-      "but",
-      "in",
-      "on",
-      "at",
-      "to",
-      "for",
-      "of",
-      "with",
-      "by",
-      "this",
-      "that",
-      "is",
-      "are",
-      "was",
-      "were",
-      "be",
-      "been",
-      "being",
-      "have",
-      "has",
-      "had",
-      "do",
-      "does",
-      "did",
-      "will",
-      "would",
-      "could",
-      "should",
-      "may",
-      "might",
-      "must",
-      "can",
-      "jira",
-      "ticket",
-      "issue",
-    ]);
-
-    return query
-      .toLowerCase()
-      .replace(/[^\w\s]/g, " ")
-      .split(/\s+/)
-      .filter((term) => term.length > 2 && !stopWords.has(term))
-      .slice(0, 5);
-  }
-
-  /**
-   * Extract ticket ID from query
-   */
-  extractTicketId(query) {
-    const match = query.match(/([A-Z]+-\d+)/);
-    return match ? match[1] : null;
-  }
-
-  /**
-   * Generate JQL queries with fallback
-   */
-  async generateJQLQueriesWithFallback(analysis) {
-    try {
-      const jqlPrompt = `Generate JQL queries for: ${analysis.queryType}
-Search terms: ${analysis.searchTerms.join(", ")}
-Time constraint: ${analysis.timeConstraint.value}
-
-Create 1-2 JQL queries. Respond with valid JSON only:
-{
-  "queries": [
-    {
-      "name": "primary",
-      "jql": "project = ZSEE AND ...",
-      "maxResults": 25,
-      "purpose": "Main search"
-    }
-  ]
+  "mainKeywords": ["frameserverclient", "crash"],
+  "alternativeKeywords": ["frame server client", "frame-server-client"],
+  "timeConstraint": {"type": "relative", "value": "this_week", "days": 7},
+  "queryType": "general_search",
+  "issueArea": "Desktop Clients",
+  "searchTerms": ["crash", "frameserverclient"],
+  "needsMultipleQueries": true
 }`;
 
-      const response = await llmGatewayService.query(jqlPrompt, [], {
-        model: "claude-3-7-sonnet-20250219",
-        temperature: 0.2,
-      });
+      let response;
+      try {
+        response = await llmGatewayService.query(analysisPrompt, [], {
+          model: "claude-3-7-sonnet-20250219",
+          temperature: 0.1,
+        });
 
-      if (response?.content) {
-        try {
-          let cleanContent = response.content.trim();
+        if (response?.content) {
+          let cleanContent = String(response.content).trim();
           if (cleanContent.startsWith("```json")) {
             cleanContent = cleanContent
               .replace(/```json\n?/, "")
               .replace(/\n?```$/, "");
           }
 
-          const jqlResult = JSON.parse(cleanContent);
-          if (jqlResult.queries && Array.isArray(jqlResult.queries)) {
-            console.log(
-              `[JiraAgentService] Generated ${jqlResult.queries.length} JQL queries with LLM`
+          const parsed = JSON.parse(cleanContent);
+          console.log(`[JiraAgentService] Claude analysis:`, parsed);
+          return await this.enhanceAnalysisResult(parsed, query);
+        }
+      } catch (error) {
+        console.warn(
+          `[JiraAgentService] Claude analysis failed:`,
+          error.message
+        );
+      }
+    } catch (error) {
+      console.error(`[JiraAgentService] Analysis error:`, error);
+    }
+
+    // Fallback to enhanced rule-based analysis
+    return this.enhancedFallbackAnalysis(query);
+  }
+
+  /**
+   * Enhanced fallback analysis with better keyword extraction
+   */
+  async enhancedFallbackAnalysis(query) {
+    console.log(
+      `[JiraAgentService] Enhanced fallback analysis for: "${query}"`
+    );
+
+    const lowerQuery = query.toLowerCase();
+
+    // Extract main technical keywords with better patterns
+    const technicalKeywords = this.extractTechnicalKeywords(query);
+    const timeConstraint = this.parseTimeConstraints(query);
+    const queryType = this.determineQueryType(query);
+    const issueArea = await this.extractIssueArea(query); // Now async
+
+    return {
+      queryType: queryType,
+      mainKeywords: technicalKeywords.main,
+      alternativeKeywords: technicalKeywords.alternatives,
+      searchTerms: technicalKeywords.all,
+      timeConstraint: timeConstraint,
+      issueArea: issueArea,
+      needsMultipleQueries: true,
+      limit: 20,
+    };
+  }
+
+  /**
+   * Extract technical keywords with better patterns
+   */
+  extractTechnicalKeywords(query) {
+    // Common technical term patterns
+    const technicalPatterns = [
+      /frameserverclient/gi,
+      /frame[_\s-]?server[_\s-]?client/gi,
+      /\b[a-z]+client\b/gi,
+      /\b[a-z]+server\b/gi,
+      /\b[a-z]+service\b/gi,
+      /\b\d+\.\d+\.\d+\b/gi, // Version numbers like 6.4.10
+    ];
+
+    const mainKeywords = [];
+    const alternatives = [];
+
+    // Extract specific technical terms
+    technicalPatterns.forEach((pattern) => {
+      const matches = query.match(pattern);
+      if (matches) {
+        matches.forEach((match) => {
+          const term = match.toLowerCase();
+          mainKeywords.push(term);
+
+          // Generate alternatives
+          if (term.includes("frameserverclient")) {
+            alternatives.push(
+              "frame server client",
+              "frame-server-client",
+              "frameserver client"
             );
-            return jqlResult.queries;
           }
-        } catch (parseError) {
-          console.warn(
-            `[JiraAgentService] Failed to parse JQL response, using fallback`
+          if (term.includes("client")) {
+            alternatives.push(term.replace("client", " client"));
+          }
+        });
+      }
+    });
+
+    // Extract general keywords
+    const generalKeywords = [
+      "crash",
+      "bug",
+      "error",
+      "issue",
+      "problem",
+      "failure",
+      "exception",
+    ];
+    generalKeywords.forEach((keyword) => {
+      if (query.toLowerCase().includes(keyword)) {
+        mainKeywords.push(keyword);
+      }
+    });
+
+    // Combine all unique keywords
+    const allKeywords = [...new Set([...mainKeywords, ...alternatives])];
+
+    return {
+      main: mainKeywords,
+      alternatives: alternatives,
+      all: allKeywords,
+    };
+  }
+
+  /**
+   * Parse time constraints with Claude understanding
+   */
+  parseTimeConstraints(query) {
+    const lowerQuery = query.toLowerCase();
+
+    if (lowerQuery.includes("recently") || lowerQuery.includes("recent")) {
+      return { type: "relative", value: "recently", days: 7 };
+    }
+    if (lowerQuery.includes("this week")) {
+      return { type: "relative", value: "this_week", days: 7 };
+    }
+    if (lowerQuery.includes("this month")) {
+      return { type: "relative", value: "this_month", days: 30 };
+    }
+    if (lowerQuery.includes("last month")) {
+      return { type: "relative", value: "last_month", days: 60 };
+    }
+    if (lowerQuery.includes("last week")) {
+      return { type: "relative", value: "last_week", days: 14 };
+    }
+
+    // Version-based time constraints
+    const versionMatch = query.match(/(\d+\.\d+\.\d+)/);
+    if (versionMatch) {
+      return { type: "version", value: `after_${versionMatch[1]}`, days: 90 };
+    }
+
+    return { type: "none", value: "", days: 7 };
+  }
+
+  /**
+   * Determine query type based on intent
+   */
+  determineQueryType(query) {
+    const lowerQuery = query.toLowerCase();
+
+    if (
+      lowerQuery.includes("sentiment analysis") ||
+      lowerQuery.includes("sentiment")
+    ) {
+      return "sentiment_analysis";
+    }
+    if (lowerQuery.includes("mttr")) {
+      return "mttr_analysis";
+    }
+    if (
+      lowerQuery.includes("pie chart") ||
+      lowerQuery.includes("chart") ||
+      lowerQuery.includes("visualization")
+    ) {
+      return "create_chart";
+    }
+    if (lowerQuery.includes("summarize") || lowerQuery.includes("summary")) {
+      return "summarize_ticket";
+    }
+    if (
+      lowerQuery.includes("top") &&
+      (lowerQuery.includes("issue") || lowerQuery.includes("priority"))
+    ) {
+      return "top_issues";
+    }
+
+    return "general_search";
+  }
+
+  /**
+   * CRITICAL FIX: Extract issue area with proper component mapping
+   */
+  async extractIssueArea(query) {
+    console.log(`[JiraAgentService] Extracting issue area from: "${query}"`);
+
+    const lowerQuery = query.toLowerCase();
+
+    // FIXED: Predefined Issue Area components mapping with correct field values
+    const issueAreaMapping = {
+      // Direct matches - FIXED: Use actual Jira field values
+      desktop: "Desktop Clients",
+      "desktop client": "Desktop Clients",
+      "desktop clients": "Desktop Clients",
+      client: "Desktop Clients",
+      clients: "Desktop Clients",
+
+      streaming: "Live Streaming",
+      "live streaming": "Live Streaming",
+      stream: "Live Streaming",
+
+      pwa: "PWA/WebClient",
+      "web client": "PWA/WebClient",
+      webclient: "PWA/WebClient",
+      web: "PWA/WebClient",
+
+      chat: "Chat",
+      messaging: "Chat",
+      message: "Chat",
+
+      audio: "Audio",
+      sound: "Audio",
+      mic: "Audio",
+      microphone: "Audio",
+      speaker: "Audio",
+
+      video: "Video",
+      camera: "Video",
+      webcam: "Video",
+
+      sharing: "Sharing",
+      "screen share": "Sharing",
+      "screen sharing": "Sharing",
+      "share screen": "Sharing",
+
+      breakout: "Breakout",
+      "breakout room": "Breakout",
+      "breakout rooms": "Breakout",
+
+      join: "Join Meeting",
+      "join meeting": "Join Meeting",
+      joining: "Join Meeting",
+
+      whiteboard: "Whiteboard - Client",
+      "white board": "Whiteboard - Client",
+
+      node: "Zoom Node",
+      "zoom node": "Zoom Node",
+
+      vdi: "VDI",
+      "virtual desktop": "VDI",
+
+      mail: "Zoom Mail Client",
+      "zoom mail": "Zoom Mail Client",
+      "mail client": "Zoom Mail Client",
+
+      dashboard: "Web_Dashboard/Reports",
+      reports: "Web_Dashboard/Reports",
+      report: "Web_Dashboard/Reports",
+      "web dashboard": "Web_Dashboard/Reports",
+
+      meetings: "Web_Meetings/Webinars",
+      webinar: "Web_Meetings/Webinars",
+      webinars: "Web_Meetings/Webinars",
+      meeting: "Web_Meetings/Webinars",
+
+      ai: "Zoom AI",
+      "zoom ai": "Zoom AI",
+      "artificial intelligence": "Zoom AI",
+    };
+
+    // Direct keyword matching
+    for (const [keyword, component] of Object.entries(issueAreaMapping)) {
+      if (lowerQuery.includes(keyword)) {
+        console.log(
+          `[JiraAgentService] Found direct match: "${keyword}" -> "${component}"`
+        );
+        return {
+          component: component,
+          matchType: "direct",
+          matchedKeyword: keyword,
+        };
+      }
+    }
+
+    // Smart matching using Claude for complex queries
+    try {
+      const componentList = [
+        "Desktop Clients", // FIXED: Use actual field values
+        "Live Streaming",
+        "PWA/WebClient",
+        "Chat",
+        "Audio",
+        "Video",
+        "Sharing",
+        "Breakout",
+        "Join Meeting",
+        "Whiteboard - Client",
+        "Zoom Node",
+        "VDI",
+        "Zoom Mail Client",
+        "Web_Dashboard/Reports",
+        "Web_Meetings/Webinars",
+        "Zoom AI",
+      ];
+
+      const matchingPrompt = `Match this query to the most relevant Zoom component:
+
+Query: "${query}"
+
+Available components:
+${componentList.map((c, i) => `${i + 1}. ${c}`).join("\n")}
+
+Instructions:
+- If query mentions "frameserverclient" or similar client issues -> Desktop Clients
+- If query mentions audio/sound/mic issues -> Audio  
+- If query mentions video/camera issues -> Video
+- If query mentions sharing/screen share -> Sharing
+- If query mentions chat/messaging -> Chat
+- If no clear match, return "none"
+
+Respond with only the component name or "none":`;
+
+      const response = await llmGatewayService.query(matchingPrompt, [], {
+        model: "claude-3-7-sonnet-20250219",
+        temperature: 0.1,
+      });
+
+      if (response?.content) {
+        const matchedComponent = response.content.trim();
+        if (
+          matchedComponent !== "none" &&
+          componentList.includes(matchedComponent)
+        ) {
+          console.log(
+            `[JiraAgentService] Claude matched: "${matchedComponent}"`
           );
+          return {
+            component: matchedComponent,
+            matchType: "claude",
+            matchedKeyword: "smart_match",
+          };
         }
       }
     } catch (error) {
       console.warn(
-        `[JiraAgentService] LLM JQL generation failed, using fallback:`,
-        error.message
+        `[JiraAgentService] Claude component matching failed:`,
+        error
       );
     }
 
-    return this.generateFallbackJQL(analysis);
+    // Fallback: Try to fetch available components from Jira and match
+    try {
+      const availableComponents = await this.fetchAvailableComponents();
+      if (availableComponents.length > 0) {
+        // Simple keyword matching against actual Jira components
+        for (const component of availableComponents) {
+          const componentLower = component.name.toLowerCase();
+          const queryWords = lowerQuery.split(/\s+/);
+
+          for (const word of queryWords) {
+            if (word.length > 2 && componentLower.includes(word)) {
+              console.log(
+                `[JiraAgentService] Matched available component: "${component.name}"`
+              );
+              return {
+                component: component.name,
+                matchType: "jira_api",
+                matchedKeyword: word,
+              };
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.warn(
+        `[JiraAgentService] Could not fetch Jira components:`,
+        error
+      );
+    }
+
+    return null;
   }
 
   /**
-   * Generate fallback JQL queries using rules
+   * Fetch available components from Jira
    */
-  generateFallbackJQL(analysis) {
+  async fetchAvailableComponents() {
+    try {
+      console.log(`[JiraAgentService] Fetching available components from Jira`);
+
+      // Use search API to get component information
+      const response = await jiraClient.searchIssues(
+        "project = ZSEE AND component is not EMPTY",
+        50
+      );
+
+      const componentSet = new Set();
+      response.forEach((issue) => {
+        if (issue.fields?.components) {
+          issue.fields.components.forEach((comp) => {
+            if (comp.name) {
+              componentSet.add(comp.name);
+            }
+          });
+        }
+      });
+
+      const components = Array.from(componentSet).map((name) => ({ name }));
+      console.log(
+        `[JiraAgentService] Found ${components.length} components in Jira`
+      );
+      return components;
+    } catch (error) {
+      console.error(`[JiraAgentService] Error fetching components:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * CRITICAL FIX: Generate multiple JQL queries with correct component field
+   */
+  async generateMultipleJQLQueries(analysis) {
     console.log(
-      `[JiraAgentService] Generating fallback JQL for ${analysis.queryType}`
+      `[JiraAgentService] Generating multiple JQL queries for:`,
+      analysis
     );
 
+    const queries = [];
     const baseProject = "project = ZSEE";
-    let queries = [];
 
-    if (analysis.ticketId) {
+    // Direct ticket query if ticket ID found
+    const ticketMatch = analysis.mainKeywords?.find((k) =>
+      k.match(/[A-Z]+-\d+/)
+    );
+    if (ticketMatch) {
       queries.push({
         name: "direct_ticket",
-        jql: `key = ${analysis.ticketId}`,
+        jql: `key = ${ticketMatch}`,
         maxResults: 1,
-        purpose: `Get specific ticket ${analysis.ticketId}`,
+        purpose: `Direct ticket lookup for ${ticketMatch}`,
       });
-    } else {
-      let searchClause = "";
-      if (analysis.searchTerms.length > 0) {
-        searchClause = `text ~ "${analysis.searchTerms.join(" ")}"`;
-      }
+      return queries;
+    }
 
-      let timeClause = "";
-      if (analysis.timeConstraint.type === "relative") {
-        if (analysis.timeConstraint.value === "this_week") {
-          timeClause = "created >= startOfWeek()";
-        } else if (analysis.timeConstraint.value === "recently") {
+    // Build time constraint
+    let timeClause = "";
+    if (analysis.timeConstraint?.type === "relative") {
+      switch (analysis.timeConstraint.value) {
+        case "recently":
+        case "this_week":
           timeClause = "created >= -7d";
-        } else {
+          break;
+        case "this_month":
+          timeClause = "created >= -30d";
+          break;
+        case "last_month":
+          timeClause = "created >= -60d AND created <= -30d";
+          break;
+        case "last_week":
+          timeClause = "created >= -14d AND created <= -7d";
+          break;
+        default:
           timeClause = `created >= -${analysis.timeConstraint.days}d`;
-        }
       }
+    } else if (analysis.timeConstraint?.type === "version") {
+      timeClause = `created >= -${analysis.timeConstraint.days}d`;
+    }
 
-      let jqlParts = [baseProject];
-      if (searchClause) jqlParts.push(searchClause);
+    // CRITICAL FIX: Build component clause with correct field name
+    let componentClause = "";
+    if (analysis.issueArea?.component) {
+      // FIXED: Use proper Jira field name for component
+      componentClause = `"issue area (component)[dropdown]" = "${analysis.issueArea.component}"`;
+      console.log(
+        `[JiraAgentService] Adding component filter: ${componentClause}`
+      );
+    }
+
+    // Build priority clause for "top issues" queries
+    let priorityClause = "";
+    if (analysis.queryType === "top_issues") {
+      priorityClause = `priority in (Highest, High)`;
+      console.log(
+        `[JiraAgentService] Adding priority filter for top issues: ${priorityClause}`
+      );
+    }
+
+    // Query 1: Main keywords combined with all filters
+    if (analysis.mainKeywords?.length > 0) {
+      const mainTerms = analysis.mainKeywords.join(" ");
+      let jqlParts = [baseProject, `text ~ "${mainTerms}"`];
+
+      if (componentClause) jqlParts.push(componentClause);
       if (timeClause) jqlParts.push(timeClause);
-      if (analysis.priority)
-        jqlParts.push(`priority >= ${analysis.priority[0]}`);
+      if (priorityClause) jqlParts.push(priorityClause);
 
-      const primaryJQL = jqlParts.join(" AND ") + " ORDER BY created DESC";
+      // Order by priority for top issues, otherwise by created date
+      const orderBy =
+        analysis.queryType === "top_issues"
+          ? "ORDER BY priority DESC, created DESC"
+          : "ORDER BY created DESC";
 
       queries.push({
-        name: "primary",
-        jql: primaryJQL,
-        maxResults: analysis.limit || 20,
-        purpose: "Primary search query",
+        name: "main_keywords_with_filters",
+        jql: jqlParts.join(" AND ") + " " + orderBy,
+        maxResults: 15,
+        purpose: `Search with main keywords and filters: ${mainTerms}${
+          analysis.issueArea ? ` in ${analysis.issueArea.component}` : ""
+        }`,
       });
+    }
 
-      if (analysis.searchTerms.length > 1) {
-        const broaderTerms = analysis.searchTerms.slice(0, 2);
-        const broaderJQL = `${baseProject} AND text ~ "${broaderTerms.join(
-          " "
-        )}" ORDER BY created DESC`;
+    // Query 2: Component-focused search (if component detected)
+    if (analysis.issueArea?.component) {
+      let jqlParts = [baseProject, componentClause];
+      if (timeClause) jqlParts.push(timeClause);
+      if (priorityClause) jqlParts.push(priorityClause);
+
+      const orderBy =
+        analysis.queryType === "top_issues"
+          ? "ORDER BY priority DESC, created DESC"
+          : "ORDER BY created DESC";
+
+      queries.push({
+        name: "component_focused",
+        jql: jqlParts.join(" AND ") + " " + orderBy,
+        maxResults: 15,
+        purpose: `Component-focused search in ${analysis.issueArea.component}`,
+      });
+    }
+
+    // Query 3: Individual keywords with filters
+    if (analysis.mainKeywords?.length > 1) {
+      analysis.mainKeywords.slice(0, 2).forEach((keyword, index) => {
+        let jqlParts = [baseProject, `text ~ "${keyword}"`];
+        if (componentClause) jqlParts.push(componentClause);
+        if (timeClause) jqlParts.push(timeClause);
+        if (priorityClause) jqlParts.push(priorityClause);
+
+        const orderBy =
+          analysis.queryType === "top_issues"
+            ? "ORDER BY priority DESC, created DESC"
+            : "ORDER BY priority DESC, created DESC";
 
         queries.push({
-          name: "broader",
-          jql: broaderJQL,
-          maxResults: 15,
-          purpose: "Broader search with fewer terms",
+          name: `individual_${index}_with_filters`,
+          jql: jqlParts.join(" AND ") + " " + orderBy,
+          maxResults: 10,
+          purpose: `Individual keyword search: ${keyword}${
+            analysis.issueArea ? ` in ${analysis.issueArea.component}` : ""
+          }`,
         });
+      });
+    }
+
+    // Query 4: Alternative keyword combinations
+    if (analysis.alternativeKeywords?.length > 0) {
+      const altTerms = analysis.alternativeKeywords.slice(0, 2).join(" ");
+      let jqlParts = [baseProject, `text ~ "${altTerms}"`];
+      if (componentClause) jqlParts.push(componentClause);
+      if (timeClause) jqlParts.push(timeClause);
+      if (priorityClause) jqlParts.push(priorityClause);
+
+      const orderBy =
+        analysis.queryType === "top_issues"
+          ? "ORDER BY priority DESC, created DESC"
+          : "ORDER BY created DESC";
+
+      queries.push({
+        name: "alternatives_with_filters",
+        jql: jqlParts.join(" AND ") + " " + orderBy,
+        maxResults: 10,
+        purpose: `Alternative keywords: ${altTerms}${
+          analysis.issueArea ? ` in ${analysis.issueArea.component}` : ""
+        }`,
+      });
+    }
+
+    // Query 5: Broad search if specific searches might be too narrow
+    if (queries.length > 0) {
+      let jqlParts = [baseProject];
+      if (componentClause) jqlParts.push(componentClause);
+      if (timeClause) jqlParts.push(timeClause);
+      if (priorityClause) jqlParts.push(priorityClause);
+
+      // Add a general search term if we have keywords
+      if (analysis.searchTerms?.length > 0) {
+        const generalTerm = analysis.searchTerms[0];
+        jqlParts.push(
+          `(text ~ "${generalTerm}" OR summary ~ "${generalTerm}")`
+        );
       }
+
+      const orderBy =
+        analysis.queryType === "top_issues"
+          ? "ORDER BY priority DESC, created DESC"
+          : "ORDER BY created DESC";
+
+      queries.push({
+        name: "broad_search",
+        jql: jqlParts.join(" AND ") + " " + orderBy,
+        maxResults: 10,
+        purpose: `Broad search${
+          analysis.issueArea ? ` in ${analysis.issueArea.component}` : ""
+        }`,
+      });
     }
 
     console.log(
-      `[JiraAgentService] Generated ${queries.length} fallback JQL queries`
+      `[JiraAgentService] Generated ${queries.length} JQL queries:`,
+      queries
     );
-    return queries;
+    return queries.length > 0 ? queries : this.generateFallbackJQL(analysis);
   }
 
   /**
-   * Execute multiple JQL queries concurrently with error handling
+   * Generate fallback JQL
+   */
+  generateFallbackJQL(analysis) {
+    const baseProject = "project = ZSEE";
+
+    return [
+      {
+        name: "fallback",
+        jql: `${baseProject} AND text ~ "${
+          analysis.searchTerms?.join(" ") || "issue"
+        }" ORDER BY created DESC`,
+        maxResults: 20,
+        purpose: "Fallback search query",
+      },
+    ];
+  }
+
+  /**
+   * Execute multiple JQL queries concurrently
    */
   async executeMultipleQueries(jqlQueries) {
     console.log(
-      `[JiraAgentService] Executing ${jqlQueries.length} JQL queries concurrently`
+      `[JiraAgentService] Executing ${jqlQueries.length} JQL queries`
     );
 
     const queryPromises = jqlQueries.map(async (queryObj) => {
@@ -921,7 +1048,6 @@ Create 1-2 JQL queries. Respond with valid JSON only:
     });
 
     const results = await Promise.all(queryPromises);
-
     const totalResults = results.reduce((sum, r) => sum + r.resultCount, 0);
     console.log(
       `[JiraAgentService] Query execution complete. Total results: ${totalResults}`
@@ -931,260 +1057,516 @@ Create 1-2 JQL queries. Respond with valid JSON only:
   }
 
   /**
-   * Process results by intent with comment handling
+   * Process results based on query intent
    */
   async processResultsByIntent(originalQuery, analysis, jiraResults) {
     const startTime = Date.now();
-
     const allIssues = this.combineAndDeduplicateResults(jiraResults);
+
     console.log(
-      `[JiraAgentService] Processing ${allIssues.length} unique issues for intent: ${analysis.queryType}`
+      `[JiraAgentService] Processing ${allIssues.length} issues for intent: ${analysis.queryType}`
     );
 
-    try {
-      let result;
+    let result;
 
-      if (analysis.queryType === "summarize_ticket" && analysis.ticketId) {
-        result = await this.processComprehensiveTicketSummary(
-          analysis.ticketId,
-          allIssues
-        );
-      } else {
-        result = await this.processComprehensiveSearch(
+    switch (analysis.queryType) {
+      case "sentiment_analysis":
+        result = await this.processSentimentAnalysis(
           originalQuery,
           allIssues,
           analysis
         );
-      }
-
-      result.executionTime = Date.now() - startTime;
-      return result;
-    } catch (error) {
-      console.error(
-        `[JiraAgentService] Error in comprehensive result processing:`,
-        error
-      );
-
-      return {
-        response: `Found ${allIssues.length} results for "${originalQuery}" but encountered an error in comprehensive processing. Using fallback...`,
-        sources: allIssues.slice(0, 5).map((issue) => ({
-          title: `${issue.key}: ${issue.fields?.summary}`,
-          url: `${process.env.JIRA_API_URL}/browse/${issue.key}`,
-          source: "Jira",
-          type: "jira",
-        })),
-        visualization: null,
-        relatedQuestions: [],
-        executionTime: Date.now() - startTime,
-      };
+        break;
+      case "mttr_analysis":
+        result = await this.processMTTRAnalysis(
+          originalQuery,
+          allIssues,
+          analysis
+        );
+        break;
+      case "create_chart":
+        result = await this.processChartCreation(
+          originalQuery,
+          allIssues,
+          analysis
+        );
+        break;
+      case "summarize_ticket":
+        if (analysis.ticketId) {
+          const ticketSummary = await this.getTicketSummary(analysis.ticketId);
+          result = {
+            response: ticketSummary.formattedResponse,
+            sources: [],
+            visualization: null,
+            relatedQuestions: ticketSummary.relatedQuestions,
+          };
+        } else {
+          result = await this.processGeneralSearch(
+            originalQuery,
+            allIssues,
+            analysis
+          );
+        }
+        break;
+      default:
+        result = await this.processGeneralSearch(
+          originalQuery,
+          allIssues,
+          analysis
+        );
     }
+
+    result.executionTime = Date.now() - startTime;
+    return result;
   }
 
   /**
-   * Comprehensive ticket summary processing WITH comments
+   * Process sentiment analysis
    */
-  async processComprehensiveTicketSummary(ticketId, allIssues) {
-    let targetIssue = allIssues.find((issue) => issue.key === ticketId);
-
-    if (!targetIssue) {
-      try {
-        targetIssue = await jiraClient.getIssue(ticketId);
-      } catch (error) {
-        return {
-          response: `Ticket ${ticketId} not found or not accessible: ${error.message}`,
-          sources: [],
-          visualization: null,
-          relatedQuestions: [],
-        };
-      }
-    }
-
-    // Fetch comments
-    const comments = await jiraClient.fetchAllComments(ticketId);
-    const relevantComments = this.selectRelevantComments(comments);
-
-    // Use LLM for comprehensive summary if available
-    try {
-      const summaryPrompt = `Create a comprehensive Jira ticket summary with comment analysis:
-
-Ticket Data: ${JSON.stringify(targetIssue, null, 2)}
-Comments (${relevantComments.length} of ${
-        comments.length
-      } total): ${JSON.stringify(relevantComments, null, 2)}
-
-Format as a manager-friendly summary with:
-# Jira Ticket Summary
-🆔 **Ticket:** ${targetIssue.key}
-📋 **Summary:** [ticket summary]
-🎯 **Priority:** [priority level]
-🛠 **Status:** [current status]
-👤 **Assignee:** [assignee name]
-👥 **Reporter:** [reporter name]
-
-## 📅 Timeline
-- **Created:** [formatted date]
-- **Updated:** [formatted date]  
-- **Age:** [calculated age]
-
-## 🔍 Issue Overview
-[Brief description of the issue]
-
-## 💬 Comment Analysis (${comments.length} total)
-[Summarize the key points from comments, recent activity, and any patterns]
-
-## ✨ Key Insights
-[Important observations and next steps based on ticket data and comments]
-
-Keep it concise but comprehensive, focusing on actionable insights.`;
-
-      const response = await llmGatewayService.query(summaryPrompt, [], {
-        model: "claude-3-7-sonnet-20250219",
-        temperature: 0.3,
-      });
-
-      if (response?.content) {
-        return {
-          response: response.content,
-          sources: [
-            {
-              title: `${targetIssue.key}: ${targetIssue.fields?.summary}`,
-              url: `${process.env.JIRA_API_URL}/browse/${targetIssue.key}`,
-              source: "Jira",
-              type: "jira",
-            },
-          ],
-          visualization: null,
-          relatedQuestions: [
-            `What is the sentiment of comments on ${targetIssue.key}?`,
-            `Find similar issues to ${targetIssue.key}`,
-            `What is the resolution pattern for this type of issue?`,
-          ],
-        };
-      }
-    } catch (error) {
-      console.warn(
-        `[JiraAgentService] LLM summary failed, using enhanced fallback:`,
-        error
-      );
-    }
-
-    // Fallback to enhanced summary
-    const enhancedSummary = await this.createEnhancedTicketSummary(
-      targetIssue,
-      relevantComments
+  async processSentimentAnalysis(query, allIssues, analysis) {
+    console.log(
+      `[JiraAgentService] Processing sentiment analysis for ${allIssues.length} issues`
     );
 
+    if (allIssues.length === 0) {
+      return {
+        response: `No issues found for sentiment analysis based on query: "${query}"`,
+        sources: [],
+        visualization: null,
+        relatedQuestions: [
+          "Try searching with different keywords",
+          "Check recent issues in the project",
+        ],
+      };
+    }
+
+    // Get comments for top 5 issues for sentiment analysis
+    const issuesWithComments = await Promise.all(
+      allIssues.slice(0, 5).map(async (issue) => {
+        try {
+          const comments = await jiraClient.fetchAllComments(issue.key);
+          return { ...issue, comments: comments.slice(0, 5) };
+        } catch (error) {
+          console.error(`Error fetching comments for ${issue.key}:`, error);
+          return { ...issue, comments: [] };
+        }
+      })
+    );
+
+    // Analyze sentiment using Claude
+    let sentimentAnalysis = "";
+    try {
+      const commentsText = issuesWithComments
+        .map((issue) => issue.comments.map((c) => c.text).join(" "))
+        .join(" ");
+
+      if (commentsText.length > 0) {
+        const sentimentPrompt = `Analyze the sentiment of these Jira comments and provide insights:
+
+Comments: "${commentsText.substring(0, 2000)}"
+
+Provide:
+1. Overall sentiment (Positive/Negative/Neutral)
+2. Key concerns mentioned
+3. Common themes
+4. Recommendations for improvement
+
+Format as a brief summary.`;
+
+        const response = await llmGatewayService.query(sentimentPrompt, [], {
+          model: "claude-3-7-sonnet-20250219",
+          temperature: 0.3,
+        });
+
+        if (response?.content) {
+          sentimentAnalysis = response.content;
+        }
+      }
+    } catch (error) {
+      console.warn("Sentiment analysis failed, using fallback:", error);
+      sentimentAnalysis =
+        "Sentiment analysis unavailable - using basic summary";
+    }
+
+    let response = `# Sentiment Analysis Results\n\n`;
+    response += `**Query:** "${query}"\n`;
+    response += `**Issues Analyzed:** ${allIssues.length}\n`;
+    response += `**Comments Analyzed:** ${issuesWithComments.reduce(
+      (sum, issue) => sum + issue.comments.length,
+      0
+    )}\n\n`;
+
+    if (sentimentAnalysis) {
+      response += `## 🎭 Sentiment Analysis\n${sentimentAnalysis}\n\n`;
+    }
+
+    response += `## 📊 Issue Breakdown\n`;
+    issuesWithComments.forEach((issue, index) => {
+      const ticketLink = `[${issue.key}](${process.env.JIRA_API_URL}/browse/${issue.key})`;
+      response += `${index + 1}. ${ticketLink}: ${issue.fields?.summary}\n`;
+      response += `   - Status: ${issue.fields?.status?.name}\n`;
+      response += `   - Comments: ${issue.comments.length}\n\n`;
+    });
+
     return {
-      response: enhancedSummary,
-      sources: [
-        {
-          title: `${targetIssue.key}: ${targetIssue.fields?.summary}`,
-          url: `${process.env.JIRA_API_URL}/browse/${targetIssue.key}`,
-          source: "Jira",
-          type: "jira",
-        },
-      ],
+      response: response,
+      sources: [],
       visualization: null,
       relatedQuestions: [
-        `What is the sentiment of comments on ${targetIssue.key}?`,
-        `Find similar issues to ${targetIssue.key}`,
-        `What are the recent updates on ${targetIssue.key}?`,
+        "Show me details of the most negative sentiment issues",
+        "What are the common themes in user complaints?",
+        "How can we improve user satisfaction?",
       ],
     };
   }
 
   /**
-   * Comprehensive search processing WITH comments
+   * Process MTTR analysis
    */
-  async processComprehensiveSearch(query, allIssues, analysis) {
-    // Fetch comments for top issues
-    const issuesWithComments = await this.fetchCommentsForTopIssues(
-      allIssues.slice(0, 5)
+  async processMTTRAnalysis(query, allIssues, analysis) {
+    console.log(
+      `[JiraAgentService] Processing MTTR analysis for ${allIssues.length} issues`
     );
 
-    // Use LLM for comprehensive analysis if available
-    try {
-      const searchPrompt = `Analyze these Jira search results with comment data:
+    // Filter resolved issues only
+    const resolvedIssues = allIssues.filter(
+      (issue) => issue.fields?.resolutiondate && issue.fields?.created
+    );
 
-Search Query: "${query}"
-Issues with Comments: ${JSON.stringify(issuesWithComments, null, 2)}
-Total Issues: ${allIssues.length}
-
-Create a comprehensive analysis with:
-# Search Results Analysis for "${query}"
-
-## 🔍 Overview
-Found ${allIssues.length} matching issues
-
-## 📊 Key Findings
-[Analyze patterns, priorities, and themes]
-
-## 💬 Comment Insights
-[Analyze comment patterns, user sentiment, recent activity]
-
-## 🎯 Priority Issues
-[Highlight most important issues]
-
-## 💡 Recommendations
-[Actionable insights based on the data]
-
-Focus on actionable insights and patterns.`;
-
-      const response = await llmGatewayService.query(searchPrompt, [], {
-        model: "claude-3-7-sonnet-20250219",
-        temperature: 0.3,
-      });
-
-      if (response?.content) {
-        return {
-          response: response.content,
-          sources: allIssues.slice(0, 10).map((issue) => ({
-            title: `${issue.key}: ${issue.fields?.summary}`,
-            url: `${process.env.JIRA_API_URL}/browse/${issue.key}`,
-            source: "Jira",
-            type: "jira",
-          })),
-          visualization: null,
-          relatedQuestions: [
-            "What are the common themes in these results?",
-            "How can we categorize these issues better?",
-            "What patterns emerge from the comments?",
-          ],
-        };
-      }
-    } catch (error) {
-      console.warn(
-        `[JiraAgentService] LLM search analysis failed, using enhanced fallback:`,
-        error
-      );
+    if (resolvedIssues.length === 0) {
+      return {
+        response: `No resolved issues found for MTTR analysis based on query: "${query}".\n\nMTTR (Mean Time To Resolution) requires issues with resolution dates.`,
+        sources: [],
+        visualization: null,
+        relatedQuestions: [
+          "Show me open issues instead",
+          "What are the oldest unresolved issues?",
+        ],
+      };
     }
 
-    // Fallback to enhanced search summary
-    const enhancedSummary = await this.createEnhancedSearchSummary(
-      query,
-      issuesWithComments,
-      allIssues
-    );
+    // Calculate MTTR
+    let totalResolutionTime = 0;
+    const issueDetails = [];
+
+    resolvedIssues.forEach((issue) => {
+      const created = new Date(issue.fields.created);
+      const resolved = new Date(issue.fields.resolutiondate);
+      const resolutionTime = resolved - created;
+
+      totalResolutionTime += resolutionTime;
+      issueDetails.push({
+        key: issue.key,
+        summary: issue.fields.summary,
+        resolutionTime: resolutionTime,
+        resolutionDays: Math.ceil(resolutionTime / (1000 * 60 * 60 * 24)),
+      });
+    });
+
+    const avgResolutionTime = totalResolutionTime / resolvedIssues.length;
+    const avgDays = Math.ceil(avgResolutionTime / (1000 * 60 * 60 * 24));
+    const avgHours = Math.ceil(avgResolutionTime / (1000 * 60 * 60));
+
+    // Sort by resolution time
+    issueDetails.sort((a, b) => b.resolutionTime - a.resolutionTime);
+
+    let response = `# MTTR Analysis Results\n\n`;
+    response += `**Query:** "${query}"\n`;
+    response += `**Resolved Issues Analyzed:** ${resolvedIssues.length}\n\n`;
+
+    response += `## ⏱️ Mean Time To Resolution (MTTR)\n`;
+    response += `**${avgDays} days** (${avgHours} hours)\n\n`;
+
+    response += `## 📊 Resolution Time Breakdown\n`;
+    response += `- **Fastest Resolution:** ${
+      issueDetails[issueDetails.length - 1]?.resolutionDays
+    } days\n`;
+    response += `- **Slowest Resolution:** ${issueDetails[0]?.resolutionDays} days\n`;
+    response += `- **Median Resolution:** ${
+      issueDetails[Math.floor(issueDetails.length / 2)]?.resolutionDays
+    } days\n\n`;
+
+    response += `## 🎯 Top Issues by Resolution Time\n`;
+    issueDetails.slice(0, 5).forEach((issue, index) => {
+      const ticketLink = `[${issue.key}](${process.env.JIRA_API_URL}/browse/${issue.key})`;
+      response += `${index + 1}. ${ticketLink}: ${issue.summary}\n`;
+      response += `   - Resolution Time: ${issue.resolutionDays} days\n\n`;
+    });
 
     return {
-      response: enhancedSummary,
-      sources: allIssues.slice(0, 10).map((issue) => ({
-        title: `${issue.key}: ${issue.fields?.summary}`,
-        url: `${process.env.JIRA_API_URL}/browse/${issue.key}`,
-        source: "Jira",
-        type: "jira",
-      })),
+      response: response,
+      sources: [],
+      visualization: null,
+      relatedQuestions: [
+        "What factors contribute to longer resolution times?",
+        "Show me issues that took longer than average to resolve",
+        "How can we improve our resolution time?",
+      ],
+    };
+  }
+
+  /**
+   * Process chart creation
+   */
+  async processChartCreation(query, allIssues, analysis) {
+    console.log(
+      `[JiraAgentService] Processing chart creation for ${allIssues.length} issues`
+    );
+
+    if (allIssues.length === 0) {
+      return {
+        response: `No issues found to create chart for query: "${query}"`,
+        sources: [],
+        visualization: null,
+        relatedQuestions: [
+          "Try searching with broader terms",
+          "Check if the project exists",
+        ],
+      };
+    }
+
+    // Count issues by status
+    const statusCounts = {};
+    const priorityCounts = {};
+
+    allIssues.forEach((issue) => {
+      const status = issue.fields?.status?.name || "Unknown";
+      const priority = issue.fields?.priority?.name || "None";
+
+      statusCounts[status] = (statusCounts[status] || 0) + 1;
+      priorityCounts[priority] = (priorityCounts[priority] || 0) + 1;
+    });
+
+    let response = `# Chart: Issue Distribution\n\n`;
+    response += `**Query:** "${query}"\n`;
+    response += `**Total Issues:** ${allIssues.length}\n\n`;
+
+    response += `## 📊 Issues by Status\n`;
+    Object.entries(statusCounts)
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([status, count]) => {
+        const percentage = ((count / allIssues.length) * 100).toFixed(1);
+        response += `- **${status}:** ${count} issues (${percentage}%)\n`;
+      });
+
+    response += `\n## 🎯 Issues by Priority\n`;
+    Object.entries(priorityCounts)
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([priority, count]) => {
+        const percentage = ((count / allIssues.length) * 100).toFixed(1);
+        response += `- **${priority}:** ${count} issues (${percentage}%)\n`;
+      });
+
+    return {
+      response: response,
+      sources: [],
+      visualization: null,
+      relatedQuestions: [
+        "Show me details of the highest priority issues",
+        "What are the trends over time?",
+        "Create a report for management",
+      ],
+    };
+  }
+
+  /**
+   * Process general search
+   */
+  async processGeneralSearch(query, allIssues, analysis) {
+    if (allIssues.length === 0) {
+      return {
+        response: `Search Results\n\nFound 0 issues matching your query: "${query}"\n\n*Note: This is a basic search due to system limitations. Advanced analysis unavailable.*`,
+        sources: [],
+        visualization: null,
+        relatedQuestions: [
+          "Try different keywords",
+          "Check the project name",
+          "Broaden your search terms",
+        ],
+      };
+    }
+
+    let response = `# Search Results for "${query}"\n\n`;
+    response += `Found ${allIssues.length} matching issues:\n\n`;
+
+    allIssues.slice(0, 10).forEach((issue, index) => {
+      const ticketLink = `[${issue.key}](${process.env.JIRA_API_URL}/browse/${issue.key})`;
+      response += `## ${index + 1}. ${ticketLink}: ${
+        issue.fields?.summary || "No summary"
+      }\n`;
+      response += `- **Status:** ${issue.fields?.status?.name || "Unknown"}\n`;
+      response += `- **Priority:** ${
+        issue.fields?.priority?.name || "Not specified"
+      }\n`;
+      response += `- **Assignee:** ${
+        issue.fields?.assignee?.displayName || "Unassigned"
+      }\n`;
+      response += `- **Created:** ${new Date(
+        issue.fields?.created
+      ).toLocaleDateString()}\n\n`;
+    });
+
+    if (allIssues.length > 10) {
+      response += `*Showing top 10 of ${allIssues.length} results*\n\n`;
+    }
+
+    return {
+      response: response,
+      sources: [],
       visualization: null,
       relatedQuestions: [
         "Show me more details on these issues",
-        "What is the sentiment of these issues?",
-        "Find similar patterns in other tickets",
+        "Group these issues by component",
+        "What are the common patterns?",
       ],
     };
   }
 
   /**
-   * Combine and deduplicate results from multiple queries
+   * Create ticket summary with proper comment summarization
+   */
+  async createTicketSummaryWithCommentSummary(ticket, lastFiveComments) {
+    const formatDate = (dateStr) => {
+      try {
+        return new Date(dateStr).toLocaleDateString("en-US", {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      } catch (e) {
+        return dateStr;
+      }
+    };
+
+    // Create proper comment summary using Claude
+    let commentSummary = "";
+    if (lastFiveComments.length > 0) {
+      try {
+        const commentsText = lastFiveComments
+          .map((comment) => `${comment.author}: ${comment.text}`)
+          .join("\n\n");
+
+        const summaryPrompt = `Summarize these Jira ticket comments in 2-3 sentences, focusing on key points, decisions, and current status:
+
+Comments:
+${commentsText}
+
+Provide a concise summary highlighting:
+1. Main issues discussed
+2. Decisions made
+3. Current status/next steps`;
+
+        const response = await llmGatewayService.query(summaryPrompt, [], {
+          model: "claude-3-7-sonnet-20250219",
+          temperature: 0.3,
+        });
+
+        if (response?.content) {
+          commentSummary = response.content;
+        }
+      } catch (error) {
+        console.warn("Comment summarization failed:", error);
+        commentSummary =
+          "Unable to generate comment summary - showing recent activity instead";
+      }
+    }
+
+    const ticketLink = `[${ticket.key}](${process.env.JIRA_API_URL}/browse/${ticket.key})`;
+
+    let response = `# Jira Ticket Summary\n\n`;
+    response += `🆔 **Ticket:** ${ticketLink}\n`;
+    response += `📋 **Summary:** ${
+      ticket.fields?.summary || "No summary available"
+    }\n`;
+    response += `🎯 **Priority:** ${
+      ticket.fields?.priority?.name || "Not specified"
+    }\n`;
+    response += `🛠 **Status:** ${ticket.fields?.status?.name}\n`;
+    response += `👤 **Assignee:** ${
+      ticket.fields?.assignee?.displayName || "Unassigned"
+    }\n`;
+    response += `👥 **Reporter:** ${
+      ticket.fields?.reporter?.displayName || "Not specified"
+    }\n\n`;
+
+    response += `## 📅 Timeline\n`;
+    response += `- **Created:** ${formatDate(ticket.fields?.created)}\n`;
+    response += `- **Updated:** ${formatDate(ticket.fields?.updated)}\n\n`;
+
+    response += `## 🔍 Issue Description\n`;
+    response += `${
+      this.extractTextFromDescription(ticket.fields?.description) ||
+      "No description available"
+    }\n\n`;
+
+    if (lastFiveComments.length > 0) {
+      response += `## 💬 Comment Summary (${lastFiveComments.length} recent comments)\n`;
+      if (
+        commentSummary &&
+        commentSummary !==
+          "Unable to generate comment summary - showing recent activity instead"
+      ) {
+        response += `${commentSummary}\n\n`;
+      } else {
+        response += `**Recent Activity:**\n`;
+        lastFiveComments.forEach((comment, index) => {
+          const commentDate = new Date(comment.created).toLocaleDateString();
+          response += `- **${
+            comment.author
+          }** (${commentDate}): ${comment.text.substring(0, 100)}${
+            comment.text.length > 100 ? "..." : ""
+          }\n`;
+        });
+        response += `\n`;
+      }
+    } else {
+      response += `## 💬 Comments\nNo comments available\n\n`;
+    }
+
+    response += `*Summary generated: ${new Date().toLocaleString()}*`;
+
+    return response;
+  }
+
+  /**
+   * Extract text from description
+   */
+  extractTextFromDescription(description) {
+    if (!description) return "";
+
+    if (typeof description === "string") {
+      return description.length > 500
+        ? description.substring(0, 500) + "..."
+        : description;
+    }
+
+    try {
+      if (description.content && Array.isArray(description.content)) {
+        let text = "";
+        const extractText = (node) => {
+          if (node.type === "text" && node.text) {
+            text += node.text + " ";
+          } else if (node.content && Array.isArray(node.content)) {
+            node.content.forEach(extractText);
+          }
+        };
+        description.content.forEach(extractText);
+        const cleanText = text.trim();
+        return cleanText.length > 500
+          ? cleanText.substring(0, 500) + "..."
+          : cleanText;
+      }
+    } catch (error) {
+      console.warn("Error extracting description text:", error);
+    }
+
+    return "Description format not supported";
+  }
+
+  /**
+   * Combine and deduplicate results
    */
   combineAndDeduplicateResults(jiraResults) {
     const seenKeys = new Set();
@@ -1203,6 +1585,76 @@ Focus on actionable insights and patterns.`;
     });
 
     return combinedIssues;
+  }
+
+  /**
+   * Enhanced fallback processing
+   */
+  async enhancedFallbackProcessing(query, originalError) {
+    console.log(
+      `[JiraAgentService] Enhanced fallback processing for: "${query}"`
+    );
+
+    // Basic search as last resort
+    try {
+      const searchTerms = query
+        .toLowerCase()
+        .replace(/[^\w\s]/g, " ")
+        .split(/\s+/)
+        .filter((term) => term.length > 2)
+        .slice(0, 3);
+
+      const jql = `project = ZSEE AND text ~ "${searchTerms.join(
+        " "
+      )}" ORDER BY created DESC`;
+      const issues = await jiraClient.searchIssues(jql, 10);
+
+      const response = await this.processGeneralSearch(query, issues, {
+        queryType: "general_search",
+        searchTerms: searchTerms,
+      });
+
+      return {
+        success: true,
+        formattedResponse: response.response,
+        sources: [],
+        relatedQuestions: response.relatedQuestions,
+        queryType: "general_search",
+      };
+    } catch (fallbackError) {
+      return {
+        success: false,
+        formattedResponse: `Error processing query "${query}": ${originalError.message}`,
+        sources: [],
+        relatedQuestions: [],
+        error: true,
+      };
+    }
+  }
+
+  /**
+   * Enhance analysis result
+   */
+  async enhanceAnalysisResult(parsed, query) {
+    // Add any missing fields and validate
+    const issueArea = parsed.issueArea
+      ? { component: parsed.issueArea, matchType: "claude" }
+      : await this.extractIssueArea(query);
+
+    return {
+      queryType: parsed.queryType || "general_search",
+      mainKeywords: parsed.mainKeywords || [],
+      alternativeKeywords: parsed.alternativeKeywords || [],
+      searchTerms: parsed.searchTerms || [],
+      timeConstraint: parsed.timeConstraint || {
+        type: "none",
+        value: "",
+        days: 7,
+      },
+      issueArea: issueArea,
+      needsMultipleQueries: parsed.needsMultipleQueries || true,
+      limit: 20,
+    };
   }
 }
 

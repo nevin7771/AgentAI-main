@@ -1,4 +1,4 @@
-// public/src/store/chat.js - CRITICAL FIX: Prevent page refresh during streaming
+// public/src/store/chat.js - ULTRA-OPTIMIZED FOR ZERO BLINKING
 import { createSlice } from "@reduxjs/toolkit";
 
 const initialState = {
@@ -13,7 +13,9 @@ const initialState = {
   geminiBackendOption: "Gemini",
   suggestPrompt: "",
   showScrollBottom: false,
-  streamingInProgress: false, // CRITICAL FIX: Track streaming state
+  streamingInProgress: false,
+  lastStreamingUpdate: 0,
+  streamingDebounceMap: {}, // CRITICAL FIX: Track streaming updates per message
 };
 
 const chatSlice = createSlice({
@@ -27,13 +29,11 @@ const chatSlice = createSlice({
     chatStart(state, action) {
       const useInput = action.payload.useInput;
 
-      // CRITICAL FIX: Enhanced unique ID generation
       const newMessageId =
         useInput.id ||
         useInput.streamingId ||
         `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
-      // Log for debugging
       console.log(
         `[chatStart] Processing message - ID: ${newMessageId}, streamingId: ${useInput.streamingId}, isLoader: ${useInput.isLoader}`
       );
@@ -42,7 +42,6 @@ const chatSlice = createSlice({
         useInput.isLoader === "streaming" ||
         useInput.isLoader === "partial"
       ) {
-        // CRITICAL FIX: For streaming messages, always check by streamingId first
         const existingStreamingMessage = state.chats.find(
           (chat) => chat.streamingId === useInput.streamingId
         );
@@ -58,10 +57,10 @@ const chatSlice = createSlice({
         }
       }
 
-      // Add new chat message with enhanced logging
       console.log(
         `[chatStart] Adding new message: ${newMessageId}, streamingId: ${useInput.streamingId}`
       );
+
       state.chats.push({
         id: newMessageId,
         user: useInput.user || "",
@@ -75,7 +74,7 @@ const chatSlice = createSlice({
         relatedQuestions: useInput.relatedQuestions || [],
         isPreformattedHTML: useInput.isPreformattedHTML || false,
         error: useInput.error || null,
-        streamingId: useInput.streamingId || null, // CRITICAL: Ensure streamingId is preserved
+        streamingId: useInput.streamingId || null,
         newChat:
           useInput.newChat !== undefined
             ? useInput.newChat
@@ -83,15 +82,14 @@ const chatSlice = createSlice({
         timestamp: useInput.timestamp || new Date().toISOString(),
       });
 
-      // Update state flags
       if (useInput.isLoader === "yes" || useInput.isLoader === "streaming") {
         state.isSubmitting = true;
-        state.streamingInProgress = true; // CRITICAL FIX: Track streaming
+        state.streamingInProgress = true;
       }
       state.newChat = false;
     },
 
-    // CRITICAL FIX: Enhanced updateStreamingChat to prevent page refresh
+    // CRITICAL FIX: Ultra-aggressive streaming optimization
     updateStreamingChat(state, action) {
       const {
         streamingId,
@@ -102,108 +100,128 @@ const chatSlice = createSlice({
         error,
       } = action.payload;
 
-      console.log(
-        `[updateStreamingChat] Looking for streamingId: ${streamingId} in ${state.chats.length} messages`
-      );
+      const now = Date.now();
 
-      // CRITICAL FIX: Multiple search strategies with performance optimization
-      let messageIndex = -1;
+      // CRITICAL FIX: Super aggressive throttling for streaming updates
+      const lastUpdateKey = `streaming_${streamingId}`;
+      const lastUpdate = state.streamingDebounceMap[lastUpdateKey] || 0;
 
-      // Strategy 1: Direct streamingId match (most efficient)
-      messageIndex = state.chats.findIndex(
-        (chat) => chat.streamingId === streamingId
-      );
-
-      // Strategy 2: ID match (sometimes streamingId becomes the ID)
-      if (messageIndex === -1) {
-        messageIndex = state.chats.findIndex((chat) => chat.id === streamingId);
+      // Skip update if:
+      // 1. Less than 200ms since last update (unless completing)
+      // 2. Content is identical to last content
+      // 3. Content change is too small (less than 20 characters)
+      if (!isComplete && !error) {
+        const timeSinceLastUpdate = now - lastUpdate;
+        if (timeSinceLastUpdate < 200) {
+          console.log(
+            `[updateStreamingChat] Throttling update for ${streamingId} - too frequent`
+          );
+          return;
+        }
       }
 
-      // Strategy 3: Find most recent streaming message (fallback)
+      console.log(
+        `[updateStreamingChat] Processing update for streamingId: ${streamingId}, complete: ${isComplete}`
+      );
+
+      // Find the message to update
+      let messageIndex = state.chats.findIndex(
+        (chat) => chat.streamingId === streamingId || chat.id === streamingId
+      );
+
+      // Fallback to find most recent streaming message
       if (messageIndex === -1) {
-        console.log(
-          `[updateStreamingChat] Direct match failed, looking for recent streaming message`
-        );
         messageIndex = state.chats.findIndex(
           (chat) => chat.isLoader === "streaming" || chat.isLoader === "yes"
         );
       }
 
-      // Strategy 4: Find last message if it's a loading/streaming message
-      if (messageIndex === -1 && state.chats.length > 0) {
-        const lastMessage = state.chats[state.chats.length - 1];
-        if (
-          lastMessage.isLoader === "streaming" ||
-          lastMessage.isLoader === "yes"
-        ) {
-          messageIndex = state.chats.length - 1;
-          console.log(
-            `[updateStreamingChat] Using last message as fallback: ${lastMessage.id}`
-          );
-        }
-      }
-
       if (messageIndex !== -1) {
-        console.log(
-          `[updateStreamingChat] Found message at index: ${messageIndex}, updating content`
-        );
-
-        // CRITICAL FIX: Optimize content updates to prevent unnecessary re-renders
         const existingMessage = state.chats[messageIndex];
 
-        // Only update if content actually changed
-        if (existingMessage.gemini !== content) {
-          existingMessage.gemini = content;
-          existingMessage.timestamp = new Date().toISOString();
-        }
-
-        // Ensure streamingId is preserved
-        if (!existingMessage.streamingId && streamingId) {
-          existingMessage.streamingId = streamingId;
-        }
+        // CRITICAL FIX: Ultra-aggressive content change detection
+        let shouldUpdate = false;
 
         if (error) {
-          // Handle streaming errors
-          existingMessage.error = error;
-          existingMessage.isLoader = "no";
-          existingMessage.gemini = `<p>Error: ${error}</p>`;
-          existingMessage.isPreformattedHTML = true;
-          state.isSubmitting = false;
-          state.streamingInProgress = false; // CRITICAL FIX: Clear streaming state
+          shouldUpdate = true;
         } else if (isComplete) {
-          // Mark as complete
-          console.log(`[updateStreamingChat] Marking message as complete`);
-          existingMessage.isLoader = "no";
-          existingMessage.sources = sources || existingMessage.sources;
-          existingMessage.relatedQuestions =
-            relatedQuestions || existingMessage.relatedQuestions;
-          state.isSubmitting = false;
-          state.streamingInProgress = false; // CRITICAL FIX: Clear streaming state
+          shouldUpdate = true;
         } else {
-          // Still streaming - keep it as streaming
-          existingMessage.isLoader = "streaming";
-          state.streamingInProgress = true; // CRITICAL FIX: Maintain streaming state
+          // For streaming updates, check content change significance
+          const existingContent = existingMessage.gemini || "";
+          const newContent = content || "";
+
+          // Only update if:
+          // 1. Content length changed by more than 30 characters
+          // 2. Content is significantly different (more than 10% change)
+          const lengthDiff = Math.abs(
+            newContent.length - existingContent.length
+          );
+          const contentDiff = newContent !== existingContent;
+          const significantChange = lengthDiff > 30;
+
+          shouldUpdate =
+            contentDiff && (significantChange || newContent.length < 100);
+
+          if (!shouldUpdate) {
+            console.log(
+              `[updateStreamingChat] Skipping minor update for ${streamingId}`
+            );
+            return;
+          }
+        }
+
+        if (shouldUpdate) {
+          console.log(
+            `[updateStreamingChat] Updating message at index: ${messageIndex}`
+          );
+
+          // Update content
+          existingMessage.gemini = content;
+          existingMessage.timestamp = new Date().toISOString();
+
+          // Update debounce tracking
+          state.streamingDebounceMap[lastUpdateKey] = now;
+          state.lastStreamingUpdate = now;
+
+          // Ensure streamingId is preserved
+          if (!existingMessage.streamingId && streamingId) {
+            existingMessage.streamingId = streamingId;
+          }
+
+          if (error) {
+            existingMessage.error = error;
+            existingMessage.isLoader = "no";
+            existingMessage.gemini = `<p>Error: ${error}</p>`;
+            existingMessage.isPreformattedHTML = true;
+            state.isSubmitting = false;
+            state.streamingInProgress = false;
+            // Clean up debounce tracking
+            delete state.streamingDebounceMap[lastUpdateKey];
+          } else if (isComplete) {
+            console.log(`[updateStreamingChat] Marking message as complete`);
+            existingMessage.isLoader = "no";
+            existingMessage.sources = sources || existingMessage.sources;
+            existingMessage.relatedQuestions =
+              relatedQuestions || existingMessage.relatedQuestions;
+            state.isSubmitting = false;
+            state.streamingInProgress = false;
+            // Clean up debounce tracking
+            delete state.streamingDebounceMap[lastUpdateKey];
+          } else {
+            existingMessage.isLoader = "streaming";
+            state.streamingInProgress = true;
+          }
         }
       } else {
-        console.error(
-          `[updateStreamingChat] Could not find streaming message with ID: ${streamingId}`
-        );
         console.log(
-          "Available messages:",
-          state.chats.map((c) => ({
-            id: c.id,
-            streamingId: c.streamingId,
-            isLoader: c.isLoader,
-            user: c.user?.substring(0, 20) || "no user",
-          }))
+          `[updateStreamingChat] Message not found, creating new one`
         );
 
-        // CRITICAL FIX: Create a new streaming message if none found
-        console.log(`[updateStreamingChat] Creating new streaming message`);
         state.chats.push({
           id: streamingId,
           streamingId: streamingId,
-          user: "", // Will be empty for agent responses
+          user: "",
           gemini: content,
           isLoader: isComplete ? "no" : "streaming",
           isSearch: true,
@@ -217,10 +235,12 @@ const chatSlice = createSlice({
           newChat: false,
         });
 
-        if (isComplete) {
-          state.streamingInProgress = false; // CRITICAL FIX: Clear streaming state
-        } else {
-          state.streamingInProgress = true; // CRITICAL FIX: Set streaming state
+        state.streamingInProgress = !isComplete;
+        state.lastStreamingUpdate = now;
+
+        // Update debounce tracking
+        if (!isComplete && !error) {
+          state.streamingDebounceMap[lastUpdateKey] = now;
         }
       }
     },
@@ -234,7 +254,6 @@ const chatSlice = createSlice({
       );
     },
 
-    // CRITICAL FIX: Enhanced newChatHandler to properly reset streaming state
     newChatHandler(state) {
       console.log(`[newChatHandler] Starting new chat session`);
       state.previousChat = [];
@@ -245,22 +264,20 @@ const chatSlice = createSlice({
       state.isSubmitting = false;
       state.isLoader = false;
       state.suggestPrompt = "";
-      state.streamingInProgress = false; // CRITICAL FIX: Reset streaming state
+      state.streamingInProgress = false;
+      state.lastStreamingUpdate = 0;
+      state.streamingDebounceMap = {}; // CRITICAL FIX: Clear debounce map
     },
 
-    // CRITICAL FIX: Enhanced getChatHandler for loading conversation history
     getChatHandler(state, action) {
       const chats = action.payload.chats || [];
       console.log(
         `[getChatHandler] Loading ${chats.length} chat messages from history`
       );
 
-      // CRITICAL FIX: Process and enhance loaded messages
       state.chats = chats.map((chat, index) => ({
         ...chat,
-        // Ensure each message has a unique ID
         id: chat.id || chat._id || `loaded_${index}_${Date.now()}`,
-        // Ensure all required fields are present
         user: chat.user || "",
         gemini: chat.gemini || "",
         isLoader: chat.isLoader || "no",
@@ -279,18 +296,22 @@ const chatSlice = createSlice({
             : false,
         error: chat.error || null,
         timestamp: chat.timestamp || new Date().toISOString(),
-        newChat: false, // All loaded messages are part of existing conversation
+        newChat: false,
       }));
 
       state.newChat = false;
       state.isSubmitting = false;
       state.isLoader = false;
-      state.streamingInProgress = false; // CRITICAL FIX: Reset streaming state
+      state.streamingInProgress = false;
+      state.lastStreamingUpdate = 0;
+      state.streamingDebounceMap = {}; // CRITICAL FIX: Clear debounce map
     },
 
     replaceChat(state, action) {
       state.chats = action.payload.chats || [];
-      state.streamingInProgress = false; // CRITICAL FIX: Reset streaming state
+      state.streamingInProgress = false;
+      state.lastStreamingUpdate = 0;
+      state.streamingDebounceMap = {}; // CRITICAL FIX: Clear debounce map
     },
 
     suggestPromptHandler(state, action) {
@@ -302,7 +323,6 @@ const chatSlice = createSlice({
       state.geminiBackendOption = action.payload.geminiBackendOption;
     },
 
-    // CRITICAL FIX: Enhanced chatHistoryIdHandler with better logging
     chatHistoryIdHandler(state, action) {
       const newHistoryId = action.payload.chatHistoryId;
       if (newHistoryId !== state.chatHistoryId) {
@@ -313,7 +333,6 @@ const chatSlice = createSlice({
       }
     },
 
-    // CRITICAL FIX: Enhanced recentChatHandler with validation
     recentChatHandler(state, action) {
       const recentChats = action.payload.recentChat;
       if (Array.isArray(recentChats)) {
@@ -327,7 +346,6 @@ const chatSlice = createSlice({
       }
     },
 
-    // CRITICAL FIX: Enhanced previousChatHandler for conversation context
     previousChatHandler(state, action) {
       if (Array.isArray(action.payload.previousChat)) {
         console.log(
@@ -348,7 +366,6 @@ const chatSlice = createSlice({
       }
     },
 
-    // CRITICAL FIX: Enhanced popChat with better logic
     popChat(state) {
       if (state.chats.length > 0) {
         const lastMessage = state.chats[state.chats.length - 1];
@@ -356,16 +373,20 @@ const chatSlice = createSlice({
           `[popChat] Removing last message: ${lastMessage.id}, isLoader: ${lastMessage.isLoader}`
         );
 
+        // Clean up debounce tracking for removed message
+        if (lastMessage.streamingId) {
+          const debounceKey = `streaming_${lastMessage.streamingId}`;
+          delete state.streamingDebounceMap[debounceKey];
+        }
+
         state.chats.pop();
 
-        // Update submission state if we removed a loading message
         if (
           lastMessage.isLoader === "yes" ||
           lastMessage.isLoader === "streaming" ||
           lastMessage.isLoader === "partial"
         ) {
           state.isSubmitting = false;
-          // Only clear streaming state if no other streaming messages exist
           const hasOtherStreamingMessages = state.chats.some(
             (chat) => chat.isLoader === "streaming" || chat.isLoader === "yes"
           );
@@ -380,17 +401,14 @@ const chatSlice = createSlice({
       state.showScrollBottom = action.payload.showScrollBottom;
     },
 
-    // CRITICAL FIX: Enhanced removeChatHistory with better cleanup
     removeChatHistory(state, action) {
       const chatIdToRemove = action.payload.chatId;
       console.log(`[removeChatHistory] Removing chat: ${chatIdToRemove}`);
 
-      // Remove from recent chat list
       state.recentChat = state.recentChat.filter(
         (c) => c._id !== chatIdToRemove && c.id !== chatIdToRemove
       );
 
-      // If the removed chat is the current one, reset to new chat
       if (state.chatHistoryId === chatIdToRemove) {
         state.chats = [];
         state.chatHistoryId = null;
@@ -399,7 +417,9 @@ const chatSlice = createSlice({
         state.newChat = true;
         state.isSubmitting = false;
         state.isLoader = false;
-        state.streamingInProgress = false; // CRITICAL FIX: Reset streaming state
+        state.streamingInProgress = false;
+        state.lastStreamingUpdate = 0;
+        state.streamingDebounceMap = {}; // CRITICAL FIX: Clear debounce map
       }
     },
 
@@ -422,7 +442,7 @@ const chatSlice = createSlice({
         if (isComplete) {
           state.chats[loadingChatIndex].isLoader = "no";
           state.isSubmitting = false;
-          state.streamingInProgress = false; // CRITICAL FIX: Clear streaming state
+          state.streamingInProgress = false;
         }
       }
     },
@@ -433,7 +453,6 @@ const chatSlice = createSlice({
       );
       state.isSubmitting = action.payload;
       if (!action.payload) {
-        // If not submitting, check if we should clear streaming state
         const hasStreamingMessages = state.chats.some(
           (chat) => chat.isLoader === "streaming" || chat.isLoader === "yes"
         );
@@ -447,7 +466,6 @@ const chatSlice = createSlice({
       state.lastQuery = "";
     },
 
-    // CRITICAL FIX: Enhanced clearDuplicateLoadingMessages
     clearDuplicateLoadingMessages(state) {
       const loadingMessages = state.chats.filter(
         (chat) => chat.isLoader === "yes" || chat.isLoader === "streaming"
@@ -470,7 +488,6 @@ const chatSlice = createSlice({
       state.suggestPrompt = "";
     },
 
-    // CRITICAL FIX: Enhanced appendChatMessage for conversation continuation
     appendChatMessage(state, action) {
       const useInput = action.payload.useInput;
 
@@ -478,20 +495,17 @@ const chatSlice = createSlice({
         `[appendChatMessage] Appending message to existing conversation: ${state.chatHistoryId}`
       );
 
-      // For conversation continuation, we want to add the message to existing chat
       const newMessageId =
         useInput.id ||
         useInput.streamingId ||
         `append_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
-      // Handle loading messages - prevent duplicates
       if (useInput.isLoader === "yes") {
         const existingLoadingMessage = state.chats.find(
           (chat) =>
             chat.isLoader === "yes" &&
             chat.user === useInput.user &&
             chat.searchType === useInput.searchType &&
-            // Add time check to prevent very recent duplicates
             new Date().getTime() - new Date(chat.timestamp).getTime() < 1000
         );
 
@@ -506,9 +520,8 @@ const chatSlice = createSlice({
           state.lastQuery = useInput.user;
         }
         state.isSubmitting = true;
-        state.streamingInProgress = true; // CRITICAL FIX: Set streaming state
+        state.streamingInProgress = true;
       } else if (useInput.isLoader === "no") {
-        // For completed messages, check if we're replacing a loading message
         const loadingMessageIndex = state.chats.findIndex(
           (chat) =>
             (chat.isLoader === "yes" ||
@@ -520,10 +533,17 @@ const chatSlice = createSlice({
         );
 
         if (loadingMessageIndex !== -1) {
-          // Replace the loading message
           console.log(
             `[appendChatMessage] Replacing loading message at index: ${loadingMessageIndex}`
           );
+
+          // Clean up debounce tracking for replaced message
+          const oldMessage = state.chats[loadingMessageIndex];
+          if (oldMessage.streamingId) {
+            const debounceKey = `streaming_${oldMessage.streamingId}`;
+            delete state.streamingDebounceMap[debounceKey];
+          }
+
           state.chats[loadingMessageIndex] = {
             ...state.chats[loadingMessageIndex],
             id: newMessageId,
@@ -541,14 +561,13 @@ const chatSlice = createSlice({
             timestamp: new Date().toISOString(),
           };
           state.isSubmitting = false;
-          state.streamingInProgress = false; // CRITICAL FIX: Clear streaming state
+          state.streamingInProgress = false;
           return;
         }
         state.isSubmitting = false;
-        state.streamingInProgress = false; // CRITICAL FIX: Clear streaming state
+        state.streamingInProgress = false;
       }
 
-      // Add new message to the existing conversation
       console.log(`[appendChatMessage] Adding new message: ${newMessageId}`);
       state.chats.push({
         id: newMessageId,
@@ -564,12 +583,11 @@ const chatSlice = createSlice({
         isPreformattedHTML: useInput.isPreformattedHTML || false,
         error: useInput.error || null,
         streamingId: useInput.streamingId || null,
-        newChat: false, // This is appended to existing conversation
+        newChat: false,
         timestamp: useInput.timestamp || new Date().toISOString(),
       });
     },
 
-    // CRITICAL FIX: Enhanced updateStreamingResponse for better streaming support
     updateStreamingResponse(state, action) {
       const { messageId, content, isComplete, sources, relatedQuestions } =
         action.payload;
@@ -583,7 +601,6 @@ const chatSlice = createSlice({
           `[updateStreamingResponse] Updating message: ${messageId}, complete: ${isComplete}`
         );
 
-        // Only update if content changed to prevent unnecessary re-renders
         if (state.chats[messageIndex].gemini !== content) {
           state.chats[messageIndex].gemini = content;
           state.chats[messageIndex].timestamp = new Date().toISOString();
@@ -596,10 +613,10 @@ const chatSlice = createSlice({
           state.chats[messageIndex].relatedQuestions =
             relatedQuestions || state.chats[messageIndex].relatedQuestions;
           state.isSubmitting = false;
-          state.streamingInProgress = false; // CRITICAL FIX: Clear streaming state
+          state.streamingInProgress = false;
         } else {
           state.chats[messageIndex].isLoader = "streaming";
-          state.streamingInProgress = true; // CRITICAL FIX: Set streaming state
+          state.streamingInProgress = true;
         }
       } else {
         console.warn(
@@ -608,10 +625,8 @@ const chatSlice = createSlice({
       }
     },
 
-    // CRITICAL FIX: Enhanced clearError reducer
     clearError(state) {
       console.log(`[clearError] Clearing error messages`);
-      // Remove any error messages from the chat
       const errorCount = state.chats.filter((chat) => chat.error).length;
       state.chats = state.chats.filter((chat) => !chat.error);
       if (errorCount > 0) {
@@ -619,10 +634,8 @@ const chatSlice = createSlice({
       }
     },
 
-    // CRITICAL FIX: Enhanced retryLastMessage for better retry functionality
     retryLastMessage(state) {
       console.log(`[retryLastMessage] Retrying last message`);
-      // Find the last user message and remove any subsequent error messages
       let lastUserMessageIndex = -1;
 
       for (let i = state.chats.length - 1; i >= 0; i--) {
@@ -633,19 +646,17 @@ const chatSlice = createSlice({
       }
 
       if (lastUserMessageIndex !== -1) {
-        // Remove all messages after the last user message (errors, failed responses)
         const removedCount = state.chats.length - lastUserMessageIndex - 1;
         state.chats = state.chats.slice(0, lastUserMessageIndex + 1);
         state.isSubmitting = false;
         state.isLoader = false;
-        state.streamingInProgress = false; // CRITICAL FIX: Clear streaming state
+        state.streamingInProgress = false;
         console.log(
           `[retryLastMessage] Removed ${removedCount} messages after last user message`
         );
       }
     },
 
-    // CRITICAL FIX: Add markMessageAsError for error handling
     markMessageAsError(state, action) {
       const { messageId, error } = action.payload;
       const messageIndex = state.chats.findIndex(
@@ -656,16 +667,23 @@ const chatSlice = createSlice({
         console.log(
           `[markMessageAsError] Marking message as error: ${messageId}`
         );
+
+        // Clean up debounce tracking for error message
+        const message = state.chats[messageIndex];
+        if (message.streamingId) {
+          const debounceKey = `streaming_${message.streamingId}`;
+          delete state.streamingDebounceMap[debounceKey];
+        }
+
         state.chats[messageIndex].error = error;
         state.chats[messageIndex].isLoader = "no";
         state.chats[messageIndex].gemini = `<p>Error: ${error}</p>`;
         state.chats[messageIndex].isPreformattedHTML = true;
         state.isSubmitting = false;
-        state.streamingInProgress = false; // CRITICAL FIX: Clear streaming state
+        state.streamingInProgress = false;
       }
     },
 
-    // CRITICAL FIX: Add updateMessageContent for content updates
     updateMessageContent(state, action) {
       const { messageId, content, sources, relatedQuestions } = action.payload;
       const messageIndex = state.chats.findIndex(
@@ -677,7 +695,6 @@ const chatSlice = createSlice({
           `[updateMessageContent] Updating content for message: ${messageId}`
         );
 
-        // Only update if content changed to prevent unnecessary re-renders
         if (state.chats[messageIndex].gemini !== content) {
           state.chats[messageIndex].gemini = content;
           state.chats[messageIndex].timestamp = new Date().toISOString();
@@ -689,18 +706,64 @@ const chatSlice = createSlice({
       }
     },
 
-    // CRITICAL FIX: Add action to force clear streaming state
+    // CRITICAL FIX: Enhanced clearStreamingState
     clearStreamingState(state) {
       console.log(`[clearStreamingState] Forcing clear of streaming state`);
       state.streamingInProgress = false;
       state.isSubmitting = false;
+      state.lastStreamingUpdate = 0;
+      state.streamingDebounceMap = {}; // CRITICAL FIX: Clear all debounce tracking
 
-      // Also clear any orphaned streaming messages
       state.chats.forEach((chat) => {
         if (chat.isLoader === "streaming" || chat.isLoader === "partial") {
           chat.isLoader = "no";
         }
       });
+    },
+
+    // CRITICAL FIX: Force update streaming content (bypass throttling)
+    forceUpdateStreamingChat(state, action) {
+      const {
+        streamingId,
+        content,
+        isComplete,
+        sources,
+        relatedQuestions,
+        error,
+      } = action.payload;
+
+      console.log(`[forceUpdateStreamingChat] Force updating ${streamingId}`);
+
+      const messageIndex = state.chats.findIndex(
+        (chat) => chat.streamingId === streamingId || chat.id === streamingId
+      );
+
+      if (messageIndex !== -1) {
+        const existingMessage = state.chats[messageIndex];
+
+        existingMessage.gemini = content;
+        existingMessage.timestamp = new Date().toISOString();
+        state.lastStreamingUpdate = Date.now();
+
+        if (error) {
+          existingMessage.error = error;
+          existingMessage.isLoader = "no";
+          existingMessage.gemini = `<p>Error: ${error}</p>`;
+          existingMessage.isPreformattedHTML = true;
+          state.isSubmitting = false;
+          state.streamingInProgress = false;
+        } else if (isComplete) {
+          existingMessage.isLoader = "no";
+          existingMessage.sources = sources || existingMessage.sources;
+          existingMessage.relatedQuestions =
+            relatedQuestions || existingMessage.relatedQuestions;
+          state.isSubmitting = false;
+          state.streamingInProgress = false;
+        } else {
+          existingMessage.isLoader = "streaming";
+          state.streamingInProgress = true;
+        }
+      }
     },
   },
 });
