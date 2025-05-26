@@ -420,68 +420,609 @@ class JiraAgentService {
    */
   async processQuery(query, chatHistory = [], options = {}) {
     console.log(`[JiraAgentService] Processing query: "${query}"`);
-    console.log(
-      `[JiraAgentService] Chat history length: ${chatHistory.length}`
-    );
 
     try {
-      // STEP 1: Check if user provided required information
-      const missingInfo = this.checkRequiredInformation(query);
-      if (missingInfo.needsClarification) {
-        return {
-          success: true,
-          needsClarification: true,
-          message: missingInfo.message,
-          promptType: missingInfo.promptType,
-          metadata: missingInfo.metadata,
-        };
+      // ISSUE FIX 1 & 2: Direct ticket ID detection
+      const ticketMatch = query.match(/([A-Z]+-\d+)/i);
+      if (ticketMatch) {
+        const ticketId = ticketMatch[1].toUpperCase();
+        console.log(
+          `[JiraAgentService] Direct ticket query detected: ${ticketId}`
+        );
+
+        // Check if asking about timeline/resolution
+        if (
+          query.toLowerCase().includes("timeline") ||
+          query.toLowerCase().includes("resolution")
+        ) {
+          return this.getTicketSummaryWithTimeline(ticketId);
+        }
+
+        // Check if asking about comments specifically
+        if (
+          query.toLowerCase().includes("comments") ||
+          query.toLowerCase().includes("all comments")
+        ) {
+          return this.getTicketCommentsDetailed(ticketId);
+        }
+
+        // Default to comprehensive summary
+        return this.getTicketSummary(ticketId);
       }
 
-      // STEP 2: Enhanced query analysis with better keyword extraction
-      const analysisResult = await this.enhancedQueryAnalysis(
-        query,
-        chatHistory
-      );
-      console.log(`[JiraAgentService] Analysis result:`, analysisResult);
+      // ISSUE FIX 3: Enhanced top issues detection
+      if (this.isTopIssuesQuery(query)) {
+        return this.processTopIssuesQuery(query);
+      }
 
-      // STEP 3: Generate multiple JQL queries with different keyword combinations
-      const jqlQueries = await this.generateMultipleJQLQueries(analysisResult);
-      console.log(
-        `[JiraAgentService] Generated ${jqlQueries.length} JQL queries`
-      );
+      // ISSUE FIX 4: Customer-specific ticket search
+      if (this.isCustomerSpecificQuery(query)) {
+        return this.processCustomerQuery(query);
+      }
 
-      // STEP 4: Execute all queries concurrently
-      const jiraResults = await this.executeMultipleQueries(jqlQueries);
+      // ISSUE FIX 6: Bug queries should search ZOOM project
+      if (this.isBugQuery(query)) {
+        return this.processBugQuery(query);
+      }
 
-      // STEP 5: Process results based on query intent
-      const processedResult = await this.processResultsByIntent(
-        query,
-        analysisResult,
-        jiraResults
+      // Regular query processing
+      return this.processRegularQuery(query, chatHistory);
+    } catch (error) {
+      console.error("[JiraAgentService] Error in processing:", error);
+      return this.enhancedFallbackProcessing(query, error);
+    }
+  }
+
+  async getTicketSummaryWithTimeline(ticketId) {
+    console.log(`[JiraAgentService] Getting timeline summary for: ${ticketId}`);
+
+    try {
+      const ticket = await jiraClient.getIssue(ticketId);
+      const allComments = await jiraClient.fetchAllComments(ticketId);
+
+      // Get timeline-specific information
+      const timelineData = {
+        created: ticket.fields?.created,
+        updated: ticket.fields?.updated,
+        resolutionDate: ticket.fields?.resolutiondate,
+        status: ticket.fields?.status?.name,
+        priority: ticket.fields?.priority?.name,
+        currentAssignee: ticket.fields?.assignee?.displayName || "Unassigned",
+      };
+
+      // Calculate resolution timeline if resolved
+      let resolutionTimeline = "Not yet resolved";
+      if (timelineData.resolutionDate && timelineData.created) {
+        const created = new Date(timelineData.created);
+        const resolved = new Date(timelineData.resolutionDate);
+        const diffMs = resolved - created;
+        const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+        resolutionTimeline = `Resolved in ${diffDays} days`;
+      } else if (timelineData.created) {
+        const created = new Date(timelineData.created);
+        const now = new Date();
+        const diffMs = now - created;
+        const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+        resolutionTimeline = `Open for ${diffDays} days`;
+      }
+
+      // Use Claude for timeline-focused summary
+      const timelineSummary = await this.generateTimelineSummary(
+        ticket,
+        allComments,
+        timelineData,
+        resolutionTimeline
       );
 
       return {
         success: true,
-        formattedResponse: processedResult.response,
-        sources: [], // No separate sources as requested
-        visualization: processedResult.visualization,
-        relatedQuestions: processedResult.relatedQuestions,
-        queryType: analysisResult.queryType,
-        metadata: {
-          jqlQueries: jqlQueries.map((q) => q.jql),
-          totalResults: jiraResults.reduce(
-            (sum, r) => sum + r.results.length,
-            0
-          ),
-          executionTime: processedResult.executionTime,
-        },
+        formattedResponse: timelineSummary,
+        sources: [],
+        ticket: ticket,
+        relatedQuestions: [
+          `Show me all comments for ${ticketId}`,
+          `What is the current status of ${ticketId}?`,
+          `Who is assigned to ${ticketId}?`,
+          `Find similar issues to ${ticketId}`,
+        ],
       };
     } catch (error) {
-      console.error("[JiraAgentService] Error in processing:", error);
-      return await this.enhancedFallbackProcessing(query, error);
+      console.error(`[JiraAgentService] Error getting timeline:`, error);
+      return {
+        success: false,
+        error: error.message,
+        formattedResponse: `Error retrieving timeline for ${ticketId}: ${error.message}`,
+      };
     }
   }
 
+  async getTicketCommentsDetailed(ticketId) {
+    console.log(
+      `[JiraAgentService] Getting detailed comments for: ${ticketId}`
+    );
+
+    try {
+      const ticket = await jiraClient.getIssue(ticketId);
+      const allComments = await jiraClient.fetchAllComments(ticketId);
+
+      if (allComments.length === 0) {
+        return {
+          success: true,
+          formattedResponse: `# Comments for ${ticketId}\n\n**No comments found** for this ticket.\n\n**Ticket:** ${
+            ticket.fields?.summary || "No summary"
+          }`,
+          sources: [],
+        };
+      }
+
+      // Generate detailed comments summary
+      const commentsSummary = await this.generateDetailedCommentsSummary(
+        ticket,
+        allComments
+      );
+
+      return {
+        success: true,
+        formattedResponse: commentsSummary,
+        sources: [],
+        relatedQuestions: [
+          `Analyze sentiment of comments in ${ticketId}`,
+          `What are the main issues discussed in ${ticketId}?`,
+          `Who are the main contributors to ${ticketId}?`,
+        ],
+      };
+    } catch (error) {
+      console.error(`[JiraAgentService] Error getting comments:`, error);
+      return {
+        success: false,
+        error: error.message,
+        formattedResponse: `Error retrieving comments for ${ticketId}: ${error.message}`,
+      };
+    }
+  }
+
+  async processTopIssuesQuery(query) {
+    console.log(`[JiraAgentService] Processing top issues query: "${query}"`);
+
+    try {
+      const analysis = await this.analyzeTopIssuesQuery(query);
+
+      // Build JQL for high/highest priority tickets only
+      let jqlQuery = `project = ZSEE AND priority in (Highest, High)`;
+
+      // Add component filter if specified
+      if (analysis.component) {
+        jqlQuery += ` AND "issue area (component)[dropdown]" = "${analysis.component}"`;
+      }
+
+      // CRITICAL FIX: Add time constraint for "this week"
+      if (analysis.timeframe === "this_week") {
+        jqlQuery += ` AND created >= -7d`;
+      } else if (analysis.timeframe === "last_week") {
+        jqlQuery += ` AND created >= -14d AND created <= -7d`;
+      }
+
+      jqlQuery += ` ORDER BY priority DESC, created DESC`;
+
+      console.log(`[JiraAgentService] Top issues JQL: ${jqlQuery}`);
+
+      const issues = await jiraClient.searchIssues(jqlQuery, 20);
+
+      if (issues.length === 0) {
+        return {
+          success: true,
+          formattedResponse: `# Top Issues Search Results\n\nNo high or highest priority issues found for the specified criteria.\n\n**Search:** ${query}`,
+          sources: [],
+        };
+      }
+
+      const topIssuesResponse = await this.formatTopIssuesResponse(
+        query,
+        issues,
+        analysis
+      );
+
+      return {
+        success: true,
+        formattedResponse: topIssuesResponse,
+        sources: [],
+        relatedQuestions: [
+          "What are the trends in high priority issues?",
+          "Show me resolution time for these issues",
+          "Which team members are assigned to these issues?",
+        ],
+      };
+    } catch (error) {
+      console.error(`[JiraAgentService] Error processing top issues:`, error);
+      return {
+        success: false,
+        error: error.message,
+        formattedResponse: `Error processing top issues query: ${error.message}`,
+      };
+    }
+  }
+
+  async processCustomerQuery(query) {
+    console.log(`[JiraAgentService] Processing customer query: "${query}"`);
+
+    try {
+      const customerInfo = this.extractCustomerInfo(query);
+
+      // Build JQL for customer-specific search
+      let jqlQuery = `project in (ZSEE, ZOOM) AND priority in (Highest, High)`;
+
+      // Add customer name search
+      if (customerInfo.customerName) {
+        jqlQuery += ` AND (summary ~ "${customerInfo.customerName}" OR description ~ "${customerInfo.customerName}" OR comment ~ "${customerInfo.customerName}")`;
+      }
+
+      // Add crash-specific search if mentioned
+      if (query.toLowerCase().includes("crash")) {
+        jqlQuery += ` AND (summary ~ "crash" OR description ~ "crash")`;
+        jqlQuery += ` AND "issue area (component)[dropdown]" = "Desktop Clients"`;
+      }
+
+      // Add issue area if specified
+      if (customerInfo.issueArea) {
+        jqlQuery += ` AND "issue area (component)[dropdown]" = "${customerInfo.issueArea}"`;
+      }
+
+      jqlQuery += ` ORDER BY priority DESC, created DESC`;
+
+      console.log(`[JiraAgentService] Customer query JQL: ${jqlQuery}`);
+
+      const issues = await jiraClient.searchIssues(jqlQuery, 15);
+
+      const customerResponse = await this.formatCustomerQueryResponse(
+        query,
+        issues,
+        customerInfo
+      );
+
+      return {
+        success: true,
+        formattedResponse: customerResponse,
+        sources: [],
+        relatedQuestions: [
+          `Show me all issues for ${customerInfo.customerName}`,
+          "What is the resolution time for customer issues?",
+          "Are there any patterns in customer-reported issues?",
+        ],
+      };
+    } catch (error) {
+      console.error(
+        `[JiraAgentService] Error processing customer query:`,
+        error
+      );
+      return {
+        success: false,
+        error: error.message,
+        formattedResponse: `Error processing customer query: ${error.message}`,
+      };
+    }
+  }
+
+  async processBugQuery(query) {
+    console.log(`[JiraAgentService] Processing bug query: "${query}"`);
+
+    try {
+      // CRITICAL FIX: Always search ZOOM project for bugs
+      let jqlQuery = `project = ZOOM AND type = Bug`;
+
+      const analysis = await this.analyzeBugQuery(query);
+
+      // Add component filter if specified
+      if (analysis.component) {
+        jqlQuery += ` AND component = "${analysis.component}"`;
+      }
+
+      // Add time constraints
+      if (analysis.timeframe) {
+        jqlQuery += this.getTimeframeJqlClause(analysis.timeframe);
+      }
+
+      // Add priority filter for high priority bugs
+      if (
+        query.toLowerCase().includes("high") ||
+        query.toLowerCase().includes("critical")
+      ) {
+        jqlQuery += ` AND priority in (Highest, High, Critical)`;
+      }
+
+      jqlQuery += ` ORDER BY priority DESC, created DESC`;
+
+      console.log(`[JiraAgentService] Bug query JQL: ${jqlQuery}`);
+
+      const bugs = await jiraClient.searchIssues(jqlQuery, 20);
+
+      const bugResponse = await this.formatBugQueryResponse(
+        query,
+        bugs,
+        analysis
+      );
+
+      return {
+        success: true,
+        formattedResponse: bugResponse,
+        sources: [],
+        relatedQuestions: [
+          "What are the most common types of bugs?",
+          "Show me bug resolution trends",
+          "Which components have the most bugs?",
+        ],
+      };
+    } catch (error) {
+      console.error(`[JiraAgentService] Error processing bug query:`, error);
+      return {
+        success: false,
+        error: error.message,
+        formattedResponse: `Error processing bug query: ${error.message}`,
+      };
+    }
+  }
+
+  /**
+   * Helper: Check if query is asking for top issues
+   */
+  isTopIssuesQuery(query) {
+    const lowerQuery = query.toLowerCase();
+    return (
+      (lowerQuery.includes("top") && lowerQuery.includes("issue")) ||
+      (lowerQuery.includes("high") &&
+        (lowerQuery.includes("issue") || lowerQuery.includes("ticket"))) ||
+      (lowerQuery.includes("highest") &&
+        (lowerQuery.includes("issue") || lowerQuery.includes("ticket")))
+    );
+  }
+
+  /**
+   * Helper: Check if query is customer-specific
+   */
+  isCustomerSpecificQuery(query) {
+    const lowerQuery = query.toLowerCase();
+    return (
+      lowerQuery.includes("customer") ||
+      lowerQuery.includes("client") ||
+      (lowerQuery.includes("for") && lowerQuery.includes("company"))
+    );
+  }
+
+  /**
+   * Helper: Check if query is about bugs
+   */
+  isBugQuery(query) {
+    const lowerQuery = query.toLowerCase();
+    return (
+      lowerQuery.includes("bug") ||
+      lowerQuery.includes("defect") ||
+      (lowerQuery.includes("issue") &&
+        (lowerQuery.includes("crash") || lowerQuery.includes("error")))
+    );
+  }
+
+  /**
+   * Helper: Analyze top issues query
+   */
+  async analyzeTopIssuesQuery(query) {
+    const lowerQuery = query.toLowerCase();
+
+    // Extract component
+    let component = null;
+    if (lowerQuery.includes("desktop client")) component = "Desktop Clients";
+    else if (lowerQuery.includes("mobile client")) component = "Mobile Client";
+    else if (lowerQuery.includes("audio")) component = "Audio";
+    else if (lowerQuery.includes("video")) component = "Video";
+    else if (lowerQuery.includes("zoom ai")) component = "Zoom AI";
+
+    // Extract timeframe
+    let timeframe = null;
+    if (lowerQuery.includes("this week")) timeframe = "this_week";
+    else if (lowerQuery.includes("last week")) timeframe = "last_week";
+    else if (lowerQuery.includes("this month")) timeframe = "this_month";
+
+    return { component, timeframe };
+  }
+
+  /**
+   * Helper: Extract customer information
+   */
+  extractCustomerInfo(query) {
+    // Extract customer name from quotes or after "for"
+    const customerMatch = query.match(
+      /"([^"]+)"|for\s+([A-Za-z\s]+)\s+customer/i
+    );
+    const customerName = customerMatch
+      ? (customerMatch[1] || customerMatch[2]).trim()
+      : null;
+
+    // Extract issue area
+    const lowerQuery = query.toLowerCase();
+    let issueArea = null;
+    if (lowerQuery.includes("desktop") || lowerQuery.includes("crash"))
+      issueArea = "Desktop Clients";
+    else if (lowerQuery.includes("mobile")) issueArea = "Mobile Client";
+    else if (lowerQuery.includes("audio")) issueArea = "Audio";
+    else if (lowerQuery.includes("video")) issueArea = "Video";
+
+    return { customerName, issueArea };
+  }
+  async generateTimelineSummary(
+    ticket,
+    comments,
+    timelineData,
+    resolutionTimeline
+  ) {
+    const prompt = `Create a timeline-focused summary for this Jira ticket:
+
+TICKET: ${ticket.key} - ${ticket.fields?.summary}
+STATUS: ${timelineData.status}
+PRIORITY: ${timelineData.priority}
+CREATED: ${timelineData.created}
+UPDATED: ${timelineData.updated}
+RESOLUTION DATE: ${timelineData.resolutionDate || "Not resolved"}
+RESOLUTION TIMELINE: ${resolutionTimeline}
+CURRENT ASSIGNEE: ${timelineData.currentAssignee}
+
+RECENT COMMENTS: ${comments
+      .slice(-5)
+      .map((c) => `${c.author} (${c.created}): ${c.text.substring(0, 200)}`)
+      .join("\n")}
+
+Create a summary focusing on:
+1. Resolution Timeline & Status
+2. Key milestones from comments
+3. Current state and next steps
+4. Time-based insights
+
+Format with clear headers and bullet points.`;
+
+    try {
+      const response = await llmGatewayService.query(prompt, [], {
+        model: "claude-3-5-sonnet-20241022",
+        temperature: 0.3,
+        max_tokens: 1000,
+      });
+
+      return response.content || "Summary generation failed";
+    } catch (error) {
+      console.error("Timeline summary generation failed:", error);
+      return this.createFallbackTimelineSummary(
+        ticket,
+        timelineData,
+        resolutionTimeline
+      );
+    }
+  }
+
+  /**
+   * Helper: Generate detailed comments summary
+   */
+  async generateDetailedCommentsSummary(ticket, comments) {
+    let response = `# All Comments for ${ticket.key}\n\n`;
+    response += `**📋 Ticket:** ${ticket.fields?.summary}\n`;
+    response += `**💬 Total Comments:** ${comments.length}\n\n`;
+
+    response += `## 📝 Comments Timeline\n\n`;
+
+    comments.forEach((comment, index) => {
+      const date = new Date(comment.created).toLocaleDateString();
+      const time = new Date(comment.created).toLocaleTimeString();
+
+      response += `### ${index + 1}. ${comment.author} - ${date} at ${time}\n`;
+      response += `${comment.text}\n\n`;
+      response += `---\n\n`;
+    });
+
+    return response;
+  }
+
+  /**
+   * Helper: Format top issues response
+   */
+  async formatTopIssuesResponse(query, issues, analysis) {
+    let response = `# 🎯 Top Priority Issues\n\n`;
+    response += `**Query:** ${query}\n`;
+    response += `**Found:** ${issues.length} high/highest priority issues\n`;
+    if (analysis.component)
+      response += `**Component:** ${analysis.component}\n`;
+    if (analysis.timeframe)
+      response += `**Timeframe:** ${analysis.timeframe.replace("_", " ")}\n`;
+    response += `\n`;
+
+    issues.forEach((issue, index) => {
+      response += `## ${index + 1}. ${issue.key}: ${issue.fields?.summary}\n`;
+      response += `- **Priority:** ${issue.fields?.priority?.name}\n`;
+      response += `- **Status:** ${issue.fields?.status?.name}\n`;
+      response += `- **Assignee:** ${
+        issue.fields?.assignee?.displayName || "Unassigned"
+      }\n`;
+      response += `- **Created:** ${new Date(
+        issue.fields?.created
+      ).toLocaleDateString()}\n\n`;
+    });
+
+    return this.convertTicketIdsToHyperlinks(response);
+  }
+
+  /**
+   * Helper: Format customer query response
+   */
+  async formatCustomerQueryResponse(query, issues, customerInfo) {
+    let response = `# 🏢 Customer Issues Report\n\n`;
+    response += `**Query:** ${query}\n`;
+    if (customerInfo.customerName)
+      response += `**Customer:** ${customerInfo.customerName}\n`;
+    response += `**Found:** ${issues.length} high priority issues\n\n`;
+
+    if (issues.length === 0) {
+      response += `No high priority issues found for the specified customer and criteria.\n`;
+    } else {
+      issues.forEach((issue, index) => {
+        response += `## ${index + 1}. ${issue.key}: ${issue.fields?.summary}\n`;
+        response += `- **Priority:** ${issue.fields?.priority?.name}\n`;
+        response += `- **Status:** ${issue.fields?.status?.name}\n`;
+        response += `- **Project:** ${issue.key.split("-")[0]}\n`;
+        response += `- **Created:** ${new Date(
+          issue.fields?.created
+        ).toLocaleDateString()}\n\n`;
+      });
+    }
+
+    return this.convertTicketIdsToHyperlinks(response);
+  }
+
+  /**
+   * Helper: Format bug query response
+   */
+  async formatBugQueryResponse(query, bugs, analysis) {
+    let response = `# 🐛 Bug Report (ZOOM Project)\n\n`;
+    response += `**Query:** ${query}\n`;
+    response += `**Found:** ${bugs.length} bugs in ZOOM project\n`;
+    if (analysis.component)
+      response += `**Component:** ${analysis.component}\n`;
+    response += `\n`;
+
+    bugs.forEach((bug, index) => {
+      response += `## ${index + 1}. ${bug.key}: ${bug.fields?.summary}\n`;
+      response += `- **Priority:** ${bug.fields?.priority?.name}\n`;
+      response += `- **Status:** ${bug.fields?.status?.name}\n`;
+      response += `- **Assignee:** ${
+        bug.fields?.assignee?.displayName || "Unassigned"
+      }\n`;
+      response += `- **Created:** ${new Date(
+        bug.fields?.created
+      ).toLocaleDateString()}\n\n`;
+    });
+
+    return this.convertTicketIdsToHyperlinks(response);
+  }
+
+  /**
+   * Helper: Create fallback timeline summary
+   */
+  createFallbackTimelineSummary(ticket, timelineData, resolutionTimeline) {
+    let response = `# 📅 Resolution Timeline for ${ticket.key}\n\n`;
+    response += `**Summary:** ${ticket.fields?.summary}\n`;
+    response += `**Current Status:** ${timelineData.status}\n`;
+    response += `**Priority:** ${timelineData.priority}\n`;
+    response += `**Resolution Timeline:** ${resolutionTimeline}\n\n`;
+
+    response += `## Timeline Details\n`;
+    response += `- **Created:** ${new Date(
+      timelineData.created
+    ).toLocaleString()}\n`;
+    response += `- **Last Updated:** ${new Date(
+      timelineData.updated
+    ).toLocaleString()}\n`;
+    if (timelineData.resolutionDate) {
+      response += `- **Resolved:** ${new Date(
+        timelineData.resolutionDate
+      ).toLocaleString()}\n`;
+    }
+    response += `- **Current Assignee:** ${timelineData.currentAssignee}\n`;
+
+    return response;
+  }
   /**
    * CRITICAL FIX: Handle clarification responses for continued conversations
    */
@@ -701,7 +1242,449 @@ class JiraAgentService {
 
     return { needsClarification: false };
   }
+  async analyzeBugQuery(query) {
+    const lowerQuery = query.toLowerCase();
 
+    // Extract version information
+    let version = null;
+    let clientType = "Client"; // Default to Client
+
+    const versionMatch = query.match(/(\d+\.\d+\.\d+)/);
+    if (versionMatch) {
+      version = versionMatch[1];
+
+      // Detect client type based on context
+      if (
+        lowerQuery.includes("vdi") ||
+        lowerQuery.includes("virtual desktop")
+      ) {
+        clientType = "VDI";
+      } else if (
+        lowerQuery.includes("desktop") ||
+        lowerQuery.includes("client")
+      ) {
+        clientType = "Client";
+      }
+      // You can add more client types here if needed
+    }
+
+    // Extract component/issue area for text search
+    let component = null;
+    let textSearch = [];
+
+    if (
+      lowerQuery.includes("desktop client") ||
+      lowerQuery.includes("desktop")
+    ) {
+      component = "Desktop Client";
+      textSearch.push("desktop");
+    } else if (lowerQuery.includes("vdi")) {
+      component = "VDI";
+      textSearch.push("vdi");
+    } else if (lowerQuery.includes("audio")) {
+      component = "Audio";
+      textSearch.push("audio");
+    } else if (lowerQuery.includes("video")) {
+      component = "Video";
+      textSearch.push("video");
+    } else if (lowerQuery.includes("zoom ai") || lowerQuery.includes("ai")) {
+      component = "Zoom AI";
+      textSearch.push("ai");
+    } else if (lowerQuery.includes("mobile")) {
+      component = "Mobile";
+      textSearch.push("mobile");
+    }
+
+    // Extract additional search terms
+    const additionalTerms = this.extractBugSearchTerms(query);
+    textSearch = [...textSearch, ...additionalTerms];
+
+    // Extract timeframe (for non-version queries)
+    let timeframe = null;
+    if (!version) {
+      if (lowerQuery.includes("last week")) {
+        timeframe = "last_week";
+      } else if (lowerQuery.includes("this week")) {
+        timeframe = "this_week";
+      } else if (lowerQuery.includes("last month")) {
+        timeframe = "last_month";
+      } else if (lowerQuery.includes("this month")) {
+        timeframe = "this_month";
+      }
+    }
+
+    // Extract severity/priority
+    let priority = "high"; // Default to high for bugs
+    if (lowerQuery.includes("critical")) {
+      priority = "critical";
+    } else if (lowerQuery.includes("all") || lowerQuery.includes("any")) {
+      priority = "all";
+    }
+
+    return {
+      component,
+      version,
+      clientType,
+      formattedVersion: version ? `${clientType} ${version}` : null,
+      timeframe,
+      priority,
+      textSearch: textSearch.filter((term) => term && term.length > 2),
+    };
+  }
+
+  /**
+   * ENHANCED: Process bug query with proper version field usage
+   */
+  async processBugQuery(query) {
+    console.log(`[JiraAgentService] Processing bug query: "${query}"`);
+
+    try {
+      const analysis = await this.analyzeBugQuery(query);
+      console.log(`[JiraAgentService] Bug analysis:`, analysis);
+
+      // CRITICAL: Always start with ZOOM project and Bug type
+      let jqlQuery = `project = "ZOOM" AND type = Bug`;
+
+      // CRITICAL: Add status filter for open bugs (To Do, In Progress)
+      jqlQuery += ` AND statusCategory IN ("To Do", "In Progress")`;
+
+      // ENHANCED: Use "found in version[dropdown]" field for version filtering
+      if (analysis.formattedVersion) {
+        jqlQuery += ` AND "found in version[dropdown]" = "${analysis.formattedVersion}"`;
+        console.log(
+          `[JiraAgentService] Using version filter: ${analysis.formattedVersion}`
+        );
+      }
+
+      // Add priority filter (default to High/Highest for bugs)
+      if (analysis.priority === "critical") {
+        jqlQuery += ` AND priority IN (Critical, Highest)`;
+      } else if (analysis.priority === "high") {
+        jqlQuery += ` AND priority IN (Highest, High)`;
+      } else if (analysis.priority === "all") {
+        // No priority filter for "all" bugs
+      } else {
+        // Default to high priority
+        jqlQuery += ` AND priority IN (Highest, High)`;
+      }
+
+      // ENHANCED: Add component-specific text search
+      if (analysis.textSearch && analysis.textSearch.length > 0) {
+        const textSearchClauses = analysis.textSearch.map(
+          (term) => `text ~ "${term}"`
+        );
+        jqlQuery += ` AND (${textSearchClauses.join(" OR ")})`;
+        console.log(
+          `[JiraAgentService] Adding text search for: ${analysis.textSearch.join(
+            ", "
+          )}`
+        );
+      }
+
+      // Add timeframe filter for non-version queries
+      if (!analysis.version && analysis.timeframe) {
+        jqlQuery += this.getTimeframeJqlClause(analysis.timeframe);
+      }
+
+      // Order by creation date descending (most recent first)
+      jqlQuery += ` ORDER BY created DESC`;
+
+      console.log(`[JiraAgentService] Final bug query JQL: ${jqlQuery}`);
+
+      const bugs = await jiraClient.searchIssues(jqlQuery, 25);
+      console.log(`[JiraAgentService] Found ${bugs.length} bugs`);
+
+      const bugResponse = await this.formatBugQueryResponse(
+        query,
+        bugs,
+        analysis
+      );
+
+      return {
+        success: true,
+        formattedResponse: bugResponse,
+        sources: [],
+        metadata: {
+          queryType: "bug_search",
+          project: "ZOOM",
+          version: analysis.formattedVersion,
+          component: analysis.component,
+          bugCount: bugs.length,
+          jqlQuery: jqlQuery,
+          textSearch: analysis.textSearch,
+        },
+        relatedQuestions: this.generateBugRelatedQuestions(analysis),
+      };
+    } catch (error) {
+      console.error(`[JiraAgentService] Error processing bug query:`, error);
+      return {
+        success: false,
+        error: error.message,
+        formattedResponse: `Error processing bug query: ${error.message}`,
+        sources: [],
+      };
+    }
+  }
+
+  /**
+   * ENHANCED: Format bug query response with better version context
+   */
+  async formatBugQueryResponse(query, bugs, analysis) {
+    let response = `# 🐛 Bug Report - ZOOM Project\n\n`;
+    response += `**Query:** ${query}\n`;
+    response += `**Project:** ZOOM\n`;
+    response += `**Bug Type:** Open bugs (To Do, In Progress)\n`;
+
+    if (analysis.formattedVersion) {
+      response += `**Version:** ${analysis.formattedVersion}\n`;
+    }
+    if (analysis.component) {
+      response += `**Component:** ${analysis.component}\n`;
+    }
+    if (analysis.priority !== "all") {
+      response += `**Priority:** ${
+        analysis.priority === "critical" ? "Critical/Highest" : "High/Highest"
+      }\n`;
+    }
+    if (analysis.textSearch && analysis.textSearch.length > 0) {
+      response += `**Search Terms:** ${analysis.textSearch.join(", ")}\n`;
+    }
+
+    response += `**Found:** ${bugs.length} bugs\n\n`;
+
+    if (bugs.length === 0) {
+      response += `## ✅ Good News!\n\n`;
+      response += `No open high-priority bugs found matching your criteria.\n\n`;
+
+      if (analysis.formattedVersion) {
+        response += `**For ${analysis.formattedVersion}:**\n`;
+        response += `- No high-priority bugs currently open\n`;
+        response += `- This suggests good stability for this version\n\n`;
+      }
+
+      response += `**What this means:**\n`;
+      response += `- ✅ No critical issues in the specified area\n`;
+      response += `- ✅ Version appears stable\n`;
+      response += `- ✅ Quality control is working well\n\n`;
+
+      response += `**Want to check more?**\n`;
+      response += `- Try searching for closed/resolved bugs in this version\n`;
+      response += `- Check different priority levels\n`;
+      response += `- Search in ZSEE project as well\n`;
+    } else {
+      response += `## 🚨 Active Bug Issues\n\n`;
+
+      bugs.forEach((bug, index) => {
+        response += `### ${index + 1}. ${bug.key}: ${
+          bug.fields?.summary || "No summary"
+        }\n`;
+        response += `- **Priority:** ${
+          bug.fields?.priority?.name || "Not specified"
+        }\n`;
+        response += `- **Status:** ${bug.fields?.status?.name || "Unknown"}\n`;
+        response += `- **Assignee:** ${
+          bug.fields?.assignee?.displayName || "Unassigned"
+        }\n`;
+        response += `- **Created:** ${new Date(
+          bug.fields?.created
+        ).toLocaleDateString()}\n`;
+
+        // Show version information
+        const foundInVersion = this.extractFoundInVersion(bug);
+        if (foundInVersion) {
+          response += `- **Found in Version:** ${foundInVersion}\n`;
+        }
+
+        // Show fix version if available
+        if (bug.fields?.fixVersion && bug.fields.fixVersion.length > 0) {
+          response += `- **Target Fix Version:** ${bug.fields.fixVersion
+            .map((v) => v.name)
+            .join(", ")}\n`;
+        }
+
+        // Show component if available
+        if (bug.fields?.components && bug.fields.components.length > 0) {
+          response += `- **Components:** ${bug.fields.components
+            .map((c) => c.name)
+            .join(", ")}\n`;
+        }
+
+        response += `\n`;
+      });
+
+      // Add summary statistics
+      response += `## 📊 Bug Summary\n\n`;
+
+      // Priority breakdown
+      const priorityCounts = {};
+      bugs.forEach((bug) => {
+        const priority = bug.fields?.priority?.name || "Unknown";
+        priorityCounts[priority] = (priorityCounts[priority] || 0) + 1;
+      });
+
+      if (Object.keys(priorityCounts).length > 1) {
+        response += `**Priority Distribution:**\n`;
+        Object.entries(priorityCounts)
+          .sort((a, b) => {
+            const priorityOrder = {
+              Critical: 4,
+              Highest: 3,
+              High: 2,
+              Medium: 1,
+              Low: 0,
+            };
+            return (priorityOrder[b[0]] || 0) - (priorityOrder[a[0]] || 0);
+          })
+          .forEach(([priority, count]) => {
+            response += `- ${priority}: ${count} bugs\n`;
+          });
+        response += `\n`;
+      }
+
+      // Status breakdown
+      const statusCounts = {};
+      bugs.forEach((bug) => {
+        const status = bug.fields?.status?.name || "Unknown";
+        statusCounts[status] = (statusCounts[status] || 0) + 1;
+      });
+
+      response += `**Status Distribution:**\n`;
+      Object.entries(statusCounts)
+        .sort((a, b) => b[1] - a[1])
+        .forEach(([status, count]) => {
+          response += `- ${status}: ${count} bugs\n`;
+        });
+
+      // Show version distribution if multiple versions
+      const versionCounts = {};
+      bugs.forEach((bug) => {
+        const version = this.extractFoundInVersion(bug) || "Unknown";
+        versionCounts[version] = (versionCounts[version] || 0) + 1;
+      });
+
+      if (Object.keys(versionCounts).length > 1 || !analysis.formattedVersion) {
+        response += `\n**Version Distribution:**\n`;
+        Object.entries(versionCounts)
+          .sort((a, b) => b[1] - a[1])
+          .forEach(([version, count]) => {
+            response += `- ${version}: ${count} bugs\n`;
+          });
+      }
+    }
+
+    return this.convertTicketIdsToHyperlinks(response);
+  }
+
+  getTimeframeJqlClause(timeframe) {
+    switch (timeframe) {
+      case "last_week":
+        return " AND created >= -7d";
+      case "this_week":
+        return " AND created >= -7d";
+      case "last_month":
+        return " AND created >= -30d";
+      case "this_month":
+        return " AND created >= -30d";
+      case "yesterday":
+        return " AND created >= -1d AND created <= -1d";
+      case "today":
+        return " AND created >= 0d";
+      default:
+        return "";
+    }
+  }
+  /**
+   * Helper: Extract "Found in Version" field value
+   */
+  extractFoundInVersion(bug) {
+    // Try different possible field names for "Found in Version"
+    const possibleFields = [
+      "found in version[dropdown]",
+      "customfield_10000", // Common custom field ID
+      "customfield_10001",
+      "customfield_10002",
+    ];
+
+    for (const fieldName of possibleFields) {
+      const fieldValue = bug.fields?.[fieldName];
+      if (fieldValue) {
+        if (typeof fieldValue === "string") {
+          return fieldValue;
+        } else if (fieldValue.value) {
+          return fieldValue.value;
+        } else if (fieldValue.name) {
+          return fieldValue.name;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Helper: Generate bug-specific related questions
+   */
+  generateBugRelatedQuestions(analysis) {
+    const questions = [];
+
+    if (analysis.formattedVersion) {
+      questions.push(`Show me all bugs in ${analysis.formattedVersion}`);
+      questions.push(
+        `What are the resolved bugs in ${analysis.formattedVersion}?`
+      );
+    }
+
+    if (analysis.component) {
+      questions.push(`Show me all ${analysis.component} bugs this month`);
+      questions.push(
+        `What is the bug resolution trend for ${analysis.component}?`
+      );
+    } else {
+      questions.push("What are the most common bug categories?");
+      questions.push("Show me critical bugs across all components");
+    }
+
+    questions.push("What is the average bug resolution time?");
+    questions.push("Show me bugs assigned to specific team members");
+
+    return questions.slice(0, 4); // Limit to 4 questions
+  }
+
+  /**
+   * Enhanced: Extract bug search terms (updated)
+   */
+  extractBugSearchTerms(query) {
+    const stopWords = [
+      "bug",
+      "bugs",
+      "issue",
+      "issues",
+      "after",
+      "before",
+      "reported",
+      "any",
+      "there",
+      "is",
+      "are",
+      "in",
+      "the",
+      "this",
+      "that",
+      "version",
+      "release",
+      "client",
+    ];
+
+    const words = query
+      .toLowerCase()
+      .replace(/[^\w\s]/g, " ")
+      .split(/\s+/)
+      .filter((word) => word.length > 2)
+      .filter((word) => !stopWords.includes(word))
+      .filter((word) => !/^\d+\.\d+\.\d+$/.test(word)); // Remove version numbers
+
+    return [...new Set(words)].slice(0, 3); // Unique terms, limit to 3
+  }
   /**
    * Enhanced query analysis with better keyword extraction
    */

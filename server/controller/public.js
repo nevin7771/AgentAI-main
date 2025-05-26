@@ -1,4 +1,4 @@
-// server/controller/public.js - ENHANCED VERSION FOR JIRA AGENT CONVERSATIONS
+// server/controller/public.js - COMPLETE SECURE VERSION WITH ALL FUNCTIONS
 import { user } from "../model/user.js";
 import { chat } from "../model/chat.js";
 import { chatHistory } from "../model/chatHistory.js";
@@ -71,12 +71,16 @@ export const postGemini = async (req, res, next) => {
 
         return newChatHistory.save();
       } else {
-        return chatHistory.findById(chatHistoryId);
+        // CRITICAL FIX: Ensure user owns the chat history
+        return chatHistory.findOne({
+          _id: chatHistoryId,
+          user: req.user._id,
+        });
       }
     })
     .then((chatHistory) => {
       if (!chatHistory) {
-        const error = new Error("Chat History not found");
+        const error = new Error("Chat History not found or access denied");
         error.statusCode = 403;
         throw error;
       }
@@ -149,7 +153,7 @@ export const postGemini = async (req, res, next) => {
 
       return user.findById(req.user._id);
     })
-    .then((userData) => {
+    .then(async (userData) => {
       if (!userData) {
         const error = new Error("No user found");
         error.statusCode = 403;
@@ -157,8 +161,26 @@ export const postGemini = async (req, res, next) => {
       }
 
       if (chatHistoryId.length < 5) {
+        // CRITICAL FIX: Enforce 15 chat limit
+        if (userData.chatHistory.length >= 15) {
+          // Remove oldest chat history
+          const oldestChatHistoryId = userData.chatHistory[0];
+
+          // Delete the oldest chat and its history
+          await chat.deleteOne({ chatHistory: oldestChatHistoryId });
+          await chatHistory.deleteOne({ _id: oldestChatHistoryId });
+
+          // Remove from user's array
+          userData.chatHistory.shift();
+
+          console.log(
+            `[postGemini] Removed oldest chat history for user ${userData._id}`
+          );
+        }
+
         userData.chatHistory.push(newChatHistoryId);
       }
+
       if (req.auth === "noauth") {
         userData.currentLimit += 1;
       }
@@ -205,270 +227,488 @@ const getDefaultUserId = async () => {
   }
 };
 
-export const getChatHistory = (req, res, next) => {
-  user
-    .findById(req.user._id)
-    .populate({ path: "chatHistory" })
-    .then((userData) => {
-      if (!user) {
-        const error = new Error("User Not Found");
-        error.statusCode = 403;
-        throw error;
-      }
-
-      let chatHistory;
-
-      if (req.auth === "auth") {
-        chatHistory = userData.chatHistory.reverse();
-      } else {
-        chatHistory = userData.chatHistory.reverse().slice(0, 5);
-      }
-
-      res.status(200).json({
-        chatHistory: chatHistory,
-        location: userData.location,
-      });
-    })
-    .catch((error) => {
-      if (!error.statusCode) {
-        error.statusCode = 500;
-      }
-      next(error);
-    });
-};
-
-// CRITICAL FIX: Enhanced postChat function with better Jira agent support
-export const postChat = async (req, res, next) => {
+// CRITICAL FIX: Secure getChatHistory with proper user filtering
+export const getChatHistory = async (req, res, next) => {
   try {
-    const chatHistoryId = req.body.chatHistoryId;
-
-    if (!chatHistoryId) {
-      return res.status(400).json({
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({
         success: false,
-        error: "Chat history ID is required",
+        error: "User authentication required",
       });
     }
 
-    const userId = req.user?._id;
-    const isNotAuthUser = req.auth === "noauth";
+    const userId = req.user._id;
+    const isAuthUser = req.auth === "auth" && !req.user.isTemporary;
 
+    console.log(`[getChatHistory] =================================`);
+    console.log(`[getChatHistory] User ID: ${userId}`);
     console.log(
-      `[postChat] Looking for chat history: ${chatHistoryId}, user: ${
-        userId || "none"
+      `[getChatHistory] User Type: ${
+        isAuthUser ? "AUTHENTICATED" : "TEMPORARY/NON-AUTH"
       }`
     );
+    console.log(`[getChatHistory] Auth Status: ${req.auth}`);
+    console.log(`[getChatHistory] Is Temporary: ${req.user.isTemporary}`);
 
-    // CRITICAL FIX: Enhanced agent chat detection with MongoDB ObjectId check
-    const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(chatHistoryId);
-    const isClientId = chatHistoryId && !isValidObjectId;
-    const isAgentChat =
-      chatHistoryId &&
-      (chatHistoryId.startsWith("agent_") ||
-        chatHistoryId.startsWith("jira_") ||
-        chatHistoryId.includes("confluence") ||
-        chatHistoryId.includes("monitor") ||
-        chatHistoryId.includes("jira") ||
-        isClientId);
-
-    console.log(
-      `[postChat] Chat lookup: ID=${chatHistoryId}, isValidObjectId=${isValidObjectId}, isClientId=${isClientId}, isAgentChat=${isAgentChat}`
-    );
-
-    let chatHistoryDoc;
-
-    // CRITICAL FIX: Enhanced retry logic for newly created chats
-    const maxRetries = 5;
-    let retryCount = 0;
-
-    while (!chatHistoryDoc && retryCount < maxRetries) {
-      try {
-        console.log(
-          `[postChat] Search attempt ${retryCount + 1} for: ${chatHistoryId}`
-        );
-
-        if (isValidObjectId) {
-          // Strategy 1: Direct MongoDB ObjectId lookup (most common case)
-          console.log(
-            `[postChat] Trying MongoDB ObjectId lookup: ${chatHistoryId}`
-          );
-          chatHistoryDoc = await chatHistory
-            .findById(chatHistoryId)
-            .populate("chat");
-
-          if (chatHistoryDoc) {
-            console.log(
-              `[postChat] Found by MongoDB ObjectId: ${chatHistoryDoc._id}`
-            );
-          }
-        }
-
-        // Strategy 2: Client ID lookup for agent chats (including Jira agent)
-        if (!chatHistoryDoc && isClientId) {
-          console.log(`[postChat] Trying clientId lookup: ${chatHistoryId}`);
-          chatHistoryDoc = await chatHistory
-            .findOne({ clientId: chatHistoryId })
-            .populate("chat");
-
-          if (chatHistoryDoc) {
-            console.log(`[postChat] Found by clientId: ${chatHistoryDoc._id}`);
-          }
-        }
-
-        // Strategy 3: Search by title patterns for agent chats (including Jira)
-        if (!chatHistoryDoc && isAgentChat) {
-          console.log(
-            `[postChat] Trying pattern-based lookup for: ${chatHistoryId}`
-          );
-
-          // Look for recent agent chats with similar patterns
-          const searchPatterns = [
-            {
-              $or: [
-                {
-                  clientId: new RegExp(
-                    chatHistoryId.replace(/[_-]/g, "\\s*"),
-                    "i"
-                  ),
-                },
-                {
-                  title: new RegExp(
-                    chatHistoryId.replace(/[_-]/g, "\\s*"),
-                    "i"
-                  ),
-                },
-              ],
-              timestamp: { $gte: new Date(Date.now() - 10 * 60 * 1000) }, // Last 10 minutes
-            },
-            {
-              type: {
-                $in: ["agent", "conf_agent", "monitor_agent", "jira_agent"],
-              },
-              timestamp: { $gte: new Date(Date.now() - 10 * 60 * 1000) }, // Last 10 minutes
-            },
-          ];
-
-          for (const pattern of searchPatterns) {
-            chatHistoryDoc = await chatHistory
-              .findOne(pattern)
-              .sort({ timestamp: -1, createdAt: -1 })
-              .populate("chat");
-
-            if (chatHistoryDoc) {
-              console.log(`[postChat] Found match with pattern:`, pattern);
-              break;
-            }
-          }
-        }
-
-        // Strategy 4: Fallback search for any recent chat by the user
-        if (!chatHistoryDoc && userId) {
-          console.log(`[postChat] Trying user-based recent chat lookup`);
-
-          const recentUserChats = await chatHistory
-            .find({
-              user: userId,
-              timestamp: { $gte: new Date(Date.now() - 5 * 60 * 1000) }, // Last 5 minutes
-            })
-            .sort({ timestamp: -1, createdAt: -1 })
-            .limit(5)
-            .populate("chat");
-
-          if (recentUserChats.length > 0) {
-            // Try to find exact match first
-            const exactMatch = recentUserChats.find(
-              (chat) =>
-                chat._id.toString() === chatHistoryId ||
-                chat.clientId === chatHistoryId
-            );
-
-            chatHistoryDoc = exactMatch || recentUserChats[0];
-            console.log(
-              `[postChat] Using recent user chat: ${chatHistoryDoc._id}`
-            );
-          }
-        }
-
-        // Strategy 5: Broad search for very new chats (within last minute)
-        if (!chatHistoryDoc && isValidObjectId) {
-          console.log(`[postChat] Trying broad recent search for new chat`);
-
-          chatHistoryDoc = await chatHistory
-            .findOne({
-              _id: chatHistoryId,
-              timestamp: { $gte: new Date(Date.now() - 2 * 60 * 1000) }, // Last 2 minutes
-            })
-            .populate("chat");
-
-          if (chatHistoryDoc) {
-            console.log(
-              `[postChat] Found in broad recent search: ${chatHistoryDoc._id}`
-            );
-          }
-        }
-
-        // If found, break out of retry loop
-        if (chatHistoryDoc) {
-          break;
-        }
-
-        // If not found and we have retries left, wait before retrying
-        if (retryCount < maxRetries - 1) {
-          console.log(
-            `[postChat] Chat not found, waiting 2 seconds before retry ${
-              retryCount + 2
-            }`
-          );
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-        }
-
-        retryCount++;
-      } catch (innerErr) {
-        console.error(
-          `[postChat] Error in lookup attempt ${retryCount + 1}:`,
-          innerErr
-        );
-        retryCount++;
-
-        // If we have retries left, wait before retrying
-        if (retryCount < maxRetries) {
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-        }
-      }
-    }
-
-    if (!chatHistoryDoc) {
-      console.log(
-        `[postChat] No chat data found after ${maxRetries} attempts for ID: ${chatHistoryId}`
-      );
+    const userData = await user.findById(userId);
+    if (!userData) {
+      console.error(`[getChatHistory] ❌ User not found: ${userId}`);
       return res.status(404).json({
         success: false,
-        error: `Chat history not found after ${maxRetries} attempts: ${chatHistoryId}`,
-        chats: [],
+        error: "User not found",
+      });
+    }
+
+    console.log(
+      `[getChatHistory] User found - Email: ${userData.email}, Temporary: ${userData.isTemporary}`
+    );
+    console.log(
+      `[getChatHistory] User has ${userData.chatHistory.length} chat references`
+    );
+
+    // CRITICAL FIX: Complete isolation for temporary/non-auth users
+    if (userData.isTemporary || req.auth === "noauth") {
+      console.log(
+        `[getChatHistory] 🔒 ISOLATED ACCESS - Temporary/Non-auth user`
+      );
+
+      // For temp users, only return their own chats (should be very few or none)
+      let tempUserChats = [];
+      if (userData.chatHistory.length > 0) {
+        console.log(
+          `[getChatHistory] Checking ${userData.chatHistory.length} temp user chat references`
+        );
+
+        tempUserChats = await chatHistory
+          .find({
+            _id: { $in: userData.chatHistory },
+            user: userId, // Only their own chats
+          })
+          .sort({ timestamp: -1 })
+          .limit(3); // Very limited for temp users
+
+        console.log(
+          `[getChatHistory] Found ${tempUserChats.length} valid temp user chats`
+        );
+      }
+
+      console.log(
+        `[getChatHistory] ✅ Returning ${tempUserChats.length} chats for TEMPORARY user`
+      );
+
+      return res.status(200).json({
+        chatHistory: tempUserChats.map((history) => ({
+          _id: history._id,
+          id: history._id,
+          title: history.title || "Untitled Chat",
+          timestamp: history.timestamp || new Date().toISOString(),
+          type: history.type || "standard",
+          searchType: "chat",
+          isSearch: false,
+        })),
+        location: userData.location || "Unknown",
         debug: {
-          searchedId: chatHistoryId,
-          isAgentChat,
-          isClientId,
-          isValidObjectId,
-          attempts: maxRetries,
-          timestamp: new Date().toISOString(),
+          userId: userId,
+          userType: "temporary",
+          chatCount: tempUserChats.length,
+          isolated: true,
         },
       });
     }
 
+    // CRITICAL FIX: For authenticated users, clean and return only their chats
     console.log(
-      `[postChat] Found chat history: ${chatHistoryDoc._id}, type: ${
-        chatHistoryDoc.type || "standard"
-      }`
+      `[getChatHistory] 🔒 AUTHENTICATED ACCESS - Cleaning user's chat references`
     );
 
-    // CRITICAL FIX: Enhanced message processing with better error handling for Jira agent
-    if (chatHistoryDoc.chat && chatHistoryDoc.chat.messages) {
+    const validChatHistoryIds = [];
+    let cleanupCount = 0;
+    let checkedCount = 0;
+
+    // Clean up invalid references
+    for (const chatHistoryId of userData.chatHistory) {
+      checkedCount++;
+      try {
+        console.log(
+          `[getChatHistory] Checking chat ${checkedCount}/${userData.chatHistory.length}: ${chatHistoryId}`
+        );
+
+        const chatHistoryDoc = await chatHistory.findOne({
+          _id: chatHistoryId,
+          user: userId, // MUST belong to this user
+        });
+
+        if (chatHistoryDoc) {
+          console.log(
+            `[getChatHistory] ✅ Valid chat: ${chatHistoryId} - "${chatHistoryDoc.title}"`
+          );
+          validChatHistoryIds.push(chatHistoryId);
+        } else {
+          console.log(
+            `[getChatHistory] 🗑️ INVALID chat (removing): ${chatHistoryId}`
+          );
+          cleanupCount++;
+        }
+      } catch (err) {
+        console.error(
+          `[getChatHistory] 🗑️ ERROR checking chat ${chatHistoryId}: ${err.message}`
+        );
+        cleanupCount++;
+      }
+    }
+
+    console.log(`[getChatHistory] Cleanup Summary:`);
+    console.log(`[getChatHistory] - Checked: ${checkedCount} chats`);
+    console.log(
+      `[getChatHistory] - Valid: ${validChatHistoryIds.length} chats`
+    );
+    console.log(`[getChatHistory] - Invalid (removed): ${cleanupCount} chats`);
+
+    // Save cleaned references if any were removed
+    if (cleanupCount > 0) {
+      console.log(`[getChatHistory] 🔧 Updating user's chat history array...`);
+      userData.chatHistory = validChatHistoryIds;
+      await userData.save();
+      console.log(`[getChatHistory] ✅ User's chat history cleaned and saved`);
+    }
+
+    // Get actual chat histories (guaranteed to belong to this user)
+    let userChatHistories = [];
+    if (validChatHistoryIds.length > 0) {
       console.log(
-        `[postChat] Found chat with ${chatHistoryDoc.chat.messages.length} messages`
+        `[getChatHistory] Fetching ${validChatHistoryIds.length} chat history documents...`
       );
 
+      userChatHistories = await chatHistory
+        .find({
+          _id: { $in: validChatHistoryIds },
+          user: userId, // Double-check ownership
+        })
+        .sort({ timestamp: -1 })
+        .limit(15);
+
+      console.log(
+        `[getChatHistory] Retrieved ${userChatHistories.length} chat history documents`
+      );
+    }
+
+    console.log(
+      `[getChatHistory] ✅ SUCCESS - Returning ${userChatHistories.length} chats for AUTHENTICATED user ${userId}`
+    );
+
+    const formattedChatHistory = userChatHistories.map((history) => ({
+      _id: history._id,
+      id: history._id,
+      title: history.title || "Untitled Chat",
+      timestamp: history.timestamp || new Date().toISOString(),
+      type: history.type || "standard",
+      searchType: history.type?.includes("agent") ? "agent" : "chat",
+      isSearch: history.type?.includes("agent") || false,
+      clientId: history.clientId || null,
+    }));
+
+    res.status(200).json({
+      chatHistory: formattedChatHistory,
+      location: userData.location || "Unknown",
+      debug: {
+        userId: userId,
+        userType: "authenticated",
+        chatCount: formattedChatHistory.length,
+        cleaned: cleanupCount,
+        isolated: false,
+      },
+    });
+  } catch (error) {
+    console.error(`[getChatHistory] ❌ FATAL ERROR:`, error);
+    res.status(500).json({
+      success: false,
+      error: error.message || "Failed to get chat history",
+      debug: {
+        userId: req.user?._id,
+        userType: req.auth,
+        error: error.message,
+      },
+    });
+  }
+};
+
+// ADDITIONAL UTILITY: Clean up all users' chat history references
+export const cleanupAllUsersChatReferences = async () => {
+  try {
+    console.log(
+      "🧹 [CleanupAllUsers] Starting cleanup of all users' chat references..."
+    );
+
+    const allUsers = await user.find({});
+    let totalCleaned = 0;
+    let usersFixed = 0;
+
+    for (const userData of allUsers) {
       try {
-        // Process ALL messages in the conversation
+        const originalCount = userData.chatHistory.length;
+        const validChatHistoryIds = [];
+
+        // Check each chat history reference
+        for (const chatHistoryId of userData.chatHistory) {
+          const chatHistoryDoc = await chatHistory.findOne({
+            _id: chatHistoryId,
+            user: userData._id,
+          });
+
+          if (chatHistoryDoc) {
+            validChatHistoryIds.push(chatHistoryId);
+          } else {
+            console.log(
+              `🗑️ User ${userData._id}: Removing invalid chat reference ${chatHistoryId}`
+            );
+            totalCleaned++;
+          }
+        }
+
+        // Update user if changes were made
+        if (originalCount !== validChatHistoryIds.length) {
+          userData.chatHistory = validChatHistoryIds;
+          await userData.save();
+          usersFixed++;
+          console.log(
+            `✅ User ${userData._id}: ${originalCount} -> ${validChatHistoryIds.length} chats`
+          );
+        }
+      } catch (userError) {
+        console.error(`❌ Error cleaning user ${userData._id}:`, userError);
+      }
+    }
+
+    console.log(
+      `🎉 [CleanupAllUsers] Completed! Fixed ${usersFixed} users, cleaned ${totalCleaned} invalid references`
+    );
+
+    return {
+      success: true,
+      usersProcessed: allUsers.length,
+      usersFixed: usersFixed,
+      invalidReferencesRemoved: totalCleaned,
+    };
+  } catch (error) {
+    console.error("❌ [CleanupAllUsers] Error:", error);
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+};
+
+// CRITICAL FIX: Secure postChat function with proper user filtering
+export const postChat = async (req, res, next) => {
+  const startTime = Date.now();
+
+  try {
+    const chatHistoryId = req.body.chatHistoryId;
+
+    console.log(`[postChat] === STARTING CHAT RETRIEVAL ===`);
+    console.log(`[postChat] Request ID: ${chatHistoryId}`);
+    console.log(`[postChat] User ID: ${req.user?._id}`);
+    console.log(`[postChat] Auth type: ${req.auth}`);
+
+    if (!chatHistoryId) {
+      console.error(`[postChat] ERROR: No chat history ID provided`);
+      return res.status(400).json({
+        success: false,
+        error: "Chat history ID is required",
+        debug: { chatHistoryId, userId: req.user?._id },
+      });
+    }
+
+    const userId = req.user?._id;
+
+    if (!userId) {
+      console.error(`[postChat] ERROR: No authenticated user`);
+      return res.status(401).json({
+        success: false,
+        error: "User authentication required",
+        debug: { chatHistoryId, hasUser: !!req.user },
+      });
+    }
+
+    console.log(
+      `[postChat] Searching for chat: ${chatHistoryId} owned by user: ${userId}`
+    );
+
+    // Enhanced chat detection
+    const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(chatHistoryId);
+    const isClientId = chatHistoryId && !isValidObjectId;
+
+    console.log(`[postChat] Chat ID analysis:`);
+    console.log(`[postChat] - Is valid MongoDB ObjectId: ${isValidObjectId}`);
+    console.log(`[postChat] - Is client-generated ID: ${isClientId}`);
+
+    let chatHistoryDoc = null;
+    let searchStrategy = "";
+
+    // Strategy 1: Direct MongoDB ObjectId lookup
+    if (isValidObjectId) {
+      console.log(`[postChat] STRATEGY 1: Direct ObjectId lookup`);
+      searchStrategy = "Direct ObjectId";
+
+      try {
+        chatHistoryDoc = await chatHistory
+          .findOne({
+            _id: chatHistoryId,
+            user: userId,
+          })
+          .populate("chat");
+
+        if (chatHistoryDoc) {
+          console.log(
+            `[postChat] ✅ Found by MongoDB ObjectId: ${chatHistoryDoc._id}`
+          );
+          console.log(
+            `[postChat] Chat belongs to user: ${
+              chatHistoryDoc.user.toString() === userId.toString()
+            }`
+          );
+        } else {
+          console.log(`[postChat] ❌ Not found by MongoDB ObjectId`);
+
+          // Additional debugging: Check if chat exists but doesn't belong to user
+          const existsButNotOwned = await chatHistory.findById(chatHistoryId);
+          if (existsButNotOwned) {
+            console.warn(
+              `[postChat] 🚨 SECURITY: Chat ${chatHistoryId} exists but belongs to user ${existsButNotOwned.user}, not ${userId}`
+            );
+          } else {
+            console.log(
+              `[postChat] Chat ${chatHistoryId} does not exist in database`
+            );
+          }
+        }
+      } catch (error) {
+        console.error(`[postChat] Error in Strategy 1:`, error);
+      }
+    }
+
+    // Strategy 2: Client ID lookup for agent chats
+    if (!chatHistoryDoc && isClientId) {
+      console.log(`[postChat] STRATEGY 2: Client ID lookup`);
+      searchStrategy = "Client ID";
+
+      try {
+        chatHistoryDoc = await chatHistory
+          .findOne({
+            clientId: chatHistoryId,
+            user: userId,
+          })
+          .populate("chat");
+
+        if (chatHistoryDoc) {
+          console.log(
+            `[postChat] ✅ Found by client ID: ${chatHistoryDoc._id}`
+          );
+        } else {
+          console.log(`[postChat] ❌ Not found by client ID`);
+        }
+      } catch (error) {
+        console.error(`[postChat] Error in Strategy 2:`, error);
+      }
+    }
+
+    // Strategy 3: Recent chat fallback (last resort)
+    if (!chatHistoryDoc) {
+      console.log(`[postChat] STRATEGY 3: Recent chat fallback`);
+      searchStrategy = "Recent fallback";
+
+      try {
+        const recentUserChats = await chatHistory
+          .find({
+            user: userId,
+            timestamp: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }, // Last 24 hours
+          })
+          .sort({ timestamp: -1 })
+          .limit(5)
+          .populate("chat");
+
+        console.log(
+          `[postChat] Found ${recentUserChats.length} recent chats for user`
+        );
+
+        if (recentUserChats.length > 0) {
+          // Try to find exact match
+          const exactMatch = recentUserChats.find(
+            (chat) =>
+              chat._id.toString() === chatHistoryId ||
+              chat.clientId === chatHistoryId
+          );
+
+          if (exactMatch) {
+            chatHistoryDoc = exactMatch;
+            console.log(
+              `[postChat] ✅ Found exact match in recent chats: ${chatHistoryDoc._id}`
+            );
+          } else {
+            console.log(`[postChat] ❌ No exact match in recent chats`);
+            // Could potentially use the most recent chat as fallback, but this might be confusing
+            // chatHistoryDoc = recentUserChats[0];
+          }
+        }
+      } catch (error) {
+        console.error(`[postChat] Error in Strategy 3:`, error);
+      }
+    }
+
+    // Final check
+    if (!chatHistoryDoc) {
+      const elapsed = Date.now() - startTime;
+      console.error(
+        `[postChat] ❌ FINAL RESULT: Chat not found after all strategies`
+      );
+      console.error(`[postChat] Search took: ${elapsed}ms`);
+      console.error(`[postChat] Last strategy used: ${searchStrategy}`);
+
+      return res.status(404).json({
+        success: false,
+        error: `Chat history not found: ${chatHistoryId}`,
+        debug: {
+          chatHistoryId,
+          userId,
+          isValidObjectId,
+          isClientId,
+          searchStrategy,
+          elapsed,
+        },
+        chats: [],
+      });
+    }
+
+    // Security double-check
+    if (chatHistoryDoc.user.toString() !== userId.toString()) {
+      console.error(
+        `[postChat] 🚨 SECURITY VIOLATION: User ${userId} tried to access chat owned by ${chatHistoryDoc.user}`
+      );
+      return res.status(403).json({
+        success: false,
+        error: "Access denied: You don't own this chat history",
+        debug: {
+          requestedChatId: chatHistoryId,
+          foundChatId: chatHistoryDoc._id.toString(),
+          requestingUserId: userId.toString(),
+          chatOwnerId: chatHistoryDoc.user.toString(),
+        },
+        chats: [],
+      });
+    }
+
+    console.log(`[postChat] ✅ CHAT FOUND: ${chatHistoryDoc._id}`);
+    console.log(`[postChat] - Title: ${chatHistoryDoc.title}`);
+    console.log(`[postChat] - Type: ${chatHistoryDoc.type || "standard"}`);
+    console.log(`[postChat] - Owner: ${chatHistoryDoc.user}`);
+    console.log(`[postChat] - Has chat document: ${!!chatHistoryDoc.chat}`);
+
+    // Process messages
+    if (chatHistoryDoc.chat && chatHistoryDoc.chat.messages) {
+      const messageCount = chatHistoryDoc.chat.messages.length;
+      console.log(`[postChat] Processing ${messageCount} messages`);
+
+      try {
         const messagesArray = chatHistoryDoc.chat.messages.map((msg, index) => {
           try {
             const msgObj = msg.toObject ? msg.toObject() : msg;
@@ -493,7 +733,7 @@ export const postChat = async (req, res, next) => {
               error: msgObj.error || null,
             };
           } catch (err) {
-            console.error(`[postChat] Error converting message ${index}:`, err);
+            console.error(`[postChat] Error processing message ${index}:`, err);
             return {
               _id: `error_${chatHistoryDoc._id}_${index}_${Date.now()}`,
               timestamp: new Date().toISOString(),
@@ -513,8 +753,9 @@ export const postChat = async (req, res, next) => {
           }
         });
 
+        const elapsed = Date.now() - startTime;
         console.log(
-          `[postChat] Successfully processed ${messagesArray.length} messages for chat ${chatHistoryDoc._id}`
+          `[postChat] ✅ SUCCESS: Processed ${messagesArray.length} messages in ${elapsed}ms`
         );
 
         return res.status(200).json({
@@ -523,43 +764,64 @@ export const postChat = async (req, res, next) => {
           chats: messagesArray,
           chatType: chatHistoryDoc.type || "standard",
           clientId: chatHistoryDoc.clientId || null,
-          foundAfterRetries: retryCount,
+          debug: {
+            searchStrategy,
+            messageCount: messagesArray.length,
+            elapsed,
+          },
         });
       } catch (err) {
-        console.error(`[postChat] Error serializing chat data:`, err);
+        console.error(`[postChat] Error serializing messages:`, err);
         return res.status(500).json({
           success: false,
-          error: "Error processing chat data",
-          chatHistory: chatHistoryDoc._id.toString(),
+          error: "Error processing chat messages",
+          debug: {
+            chatHistoryId: chatHistoryDoc._id.toString(),
+            error: err.message,
+          },
           chats: [],
         });
       }
     } else {
-      // Handle case where chat or messages might not exist
+      // Chat history exists but has no messages
+      const elapsed = Date.now() - startTime;
       console.log(
-        `[postChat] No messages found for chat history: ${chatHistoryDoc._id}`
+        `[postChat] ⚠️ Chat found but no messages: ${chatHistoryDoc._id}`
       );
+
       return res.status(200).json({
         success: true,
         chatHistory: chatHistoryDoc._id.toString(),
         chats: [],
         chatType: chatHistoryDoc.type || "standard",
         clientId: chatHistoryDoc.clientId || null,
-        foundAfterRetries: retryCount,
+        debug: {
+          searchStrategy,
+          messageCount: 0,
+          elapsed,
+          warning: "Chat exists but has no messages",
+        },
       });
     }
   } catch (err) {
-    console.error(`[postChat] Unexpected error:`, err);
+    const elapsed = Date.now() - startTime;
+    console.error(`[postChat] 💥 FATAL ERROR after ${elapsed}ms:`, err);
+    console.error(`[postChat] Stack trace:`, err.stack);
+
     return res.status(500).json({
       success: false,
-      error: err.message || "Error retrieving chat",
-      chatHistory: req.body.chatHistoryId || "unknown",
+      error: "Internal server error while retrieving chat",
+      debug: {
+        chatHistoryId: req.body.chatHistoryId || "unknown",
+        userId: req.user?._id || "unknown",
+        elapsed,
+        errorMessage: err.message,
+      },
       chats: [],
     });
   }
 };
 
-// Add a dedicated GET route endpoint for backward compatibility
 export const getSingleChat = async (req, res, next) => {
   try {
     const chatId = req.params.id;
@@ -571,10 +833,15 @@ export const getSingleChat = async (req, res, next) => {
       });
     }
 
-    // Use the same logic as postChat but with the params in the request body
-    console.log(`Redirecting getSingleChat ${chatId} to postChat logic`);
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({
+        success: false,
+        error: "User authentication required",
+      });
+    }
 
-    // Call the same function but with the params in the request body
+    console.log(`[getSingleChat] ${chatId} for user ${req.user._id}`);
+
     req.body = { chatHistoryId: chatId };
     return postChat(req, res, next);
   } catch (err) {
@@ -588,14 +855,42 @@ export const getSingleChat = async (req, res, next) => {
   }
 };
 
-// API endpoint to create a new chat history entry
 export const createChatHistory = async (req, res, next) => {
   try {
     const { title, message, isSearch, searchType } = req.body;
 
-    // Create a new chat history document
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({
+        success: false,
+        error: "User authentication required",
+      });
+    }
+
+    const senderId = req.user._id;
+
+    // CRITICAL FIX: Enforce 15 chat limit
+    const userData = await user.findById(senderId);
+    if (userData && userData.chatHistory.length >= 15) {
+      const oldestChatHistoryId = userData.chatHistory[0];
+
+      try {
+        await chat.deleteOne({ chatHistory: oldestChatHistoryId });
+        await chatHistory.deleteOne({ _id: oldestChatHistoryId });
+        userData.chatHistory.shift();
+        await userData.save();
+        console.log(
+          `[createChatHistory] Removed oldest chat history for user ${senderId}`
+        );
+      } catch (cleanupError) {
+        console.error(
+          `[createChatHistory] Error cleaning up old chat:`,
+          cleanupError
+        );
+      }
+    }
+
     const chatHistoryDoc = new chatHistory({
-      user: req.user ? req.user._id : null,
+      user: senderId,
       title: title || "Agent Response",
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -603,12 +898,11 @@ export const createChatHistory = async (req, res, next) => {
 
     await chatHistoryDoc.save();
 
-    // Create a new chat entry
     const chatDoc = new chat({
       chatHistory: chatHistoryDoc._id,
       messages: [
         {
-          sender: req.user ? req.user._id : null,
+          sender: senderId,
           message: {
             user: message.user || "Agent query",
             gemini: message.gemini || "No response",
@@ -621,19 +915,16 @@ export const createChatHistory = async (req, res, next) => {
 
     await chatDoc.save();
 
-    // Update chat history reference
     chatHistoryDoc.chat = chatDoc._id;
     await chatHistoryDoc.save();
 
-    // Add to user"s chat history if user exists
-    if (req.user && req.user.chatHistory) {
-      if (req.user.chatHistory.indexOf(chatHistoryDoc._id) === -1) {
-        req.user.chatHistory.push(chatHistoryDoc._id);
-        await req.user.save();
+    if (userData) {
+      if (userData.chatHistory.indexOf(chatHistoryDoc._id) === -1) {
+        userData.chatHistory.push(chatHistoryDoc._id);
+        await userData.save();
       }
     }
 
-    // Return success with chat history ID
     res.status(200).json({
       success: true,
       chatHistoryId: chatHistoryDoc._id,
@@ -649,10 +940,14 @@ export const createChatHistory = async (req, res, next) => {
 };
 
 export const updateLocation = (req, res, next) => {
+  if (!req.user || !req.user._id) {
+    const error = new Error("User authentication required");
+    error.statusCode = 401;
+    return next(error);
+  }
+
   const { lat, long } = req.body.location;
-
   const apiKey = process.env.LOCATION_API_KEY;
-
   const url = `https://geocode.maps.co/reverse?lat=${lat}&lon=${long}&api_key=${apiKey}`;
 
   let location;
@@ -664,12 +959,10 @@ export const updateLocation = (req, res, next) => {
         error.statusCode = 403;
         throw error;
       }
-
       return response.json();
     })
     .then((data) => {
       location = data.address.state || data.address.country;
-
       return user.findById(req.user._id);
     })
     .then((userData) => {
@@ -678,7 +971,6 @@ export const updateLocation = (req, res, next) => {
         error.statusCode = 403;
         throw error;
       }
-
       userData.location = location;
       return userData.save();
     })
@@ -686,7 +978,6 @@ export const updateLocation = (req, res, next) => {
       if (!result) {
         throw new Error("Server Error");
       }
-
       res.status(200).json({ message: "Location Updated" });
     })
     .catch((err) => {
@@ -699,6 +990,14 @@ export const updateLocation = (req, res, next) => {
 
 export const deleteChatHistoryController = async (req, res, next) => {
   const { chatHistoryId } = req.body;
+
+  if (!req.user || !req.user._id) {
+    return res.status(401).json({
+      success: false,
+      message: "User authentication required",
+    });
+  }
+
   const userId = req.user._id;
 
   if (!chatHistoryId) {
@@ -708,7 +1007,7 @@ export const deleteChatHistoryController = async (req, res, next) => {
   }
 
   try {
-    // Find the chat history to ensure it belongs to the user
+    // CRITICAL FIX: Find the chat history and ensure it belongs to the user
     const history = await chatHistory.findOne({
       _id: chatHistoryId,
       user: userId,
@@ -721,13 +1020,8 @@ export const deleteChatHistoryController = async (req, res, next) => {
       });
     }
 
-    // Delete the associated chat messages
     await chat.deleteOne({ chatHistory: chatHistoryId });
-
-    // Delete the chat history itself
     await chatHistory.deleteOne({ _id: chatHistoryId, user: userId });
-
-    // Remove the chat history reference from the user"s document
     await user.updateOne(
       { _id: userId },
       { $pull: { chatHistory: chatHistoryId } }
@@ -745,17 +1039,11 @@ export const deleteChatHistoryController = async (req, res, next) => {
   }
 };
 
-// CRITICAL FIX: Enhanced updateChatHistory for Jira agent conversations
 export const updateChatHistory = async (req, res, next) => {
   try {
     const { chatHistoryId, message } = req.body;
 
     console.log(`[updateChatHistory] Updating chat history: ${chatHistoryId}`);
-    console.log(`[updateChatHistory] Message data:`, {
-      hasUser: !!message?.user,
-      hasGemini: !!message?.gemini,
-      geminiLength: message?.gemini?.length || 0,
-    });
 
     if (!chatHistoryId) {
       return res.status(400).json({
@@ -771,65 +1059,44 @@ export const updateChatHistory = async (req, res, next) => {
       });
     }
 
-    // CRITICAL FIX: Get sender ID with fallback
     let senderId = null;
     if (req.user && req.user._id) {
       senderId = req.user._id;
     } else {
       senderId = await getDefaultUserId();
-      console.log(`[updateChatHistory] Using default user ID: ${senderId}`);
     }
 
-    // CRITICAL FIX: Handle both MongoDB ObjectId and client-generated IDs
     let chatHistoryDoc;
 
     try {
       if (/^[0-9a-fA-F]{24}$/.test(chatHistoryId)) {
-        // MongoDB ObjectId format
         console.log(
           `[updateChatHistory] Looking up MongoDB ID: ${chatHistoryId}`
         );
-        chatHistoryDoc = await chatHistory.findById(chatHistoryId);
+        chatHistoryDoc = await chatHistory.findOne({
+          _id: chatHistoryId,
+          user: senderId, // CRITICAL FIX: Always filter by user
+        });
       } else {
-        // Client-generated ID format (like agent_timestamp_random or jira_timestamp_random)
         console.log(
           `[updateChatHistory] Looking up client ID: ${chatHistoryId}`
         );
         chatHistoryDoc = await chatHistory.findOne({
-          $or: [
-            { clientId: chatHistoryId },
+          $and: [
+            { user: senderId }, // CRITICAL FIX: Always filter by user
             {
-              title: {
-                $regex: chatHistoryId.split("_").slice(-1)[0],
-                $options: "i",
-              },
+              $or: [
+                { clientId: chatHistoryId },
+                {
+                  title: {
+                    $regex: chatHistoryId.split("_").slice(-1)[0],
+                    $options: "i",
+                  },
+                },
+              ],
             },
           ],
         });
-
-        // If still not found, try to find by partial matching
-        if (!chatHistoryDoc) {
-          console.log(
-            `[updateChatHistory] Trying partial match for: ${chatHistoryId}`
-          );
-          const recentAgentChats = await chatHistory
-            .find({
-              type: {
-                $in: ["agent", "conf_agent", "monitor_agent", "jira_agent"],
-              },
-              timestamp: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }, // Within last 24 hours
-            })
-            .sort({ timestamp: -1 })
-            .limit(5);
-
-          if (recentAgentChats.length > 0) {
-            // Use the most recent agent chat
-            chatHistoryDoc = recentAgentChats[0];
-            console.log(
-              `[updateChatHistory] Using recent agent chat: ${chatHistoryDoc._id}`
-            );
-          }
-        }
       }
     } catch (lookupError) {
       console.error(
@@ -847,9 +1114,7 @@ export const updateChatHistory = async (req, res, next) => {
         `[updateChatHistory] Chat history not found, creating new one`
       );
 
-      // CRITICAL FIX: Create new chat history if not found
       try {
-        // Determine chat type based on chatHistoryId
         let chatType = "agent";
         if (chatHistoryId.startsWith("jira_")) {
           chatType = "jira_agent";
@@ -866,7 +1131,7 @@ export const updateChatHistory = async (req, res, next) => {
             : "Agent Response",
           timestamp: new Date(),
           type: chatType,
-          clientId: chatHistoryId, // Store the client ID for future lookups
+          clientId: chatHistoryId,
         });
 
         await chatHistoryDoc.save();
@@ -885,7 +1150,6 @@ export const updateChatHistory = async (req, res, next) => {
       }
     }
 
-    // Find or create the associated chat document
     let chatDoc;
 
     try {
@@ -893,24 +1157,21 @@ export const updateChatHistory = async (req, res, next) => {
 
       if (!chatDoc) {
         console.log(`[updateChatHistory] Creating new chat document`);
-        // Create new chat document if it doesn't exist
         chatDoc = new chat({
           chatHistory: chatHistoryDoc._id,
           messages: [],
         });
       }
 
-      // CRITICAL FIX: Handle message updates properly for conversation continuation
       if (chatDoc.messages.length > 0) {
         const lastMessage = chatDoc.messages[chatDoc.messages.length - 1];
 
-        // Check if we should update the last message or add a new one
         const shouldUpdateLastMessage =
           lastMessage.message.user === message.user &&
           (lastMessage.message.gemini === "Streaming response..." ||
             lastMessage.message.gemini === "Connecting to Jira..." ||
             lastMessage.message.gemini.includes("Connecting") ||
-            lastMessage.message.gemini.length < 50); // Likely a placeholder
+            lastMessage.message.gemini.length < 50);
 
         if (shouldUpdateLastMessage) {
           console.log(`[updateChatHistory] Updating last message`);
@@ -927,9 +1188,8 @@ export const updateChatHistory = async (req, res, next) => {
           lastMessage.searchType = "agent";
         } else {
           console.log(`[updateChatHistory] Adding new message to conversation`);
-          // Add new message for conversation continuation
           chatDoc.messages.push({
-            sender: senderId, // CRITICAL FIX: Always provide sender ID
+            sender: senderId,
             message: {
               user: message.user,
               gemini: message.gemini,
@@ -945,9 +1205,8 @@ export const updateChatHistory = async (req, res, next) => {
         }
       } else {
         console.log(`[updateChatHistory] Adding first message`);
-        // No messages exist, add the first one
         chatDoc.messages.push({
-          sender: senderId, // CRITICAL FIX: Always provide sender ID
+          sender: senderId,
           message: {
             user: message.user,
             gemini: message.gemini,
@@ -962,13 +1221,11 @@ export const updateChatHistory = async (req, res, next) => {
         });
       }
 
-      // Save the updated chat document
       await chatDoc.save();
       console.log(
         `[updateChatHistory] Saved chat document with ${chatDoc.messages.length} messages`
       );
 
-      // Update the chat history reference if needed
       if (
         !chatHistoryDoc.chat ||
         chatHistoryDoc.chat.toString() !== chatDoc._id.toString()
@@ -978,7 +1235,6 @@ export const updateChatHistory = async (req, res, next) => {
         console.log(`[updateChatHistory] Updated chat history reference`);
       }
 
-      // CRITICAL FIX: Update user's chat history if user exists
       if (senderId) {
         try {
           const userData = await user.findById(senderId);
@@ -988,6 +1244,14 @@ export const updateChatHistory = async (req, res, next) => {
             );
 
             if (!historyExists) {
+              // CRITICAL FIX: Enforce 15 chat limit
+              if (userData.chatHistory.length >= 15) {
+                const oldestChatHistoryId = userData.chatHistory[0];
+                await chat.deleteOne({ chatHistory: oldestChatHistoryId });
+                await chatHistory.deleteOne({ _id: oldestChatHistoryId });
+                userData.chatHistory.shift();
+              }
+
               userData.chatHistory.push(chatHistoryDoc._id);
               await userData.save();
               console.log(`[updateChatHistory] Added to user's chat history`);
@@ -995,7 +1259,6 @@ export const updateChatHistory = async (req, res, next) => {
           }
         } catch (userError) {
           console.error(`[updateChatHistory] Error updating user:`, userError);
-          // Continue even if user update fails
         }
       }
     } catch (chatError) {
@@ -1025,7 +1288,6 @@ export const updateChatHistory = async (req, res, next) => {
   }
 };
 
-// CRITICAL FIX: Enhanced appendChatMessage API for conversation continuation
 export const appendChatMessage = async (req, res, next) => {
   try {
     const { chatHistoryId, message, isSearch, searchType } = req.body;
@@ -1033,12 +1295,6 @@ export const appendChatMessage = async (req, res, next) => {
     console.log(
       `[appendChatMessage] Appending to chat history: ${chatHistoryId}`
     );
-    console.log(`[appendChatMessage] Message data:`, {
-      hasUser: !!message?.user,
-      hasGemini: !!message?.gemini,
-      isSearch,
-      searchType,
-    });
 
     if (!chatHistoryId) {
       return res.status(400).json({
@@ -1054,23 +1310,28 @@ export const appendChatMessage = async (req, res, next) => {
       });
     }
 
-    // CRITICAL FIX: Get sender ID with fallback
     let senderId = null;
     if (req.user && req.user._id) {
       senderId = req.user._id;
     } else {
       senderId = await getDefaultUserId();
-      console.log(`[appendChatMessage] Using default user ID: ${senderId}`);
     }
 
-    // Find the chat history
     let chatHistoryDoc;
     try {
       if (/^[0-9a-fA-F]{24}$/.test(chatHistoryId)) {
-        chatHistoryDoc = await chatHistory.findById(chatHistoryId);
+        chatHistoryDoc = await chatHistory.findOne({
+          _id: chatHistoryId,
+          user: senderId, // CRITICAL FIX: Always filter by user
+        });
       } else {
         chatHistoryDoc = await chatHistory.findOne({
-          $or: [{ clientId: chatHistoryId }, { _id: chatHistoryId }],
+          $and: [
+            { user: senderId }, // CRITICAL FIX: Always filter by user
+            {
+              $or: [{ clientId: chatHistoryId }, { _id: chatHistoryId }],
+            },
+          ],
         });
       }
     } catch (lookupError) {
@@ -1091,7 +1352,6 @@ export const appendChatMessage = async (req, res, next) => {
       });
     }
 
-    // Find the associated chat document
     let chatDoc;
     try {
       chatDoc = await chat.findOne({ chatHistory: chatHistoryDoc._id });
@@ -1104,10 +1364,9 @@ export const appendChatMessage = async (req, res, next) => {
         });
       }
 
-      // CRITICAL FIX: Always append new message to conversation
       console.log(`[appendChatMessage] Appending new message to conversation`);
       chatDoc.messages.push({
-        sender: senderId, // CRITICAL FIX: Always provide sender ID
+        sender: senderId,
         message: {
           user: message.user,
           gemini: message.gemini,
@@ -1121,13 +1380,11 @@ export const appendChatMessage = async (req, res, next) => {
         timestamp: new Date(),
       });
 
-      // Save the updated chat document
       await chatDoc.save();
       console.log(
         `[appendChatMessage] Saved chat document with ${chatDoc.messages.length} messages`
       );
 
-      // Update the chat history reference if needed
       if (
         !chatHistoryDoc.chat ||
         chatHistoryDoc.chat.toString() !== chatDoc._id.toString()
@@ -1166,7 +1423,6 @@ export const appendChatMessage = async (req, res, next) => {
   }
 };
 
-// CRITICAL FIX: Enhanced createChatHistoryEnhanced for better Jira agent support
 export const createChatHistoryEnhanced = async (req, res, next) => {
   try {
     const { title, message, isSearch, searchType, clientId } = req.body;
@@ -1175,18 +1431,36 @@ export const createChatHistoryEnhanced = async (req, res, next) => {
       `[createChatHistoryEnhanced] Creating chat history - Title: ${title}, SearchType: ${searchType}`
     );
 
-    // CRITICAL FIX: Get sender ID with fallback
     let senderId = null;
     if (req.user && req.user._id) {
       senderId = req.user._id;
     } else {
       senderId = await getDefaultUserId();
-      console.log(
-        `[createChatHistoryEnhanced] Using default user ID: ${senderId}`
-      );
     }
 
-    // Determine appropriate chat type based on searchType or clientId
+    // CRITICAL FIX: Enforce 15 chat limit
+    if (senderId) {
+      const userData = await user.findById(senderId);
+      if (userData && userData.chatHistory.length >= 15) {
+        const oldestChatHistoryId = userData.chatHistory[0];
+
+        try {
+          await chat.deleteOne({ chatHistory: oldestChatHistoryId });
+          await chatHistory.deleteOne({ _id: oldestChatHistoryId });
+          userData.chatHistory.shift();
+          await userData.save();
+          console.log(
+            `[createChatHistoryEnhanced] Removed oldest chat history for user ${senderId}`
+          );
+        } catch (cleanupError) {
+          console.error(
+            `[createChatHistoryEnhanced] Error cleaning up old chat:`,
+            cleanupError
+          );
+        }
+      }
+    }
+
     let chatType = searchType || "agent";
     if (clientId) {
       if (clientId.startsWith("jira_")) {
@@ -1198,13 +1472,11 @@ export const createChatHistoryEnhanced = async (req, res, next) => {
       }
     }
 
-    // Create a new chat history document
     const chatHistoryDoc = new chatHistory({
       user: senderId,
       title: title || "Agent Response",
       timestamp: new Date(),
       type: chatType,
-      // Use provided clientId or generate one based on type
       clientId:
         clientId ||
         (chatType === "jira_agent"
@@ -1219,12 +1491,11 @@ export const createChatHistoryEnhanced = async (req, res, next) => {
       `[createChatHistoryEnhanced] Created chat history: ${chatHistoryDoc._id}`
     );
 
-    // Create a new chat entry
     const chatDoc = new chat({
       chatHistory: chatHistoryDoc._id,
       messages: [
         {
-          sender: senderId, // CRITICAL FIX: Always provide sender ID
+          sender: senderId,
           message: {
             user: message.user || "Agent query",
             gemini: message.gemini || "Streaming response...",
@@ -1243,11 +1514,9 @@ export const createChatHistoryEnhanced = async (req, res, next) => {
     await chatDoc.save();
     console.log(`[createChatHistoryEnhanced] Created chat: ${chatDoc._id}`);
 
-    // Update chat history reference
     chatHistoryDoc.chat = chatDoc._id;
     await chatHistoryDoc.save();
 
-    // Add to user's chat history if user exists
     if (senderId) {
       try {
         const userData = await user.findById(senderId);
@@ -1265,11 +1534,9 @@ export const createChatHistoryEnhanced = async (req, res, next) => {
           `[createChatHistoryEnhanced] Error updating user:`,
           userError
         );
-        // Continue even if user update fails
       }
     }
 
-    // Return success with chat history ID
     res.status(200).json({
       success: true,
       chatHistoryId: chatHistoryDoc._id,
@@ -1284,3 +1551,6 @@ export const createChatHistoryEnhanced = async (req, res, next) => {
     });
   }
 };
+
+// Enhanced postChat function for server/controller/public.js
+// Replace the existing postChat function with this enhanced version

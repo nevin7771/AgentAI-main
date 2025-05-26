@@ -10,6 +10,13 @@ router.post("/api/jira/query", jiraAgentController.processQuery);
 // Route for generating a specific visualization
 router.post("/api/jira/visualization", jiraAgentController.createVisualization);
 
+router.get("/api/jira/comments/:issueKey", jiraAgentController.getAllComments);
+
+router.post(
+  "/api/jira/query-enhanced",
+  jiraAgentController.processQueryEnhanced
+);
+
 // Route for sentiment analysis
 router.get(
   "/api/jira/sentiment/:issueKey",
@@ -27,5 +34,10 @@ router.options("/api/jira/ticket/:issueKey", (req, res) => {
   res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
   res.sendStatus(200);
 });
-
+router.options("/api/jira/comments/:issueKey", (req, res) => {
+  res.header("Access-Control-Allow-Origin", "http://localhost:3000");
+  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.sendStatus(200);
+});
 export default router;

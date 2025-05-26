@@ -20,12 +20,12 @@ const chatSchema = new Schema({
       },
       isSearch: {
         type: Boolean,
-        default: false
+        default: false,
       },
       searchType: {
         type: String,
-        enum: ['simple', 'deep', 'agent', null],
-        default: null
+        enum: ["simple", "deep", "agent", "jira_agent", null],
+        default: null,
       },
       timestamp: {
         type: Date,

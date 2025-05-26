@@ -534,6 +534,251 @@ export const getTicketSummary = async (req, res) => {
   }
 };
 
+export const getAllComments = async (req, res) => {
+  try {
+    const { issueKey } = req.params;
+
+    if (!issueKey) {
+      return res.status(400).json({
+        success: false,
+        message: "Issue key is required",
+        result: {
+          answer: "❌ **Error**: Issue key is required to fetch comments",
+          sources: [],
+        },
+      });
+    }
+
+    console.log(`[JiraAgentController] Fetching all comments for: ${issueKey}`);
+
+    // Call the enhanced comments service
+    const result = await jiraAgentService.getTicketCommentsDetailed(issueKey);
+
+    if (!result.success) {
+      return res.status(404).json({
+        success: false,
+        message: result.error || "Failed to fetch comments",
+        result: {
+          answer: `❌ **Comments Fetch Failed**: ${result.error}`,
+          sources: [],
+        },
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Comments retrieved successfully",
+      formattedResponse: result.formattedResponse,
+      sources: result.sources || [],
+      relatedQuestions: result.relatedQuestions || [],
+      result: {
+        answer: result.formattedResponse || "",
+        sources: result.sources || [],
+        relatedQuestions: result.relatedQuestions || [],
+      },
+    });
+  } catch (error) {
+    console.error("[JiraAgentController] Error fetching comments:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while fetching comments",
+      error: error.message,
+      result: {
+        answer: `❌ **Server Error**: ${error.message}`,
+        sources: [],
+      },
+    });
+  }
+};
+
+export const processQueryEnhanced = async (req, res) => {
+  try {
+    const { query, chatHistory, clarificationResponse, chatHistoryId } =
+      req.body;
+
+    if (!query) {
+      return res.status(400).json({
+        success: false,
+        message: "Query is required",
+      });
+    }
+
+    console.log(`[JiraAgentController] Enhanced processing: "${query}"`);
+
+    // Pre-process query to determine type and route appropriately
+    const queryType = determineQueryType(query);
+    console.log(`[JiraAgentController] Detected query type: ${queryType}`);
+
+    let response;
+
+    try {
+      // Route based on query type for better handling
+      switch (queryType) {
+        case "ticket_timeline":
+        case "ticket_comments":
+        case "ticket_summary":
+          // Direct ticket queries
+          const ticketMatch = query.match(/([A-Z]+-\d+)/i);
+          if (ticketMatch) {
+            const ticketId = ticketMatch[1].toUpperCase();
+
+            if (queryType === "ticket_comments") {
+              response = await jiraAgentService.getTicketCommentsDetailed(
+                ticketId
+              );
+            } else if (queryType === "ticket_timeline") {
+              response = await jiraAgentService.getTicketSummaryWithTimeline(
+                ticketId
+              );
+            } else {
+              response = await jiraAgentService.getTicketSummary(ticketId);
+            }
+          }
+          break;
+
+        case "top_issues":
+          response = await jiraAgentService.processTopIssuesQuery(query);
+          break;
+
+        case "customer_issues":
+          response = await jiraAgentService.processCustomerQuery(query);
+          break;
+
+        case "bug_search":
+          response = await jiraAgentService.processBugQuery(query);
+          break;
+
+        default:
+          // Handle clarification or regular processing
+          if (clarificationResponse) {
+            response = await jiraAgentService.handleClarificationResponse(
+              query,
+              clarificationResponse,
+              chatHistory || []
+            );
+          } else {
+            response = await jiraAgentService.processQuery(
+              query,
+              chatHistory || []
+            );
+          }
+      }
+    } catch (serviceError) {
+      console.error("[JiraAgentController] Service error:", serviceError);
+      response = {
+        success: false,
+        error: serviceError.message,
+        formattedResponse: `Error: ${serviceError.message}`,
+      };
+    }
+
+    // Handle response formatting (same as before)
+    if (!response) {
+      response = {
+        success: false,
+        error: "No response received from service",
+        formattedResponse: "Error: No response received from service",
+      };
+    }
+
+    if (response.needsClarification) {
+      return res.status(200).json({
+        success: true,
+        needs_clarification: true,
+        message: response.message,
+        clarification_type: response.promptType,
+        metadata: {
+          originalQuery: query,
+          queryType: queryType,
+          ...response.metadata,
+        },
+      });
+    }
+
+    if (!response.formattedResponse) {
+      response.formattedResponse = response.error
+        ? `Error: ${response.error}`
+        : "Processing complete, but no detailed response was generated.";
+    }
+
+    return res.status(200).json({
+      success: response.success !== false,
+      message: response.message || "Query processed successfully",
+      formattedResponse: response.formattedResponse,
+      sources: response.sources || [],
+      relatedQuestions: response.relatedQuestions || [],
+      result: {
+        answer: response.formattedResponse,
+        sources: response.sources || [],
+        relatedQuestions: response.relatedQuestions || [],
+      },
+    });
+  } catch (error) {
+    console.error("[JiraAgentController] Error in enhanced processing:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+      result: {
+        answer: `Internal Error: ${error.message}`,
+        sources: [],
+      },
+    });
+  }
+};
+
+/**
+ * Helper function to determine query type
+ */
+function determineQueryType(query) {
+  const lowerQuery = query.toLowerCase();
+
+  // Check for ticket ID patterns first
+  const hasTicketId = /[A-Z]+-\d+/i.test(query);
+
+  if (hasTicketId) {
+    if (lowerQuery.includes("timeline") || lowerQuery.includes("resolution")) {
+      return "ticket_timeline";
+    }
+    if (
+      lowerQuery.includes("comments") ||
+      lowerQuery.includes("all comments")
+    ) {
+      return "ticket_comments";
+    }
+    return "ticket_summary";
+  }
+
+  // Check for top issues queries
+  if (
+    (lowerQuery.includes("top") && lowerQuery.includes("issue")) ||
+    (lowerQuery.includes("high") &&
+      (lowerQuery.includes("issue") || lowerQuery.includes("ticket"))) ||
+    (lowerQuery.includes("highest") &&
+      (lowerQuery.includes("issue") || lowerQuery.includes("ticket")))
+  ) {
+    return "top_issues";
+  }
+
+  // Check for customer-specific queries
+  if (
+    lowerQuery.includes("customer") ||
+    (lowerQuery.includes("for") && lowerQuery.includes("company"))
+  ) {
+    return "customer_issues";
+  }
+
+  // Check for bug queries
+  if (
+    lowerQuery.includes("bug") ||
+    lowerQuery.includes("defect") ||
+    (lowerQuery.includes("crash") && lowerQuery.includes("issue"))
+  ) {
+    return "bug_search";
+  }
+
+  return "general";
+}
 // Export all methods
 export default {
   processQuery,
@@ -541,4 +786,6 @@ export default {
   getTicketSentiment,
   calculateMTTR,
   getTicketSummary,
+  getAllComments,
+  processQueryEnhanced,
 };
