@@ -87,111 +87,84 @@ const StreamingContent = memo(
   ({ chatItem, processMessageContent, currentLoadingText }) => {
     const contentRef = useRef(null);
     const lastContentRef = useRef("");
-    const lastProcessedContentRef = useRef("");
-    const isInitializedRef = useRef(false);
+    const isStreamingRef = useRef(false);
 
-    // CRITICAL FIX: Initialize stable DOM structure once and never change it
+    // SMOOTH STREAMING: Update content without structure changes
     useEffect(() => {
-      if (!contentRef.current || isInitializedRef.current) return;
+      if (!contentRef.current) return;
 
-      // Create stable DOM structure that never changes
-      contentRef.current.innerHTML = `
-      <div class="${styles["streaming-container"]}" data-streaming="true">
-        <div class="${styles["streaming-content"]}" data-content="true">
-          <div class="${styles["loading-container-gemini"]}" data-loading="true" style="display: none;">
-            <div class="${styles["loading-dots"]}">
-              <div class="${styles["loading-dot"]}"></div>
-              <div class="${styles["loading-dot"]}"></div>
-              <div class="${styles["loading-dot"]}"></div>
-            </div>
-            <span class="${styles["loading-text"]}"></span>
-          </div>
-          <div class="gemini-answer" data-answer="true" style="display: none;"></div>
-        </div>
-        <span class="${styles["typing-indicator"]}" data-typing="true" style="display: none;">
-          <span class="${styles["typing-dot"]}"></span>
-          <span class="${styles["typing-dot"]}"></span>
-          <span class="${styles["typing-dot"]}"></span>
-        </span>
-      </div>
-    `;
-
-      isInitializedRef.current = true;
-    }, []);
-
-    // CRITICAL FIX: Update content without changing DOM structure
-    useEffect(() => {
-      if (!contentRef.current || !isInitializedRef.current) return;
-
-      const container = contentRef.current.querySelector(
-        '[data-streaming="true"]'
-      );
-      const loadingDiv = contentRef.current.querySelector(
-        '[data-loading="true"]'
-      );
-      const loadingText = contentRef.current.querySelector(
-        `.${styles["loading-text"]}`
-      );
-      const answerDiv = contentRef.current.querySelector(
-        '[data-answer="true"]'
-      );
-      const typingIndicator = contentRef.current.querySelector(
-        '[data-typing="true"]'
-      );
-
-      if (!container || !loadingDiv || !answerDiv || !typingIndicator) return;
-
-      const isStreaming =
-        chatItem?.isLoader === "streaming" || chatItem?.isLoader === "partial";
-      const isLoading = chatItem?.isLoader === "yes";
       const content = chatItem?.gemini || "";
+      const isStreaming = chatItem?.isLoader === "streaming";
+      const isLoading = chatItem?.isLoader === "yes";
+      const isComplete = chatItem?.isLoader === "no";
 
-      // Handle loading state
+      // Initialize container if needed
+      if (!contentRef.current.hasChildNodes()) {
+        contentRef.current.innerHTML = `
+          <div class="streaming-container">
+            <div class="loading-text" style="display:none;font-style:italic;color:#666;">
+              ${currentLoadingText}
+            </div>
+            <div class="answer-content" style="min-height:20px;"></div>
+            <span class="typing-dots" style="display:none;">
+              <span style="animation: blink 1s infinite;">.</span>
+              <span style="animation: blink 1s infinite 0.2s;">.</span>
+              <span style="animation: blink 1s infinite 0.4s;">.</span>
+            </span>
+          </div>
+        `;
+      }
+
+      const loadingDiv = contentRef.current.querySelector(".loading-text");
+      const answerDiv = contentRef.current.querySelector(".answer-content");
+      const typingDiv = contentRef.current.querySelector(".typing-dots");
+
+      if (!loadingDiv || !answerDiv || !typingDiv) return;
+
+      // Handle different states
       if (isLoading) {
+        // Show loading state
         loadingDiv.style.display = "block";
+        loadingDiv.textContent = currentLoadingText;
         answerDiv.style.display = "none";
-        typingIndicator.style.display = "none";
+        typingDiv.style.display = "none";
+        isStreamingRef.current = false;
+      } else if (isStreaming) {
+        // Show streaming content
+        loadingDiv.style.display = "none";
+        answerDiv.style.display = "block";
+        typingDiv.style.display = "inline";
 
-        if (loadingText) {
-          loadingText.textContent = currentLoadingText;
-        }
-        return;
-      }
+        // SMOOTH UPDATE: Only update if content actually changed
+        if (content !== lastContentRef.current) {
+          const processedContent = processMessageContent(
+            content,
+            chatItem?.queryKeywords,
+            chatItem?.isPreformattedHTML
+          );
 
-      // Handle streaming or completed state
-      if (content && content !== lastContentRef.current) {
-        const processedContent = processMessageContent(
-          content,
-          chatItem?.queryKeywords,
-          chatItem?.isPreformattedHTML
-        );
-
-        // Only update if processed content actually changed
-        if (processedContent !== lastProcessedContentRef.current) {
-          // CRITICAL FIX: Update content without changing structure
+          // Smooth content update without flicker
           answerDiv.innerHTML = processedContent || "Connecting...";
-          lastProcessedContentRef.current = processedContent;
+          lastContentRef.current = content;
         }
-
-        lastContentRef.current = content;
-      }
-
-      // CRITICAL FIX: Show/hide elements without changing structure
-      if (isStreaming) {
-        // Streaming state
+        isStreamingRef.current = true;
+      } else if (isComplete && content) {
+        // Show completed content
         loadingDiv.style.display = "none";
         answerDiv.style.display = "block";
-        typingIndicator.style.display = "inline-block";
-      } else if (content) {
-        // Completed state - just hide typing indicator, keep everything else
-        loadingDiv.style.display = "none";
-        answerDiv.style.display = "block";
-        typingIndicator.style.display = "none";
-      } else {
-        // Default state
-        loadingDiv.style.display = "none";
-        answerDiv.style.display = "none";
-        typingIndicator.style.display = "none";
+        typingDiv.style.display = "none";
+
+        // Final content update
+        if (content !== lastContentRef.current || isStreamingRef.current) {
+          const processedContent = processMessageContent(
+            content,
+            chatItem?.queryKeywords,
+            chatItem?.isPreformattedHTML
+          );
+          answerDiv.innerHTML = processedContent;
+          lastContentRef.current = content;
+          isStreamingRef.current = false;
+        }
       }
     }, [
       chatItem?.gemini,
@@ -202,13 +175,29 @@ const StreamingContent = memo(
       currentLoadingText,
     ]);
 
-    // Return stable container - never changes
     return (
       <div
         ref={contentRef}
         className={styles["message-content"]}
-        style={{ minHeight: "20px" }} // Prevent layout shifts
+        style={{ minHeight: "20px" }}
       />
+    );
+  },
+  // Prevent unnecessary re-renders during streaming
+  (prevProps, nextProps) => {
+    const prev = prevProps.chatItem;
+    const next = nextProps.chatItem;
+
+    // Don't re-render if just moving from streaming to complete
+    if (prev?.isLoader === "streaming" && next?.isLoader === "no") {
+      return true;
+    }
+
+    // Only re-render if significant changes
+    return (
+      prev?.isLoader === next?.isLoader &&
+      prev?.gemini === next?.gemini &&
+      prev?.error === next?.error
     );
   }
 );

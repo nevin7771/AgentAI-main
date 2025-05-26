@@ -140,101 +140,63 @@ const saveConversationToMongoDB = async (
   chatHistoryId,
   question,
   answer,
-  isNewConversation,
-  maxRetries = 3
+  isNewConversation
 ) => {
-  const attemptSave = async (attemptNumber) => {
-    try {
-      const endpoint = isNewConversation
-        ? `${BASE_URL}/api/create-chat-history-enhanced`
-        : `${BASE_URL}/api/append-chat-message`;
+  try {
+    const endpoint = isNewConversation
+      ? `${BASE_URL}/api/create-chat-history-enhanced`
+      : `${BASE_URL}/api/append-chat-message`;
 
-      const method = "POST";
-
-      console.log(
-        `[SaveConversation] ${
-          isNewConversation ? "Creating" : "Appending"
-        } conversation (attempt ${attemptNumber}): ${chatHistoryId}`
-      );
-
-      const body = isNewConversation
-        ? {
-            title: `Agent: ${question.substring(0, 40)}`,
-            message: {
-              user: question,
-              gemini: answer,
-              sources: [],
-              relatedQuestions: [],
-              queryKeywords: extractKeywords(question),
-              isPreformattedHTML: false,
-            },
-            isSearch: true,
-            searchType: "agent",
-            clientId: chatHistoryId,
-          }
-        : {
-            chatHistoryId: chatHistoryId,
-            message: {
-              user: question,
-              gemini: answer,
-              sources: [],
-              relatedQuestions: [],
-              queryKeywords: extractKeywords(question),
-              isPreformattedHTML: false,
-            },
-            isSearch: true,
-            searchType: "agent",
-          };
-
-      const response = await fetch(endpoint, {
-        method: method,
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        credentials: "include",
-        body: JSON.stringify(body),
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        console.log(
-          `[SaveConversation] Success (attempt ${attemptNumber}):`,
-          result
-        );
-
-        const finalChatHistoryId = result.chatHistoryId || chatHistoryId;
-
-        // Wait for MongoDB consistency
-        if (isNewConversation) {
-          console.log(`[SaveConversation] Waiting for MongoDB consistency...`);
-          await new Promise((resolve) => setTimeout(resolve, 1000));
+    const body = isNewConversation
+      ? {
+          title: `Agent: ${question.substring(0, 40)}`,
+          message: {
+            user: question,
+            gemini: answer,
+            sources: [],
+            relatedQuestions: [],
+            queryKeywords: extractKeywords(question),
+            isPreformattedHTML: false,
+          },
+          isSearch: true,
+          searchType: "agent",
+          clientId: chatHistoryId,
         }
+      : {
+          chatHistoryId: chatHistoryId,
+          message: {
+            user: question,
+            gemini: answer,
+            sources: [],
+            relatedQuestions: [],
+            queryKeywords: extractKeywords(question),
+            isPreformattedHTML: false,
+          },
+          isSearch: true,
+          searchType: "agent",
+        };
 
-        return finalChatHistoryId;
-      } else {
-        const errorText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
-      }
-    } catch (error) {
-      console.error(
-        `[SaveConversation] Error (attempt ${attemptNumber}):`,
-        error
-      );
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify(body),
+    });
 
-      if (attemptNumber < maxRetries) {
-        const delayMs = attemptNumber * 1000;
-        console.log(`[SaveConversation] Retrying in ${delayMs}ms...`);
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
-        return attemptSave(attemptNumber + 1);
-      } else {
-        console.error(`[SaveConversation] Max retries exceeded`);
-        return chatHistoryId;
-      }
+    if (response.ok) {
+      const result = await response.json();
+      return result.chatHistoryId || chatHistoryId;
+    } else {
+      console.warn("Failed to save conversation:", response.status);
+      return chatHistoryId;
     }
-  };
-
-  return attemptSave(1);
+  } catch (error) {
+    console.error("Error saving conversation:", error);
+    return chatHistoryId;
+  }
 };
 
 /**
@@ -255,13 +217,13 @@ const streamFromDayOne = async (
   }
 
   console.log(
-    `[StreamDayOne] Starting ${agentType} stream - New: ${isNewConversation}, ChatID: ${currentChatHistoryId}`
+    `[StreamDayOne] Starting ${agentType} stream - ID: ${streamingId}`
   );
 
   let accumulatedText = "";
   let finalChatHistoryId = currentChatHistoryId;
   let streamCompleted = false;
-  let chunkCount = 0;
+  let updateCount = 0;
 
   try {
     const response = await fetch(DAY_ONE_API_URL, {
@@ -298,7 +260,7 @@ const streamFromDayOne = async (
 
       // Process complete lines
       const lines = buffer.split("\n");
-      buffer = lines.pop() || ""; // Keep incomplete line in buffer
+      buffer = lines.pop() || "";
 
       for (const line of lines) {
         const trimmedLine = line.trim();
@@ -309,7 +271,6 @@ const streamFromDayOne = async (
             ? trimmedLine.substring(10).trim()
             : trimmedLine.substring(5).trim();
 
-          // Skip empty or incomplete JSON
           if (!jsonStr || jsonStr.length < 3) continue;
 
           let data;
@@ -321,15 +282,18 @@ const streamFromDayOne = async (
               const messageMatch = jsonStr.match(/"message"\s*:\s*"([^"]*)"/);
               if (messageMatch && messageMatch[1]) {
                 accumulatedText += messageMatch[1];
-                chunkCount++;
+                updateCount++;
 
-                // CRITICAL FIX: Use debounced updates instead of immediate dispatch
-                streamingManager.scheduleUpdate(
-                  streamingId,
-                  accumulatedText,
-                  dispatch,
-                  false
-                );
+                // SMOOTH UPDATE: Only update every 3-4 chunks to reduce blinking
+                if (updateCount % 3 === 0) {
+                  dispatch(
+                    chatAction.updateStreamingChat({
+                      streamingId: streamingId,
+                      content: accumulatedText,
+                      isComplete: false,
+                    })
+                  );
+                }
               }
             }
             continue;
@@ -338,15 +302,18 @@ const streamFromDayOne = async (
           // Process valid JSON data
           if (data && data.message) {
             accumulatedText += data.message;
-            chunkCount++;
+            updateCount++;
 
-            // CRITICAL FIX: Use debounced updates
-            streamingManager.scheduleUpdate(
-              streamingId,
-              accumulatedText,
-              dispatch,
-              false
-            );
+            // SMOOTH UPDATE: Reduce update frequency
+            if (updateCount % 3 === 0) {
+              dispatch(
+                chatAction.updateStreamingChat({
+                  streamingId: streamingId,
+                  content: accumulatedText,
+                  isComplete: false,
+                })
+              );
+            }
           }
 
           // Check for completion
@@ -362,39 +329,32 @@ const streamFromDayOne = async (
       }
     }
 
-    // CRITICAL FIX: Final update with completion
+    // Final update with complete content
     console.log(
-      `[StreamDayOne] Stream completed with ${chunkCount} chunks, total length: ${accumulatedText.length}`
+      `[StreamDayOne] Stream completed, final length: ${accumulatedText.length}`
     );
 
-    // Flush any pending updates and mark as complete
-    streamingManager.scheduleUpdate(
-      streamingId,
-      accumulatedText,
-      dispatch,
-      true // Mark as complete
+    dispatch(
+      chatAction.updateStreamingChat({
+        streamingId: streamingId,
+        content: accumulatedText,
+        isComplete: true,
+      })
     );
 
-    // Generate proper chat history ID for new conversations
-    if (isNewConversation) {
-      if (!finalChatHistoryId) {
-        finalChatHistoryId = `agent_${agentType}_${Date.now()}_${Math.random()
-          .toString(36)
-          .substring(2, 7)}`;
-      }
+    // Generate chat history ID for new conversations
+    if (isNewConversation && !finalChatHistoryId) {
+      finalChatHistoryId = `agent_${agentType}_${Date.now()}_${Math.random()
+        .toString(36)
+        .substring(2, 7)}`;
     }
 
     // Save to MongoDB
-    console.log(`[StreamDayOne] Saving conversation to MongoDB...`);
     finalChatHistoryId = await saveConversationToMongoDB(
       finalChatHistoryId,
       question,
       accumulatedText,
       isNewConversation
-    );
-
-    console.log(
-      `[StreamDayOne] Conversation saved with ID: ${finalChatHistoryId}`
     );
 
     return {
@@ -404,9 +364,6 @@ const streamFromDayOne = async (
     };
   } catch (error) {
     console.error("[StreamDayOne] Error:", error);
-
-    // Clean up streaming manager
-    streamingManager.cleanup(streamingId);
 
     // Update UI with error
     dispatch(
@@ -487,62 +444,40 @@ export const sendDirectDayOneRequest = (requestData) => {
       !currentChatHistoryId || currentChatHistoryId.length < 5;
 
     console.log(
-      `[DirectDayOne] Processing ${agentType} - New: ${isNewConversation}, ChatID: ${currentChatHistoryId}`
+      `[DirectDayOne] ${agentType} - New: ${isNewConversation}, ChatID: ${currentChatHistoryId}`
     );
 
-    // Set loading state
     dispatch(uiAction.setLoading(true));
     dispatch(agentAction.setLoading(true));
 
     try {
-      // Get token from server
       const token = await getDayOneToken();
 
       // Generate streaming ID
-      let streamingId = `streaming_${agentType}_${Date.now()}_${Math.random()
+      const streamingId = `streaming_${agentType}_${Date.now()}_${Math.random()
         .toString(36)
         .substring(2, 7)}`;
 
       if (isNewConversation) {
-        // NEW CONVERSATION: Add loading then streaming message
+        // Add user message + streaming response
         dispatch(
           chatAction.chatStart({
             useInput: {
               user: question,
-              gemini: "",
-              isLoader: "yes",
+              gemini: "Connecting...",
+              isLoader: "streaming",
               isSearch: true,
               searchType: "agent",
               queryKeywords: queryKeywords,
               sources: [],
               relatedQuestions: [],
               isPreformattedHTML: false,
+              streamingId: streamingId,
             },
           })
         );
-
-        // Replace with streaming message after short delay
-        setTimeout(() => {
-          dispatch(chatAction.popChat());
-          dispatch(
-            chatAction.chatStart({
-              useInput: {
-                user: question,
-                gemini: `Connecting to ${agentType.toUpperCase()} Agent...`,
-                isLoader: "streaming",
-                isSearch: true,
-                searchType: "agent",
-                queryKeywords: queryKeywords,
-                sources: [],
-                relatedQuestions: [],
-                isPreformattedHTML: false,
-                streamingId: streamingId,
-              },
-            })
-          );
-        }, 100);
       } else {
-        // CONTINUING CONVERSATION: Add user message then agent streaming response
+        // Add user message
         dispatch(
           chatAction.chatStart({
             useInput: {
@@ -563,8 +498,8 @@ export const sendDirectDayOneRequest = (requestData) => {
         dispatch(
           chatAction.chatStart({
             useInput: {
-              user: "", // Empty user for agent response
-              gemini: `Connecting to ${agentType.toUpperCase()} Agent...`,
+              user: "",
+              gemini: "Connecting...",
               isLoader: "streaming",
               isSearch: true,
               searchType: "agent",
@@ -578,7 +513,6 @@ export const sendDirectDayOneRequest = (requestData) => {
         );
       }
 
-      // Clean up loading states
       dispatch(uiAction.setLoading(false));
       dispatch(agentAction.setLoading(false));
 
@@ -593,14 +527,14 @@ export const sendDirectDayOneRequest = (requestData) => {
         isNewConversation
       );
 
-      // Update chat history ID in Redux
+      // Update chat history ID
       dispatch(
         chatAction.chatHistoryIdHandler({
           chatHistoryId: streamResult.chatHistoryId,
         })
       );
 
-      // Update previous chat context for conversation continuation
+      // Update previous chat context
       const state = getState();
       const updatedPreviousChat = [
         ...(state.chat.previousChat || []),
@@ -614,63 +548,11 @@ export const sendDirectDayOneRequest = (requestData) => {
         })
       );
 
-      // Enhanced navigation with verification for new conversations
+      // Navigate for new conversations
       if (isNewConversation && navigate && streamResult.chatHistoryId) {
-        console.log(`[DirectDayOne] Verifying chat before navigation...`);
-
-        // Verify chat exists before navigating
-        const chatExists = await verifyChatExists(streamResult.chatHistoryId);
-
-        if (chatExists) {
-          console.log(
-            `[DirectDayOne] Chat verified, navigating to: /app/${streamResult.chatHistoryId}`
-          );
-          // Delay navigation to ensure UI is stable
-          setTimeout(() => {
-            navigate(`/app/${streamResult.chatHistoryId}`, { replace: true });
-          }, 500);
-        } else {
-          console.warn(
-            `[DirectDayOne] Chat verification failed, staying on current page`
-          );
-          // Still update the URL without full navigation
-          window.history.replaceState(
-            {},
-            "",
-            `/app/${streamResult.chatHistoryId}`
-          );
-        }
-      }
-
-      // Save to localStorage for recent chats
-      if (isNewConversation) {
-        try {
-          const existingHistory = JSON.parse(
-            localStorage.getItem("searchHistory") || "[]"
-          );
-          const historyItem = {
-            id: streamResult.chatHistoryId,
-            title: `${agentType.toUpperCase()}: ${question.substring(0, 40)}`,
-            timestamp: new Date().toISOString(),
-            type: "agent",
-            agentType: agentType,
-          };
-
-          if (
-            !existingHistory.some(
-              (item) => item.id === streamResult.chatHistoryId
-            )
-          ) {
-            existingHistory.unshift(historyItem);
-            localStorage.setItem(
-              "searchHistory",
-              JSON.stringify(existingHistory.slice(0, 50))
-            );
-            window.dispatchEvent(new Event("storage"));
-          }
-        } catch (err) {
-          console.error(`[DirectDayOne] Error saving to localStorage:`, err);
-        }
+        setTimeout(() => {
+          navigate(`/app/${streamResult.chatHistoryId}`, { replace: true });
+        }, 1000);
       }
 
       return {
@@ -681,23 +563,16 @@ export const sendDirectDayOneRequest = (requestData) => {
           sources: [],
           chatHistoryId: streamResult.chatHistoryId,
         },
-        shouldNavigate: isNewConversation,
-        targetUrl: `/app/${streamResult.chatHistoryId}`,
       };
     } catch (error) {
-      console.error(`[DirectDayOne] Error in ${agentType} request:`, error);
+      console.error(`[DirectDayOne] Error:`, error);
 
-      // Remove loading or streaming message
       dispatch(chatAction.popChat());
-
-      // Show error message
       dispatch(
         chatAction.chatStart({
           useInput: {
             user: question,
-            gemini: `<p>${
-              agentType.charAt(0).toUpperCase() + agentType.slice(1)
-            } Agent Error: ${error.message}</p>`,
+            gemini: `<p>Agent Error: ${error.message}</p>`,
             isLoader: "no",
             isSearch: true,
             searchType: "agent",

@@ -100,28 +100,10 @@ const chatSlice = createSlice({
         error,
       } = action.payload;
 
-      const now = Date.now();
-
-      // CRITICAL FIX: Super aggressive throttling for streaming updates
-      const lastUpdateKey = `streaming_${streamingId}`;
-      const lastUpdate = state.streamingDebounceMap[lastUpdateKey] || 0;
-
-      // Skip update if:
-      // 1. Less than 200ms since last update (unless completing)
-      // 2. Content is identical to last content
-      // 3. Content change is too small (less than 20 characters)
-      if (!isComplete && !error) {
-        const timeSinceLastUpdate = now - lastUpdate;
-        if (timeSinceLastUpdate < 200) {
-          console.log(
-            `[updateStreamingChat] Throttling update for ${streamingId} - too frequent`
-          );
-          return;
-        }
-      }
-
       console.log(
-        `[updateStreamingChat] Processing update for streamingId: ${streamingId}, complete: ${isComplete}`
+        `[updateStreamingChat] ${streamingId}, complete: ${isComplete}, content length: ${
+          content?.length || 0
+        }`
       );
 
       // Find the message to update
@@ -139,79 +121,33 @@ const chatSlice = createSlice({
       if (messageIndex !== -1) {
         const existingMessage = state.chats[messageIndex];
 
-        // CRITICAL FIX: Ultra-aggressive content change detection
-        let shouldUpdate = false;
+        // Update content
+        existingMessage.gemini = content || "";
+        existingMessage.timestamp = new Date().toISOString();
 
-        if (error) {
-          shouldUpdate = true;
-        } else if (isComplete) {
-          shouldUpdate = true;
-        } else {
-          // For streaming updates, check content change significance
-          const existingContent = existingMessage.gemini || "";
-          const newContent = content || "";
-
-          // Only update if:
-          // 1. Content length changed by more than 30 characters
-          // 2. Content is significantly different (more than 10% change)
-          const lengthDiff = Math.abs(
-            newContent.length - existingContent.length
-          );
-          const contentDiff = newContent !== existingContent;
-          const significantChange = lengthDiff > 30;
-
-          shouldUpdate =
-            contentDiff && (significantChange || newContent.length < 100);
-
-          if (!shouldUpdate) {
-            console.log(
-              `[updateStreamingChat] Skipping minor update for ${streamingId}`
-            );
-            return;
-          }
+        // Ensure streamingId is preserved
+        if (!existingMessage.streamingId && streamingId) {
+          existingMessage.streamingId = streamingId;
         }
 
-        if (shouldUpdate) {
-          console.log(
-            `[updateStreamingChat] Updating message at index: ${messageIndex}`
-          );
-
-          // Update content
-          existingMessage.gemini = content;
-          existingMessage.timestamp = new Date().toISOString();
-
-          // Update debounce tracking
-          state.streamingDebounceMap[lastUpdateKey] = now;
-          state.lastStreamingUpdate = now;
-
-          // Ensure streamingId is preserved
-          if (!existingMessage.streamingId && streamingId) {
-            existingMessage.streamingId = streamingId;
-          }
-
-          if (error) {
-            existingMessage.error = error;
-            existingMessage.isLoader = "no";
-            existingMessage.gemini = `<p>Error: ${error}</p>`;
-            existingMessage.isPreformattedHTML = true;
-            state.isSubmitting = false;
-            state.streamingInProgress = false;
-            // Clean up debounce tracking
-            delete state.streamingDebounceMap[lastUpdateKey];
-          } else if (isComplete) {
-            console.log(`[updateStreamingChat] Marking message as complete`);
-            existingMessage.isLoader = "no";
-            existingMessage.sources = sources || existingMessage.sources;
-            existingMessage.relatedQuestions =
-              relatedQuestions || existingMessage.relatedQuestions;
-            state.isSubmitting = false;
-            state.streamingInProgress = false;
-            // Clean up debounce tracking
-            delete state.streamingDebounceMap[lastUpdateKey];
-          } else {
-            existingMessage.isLoader = "streaming";
-            state.streamingInProgress = true;
-          }
+        if (error) {
+          existingMessage.error = error;
+          existingMessage.isLoader = "no";
+          existingMessage.gemini = `<p>Error: ${error}</p>`;
+          existingMessage.isPreformattedHTML = true;
+          state.isSubmitting = false;
+          state.streamingInProgress = false;
+        } else if (isComplete) {
+          console.log(`[updateStreamingChat] Marking message as complete`);
+          existingMessage.isLoader = "no";
+          existingMessage.sources = sources || existingMessage.sources;
+          existingMessage.relatedQuestions =
+            relatedQuestions || existingMessage.relatedQuestions;
+          state.isSubmitting = false;
+          state.streamingInProgress = false;
+        } else {
+          existingMessage.isLoader = "streaming";
+          state.streamingInProgress = true;
         }
       } else {
         console.log(
@@ -222,7 +158,7 @@ const chatSlice = createSlice({
           id: streamingId,
           streamingId: streamingId,
           user: "",
-          gemini: content,
+          gemini: content || "",
           isLoader: isComplete ? "no" : "streaming",
           isSearch: true,
           searchType: "agent",
@@ -236,12 +172,6 @@ const chatSlice = createSlice({
         });
 
         state.streamingInProgress = !isComplete;
-        state.lastStreamingUpdate = now;
-
-        // Update debounce tracking
-        if (!isComplete && !error) {
-          state.streamingDebounceMap[lastUpdateKey] = now;
-        }
       }
     },
 
