@@ -1,4 +1,4 @@
-// server/router/public.js - FIXED ROUTES WITH BETTER DEBUGGING
+// server/router/public.js - FIXED WITH MISSING ROUTES ADDED
 import express from "express";
 
 const router = express.Router();
@@ -15,6 +15,9 @@ import {
   updateChatHistory,
   createChatHistoryEnhanced,
   appendChatMessage,
+  // ADD THESE NEW IMPORTS
+  getAvailableAgents,
+  generateJwtToken,
 } from "../controller/public.js";
 import {
   deepSearchHandler,
@@ -68,6 +71,20 @@ const requireAuth = (req, res, next) => {
 
 // Base API routes
 router.get("/api", getGeminiHome);
+
+// CRITICAL FIX: ADD THE MISSING ROUTES THAT FRONTEND IS CALLING
+console.log("[Routes] Setting up missing API routes...");
+
+// Add the missing /api/available-agents route
+router.get(
+  "/api/available-agents",
+  authMiddleware,
+  debugAuth,
+  getAvailableAgents
+);
+
+// Add the missing /api/generate-jwt route
+router.post("/api/generate-jwt", authMiddleware, debugAuth, generateJwtToken);
 
 // CRITICAL FIX: Ensure all chat routes are properly set up with debugging
 console.log("[Routes] Setting up chat routes...");

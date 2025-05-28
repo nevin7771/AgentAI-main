@@ -1554,3 +1554,114 @@ export const createChatHistoryEnhanced = async (req, res, next) => {
 
 // Enhanced postChat function for server/controller/public.js
 // Replace the existing postChat function with this enhanced version
+
+export const getAvailableAgents = async (req, res, next) => {
+  try {
+    console.log("[getAvailableAgents] Request received");
+    console.log(
+      `[getAvailableAgents] User: ${req.user ? req.user._id : "No user"}`
+    );
+    console.log(`[getAvailableAgents] Auth: ${req.auth || "No auth"}`);
+
+    // Return your available agents
+    const agents = [
+      {
+        id: "client_agent",
+        name: "Client Agent",
+        description: "Client-related questions and support",
+      },
+      {
+        id: "zr_ag",
+        name: "ZR Agent",
+        description: "Zoom Room questions and troubleshooting",
+      },
+      {
+        id: "jira_ag",
+        name: "Jira Agent",
+        description: "Jira tickets, issues, and project management",
+      },
+      {
+        id: "conf_ag",
+        name: "Confluence Agent",
+        description: "Knowledge base search and documentation",
+      },
+      {
+        id: "monitor_ag",
+        name: "Monitor Agent",
+        description: "System monitoring and log analysis",
+      },
+      {
+        id: "zp_ag",
+        name: "ZP Agent",
+        description: "Zoom Phone support and configuration",
+      },
+    ];
+
+    console.log(`[getAvailableAgents] Returning ${agents.length} agents`);
+
+    res.status(200).json({
+      success: true,
+      agents: agents,
+      timestamp: new Date().toISOString(),
+      count: agents.length,
+    });
+  } catch (error) {
+    console.error("[getAvailableAgents] Error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to get available agents",
+      message: error.message,
+    });
+  }
+};
+
+// CRITICAL FIX: Add missing generateJwtToken function
+export const generateJwtToken = async (req, res, next) => {
+  try {
+    console.log("[generateJwtToken] Request received");
+    console.log(
+      `[generateJwtToken] User: ${req.user ? req.user._id : "No user"}`
+    );
+    console.log(`[generateJwtToken] Auth: ${req.auth || "No auth"}`);
+
+    // Use your existing JWT token from environment variables
+    const token =
+      process.env.LLM_GATEWAY_JWT_TOKEN || process.env.DAYONE_JWT_TOKEN;
+
+    if (!token) {
+      console.error(
+        "[generateJwtToken] No JWT token configured in environment"
+      );
+      return res.status(500).json({
+        success: false,
+        error: "JWT token not configured on server",
+        message: "Please configure LLM_GATEWAY_JWT_TOKEN or DAYONE_JWT_TOKEN",
+      });
+    }
+
+    // Set expiry to 1 hour from now
+    const expiresAt = Math.floor(Date.now() / 1000) + 3600;
+
+    console.log("[generateJwtToken] Token generated successfully");
+    console.log(
+      `[generateJwtToken] Token expires at: ${new Date(
+        expiresAt * 1000
+      ).toISOString()}`
+    );
+
+    res.status(200).json({
+      success: true,
+      token: token,
+      expiresAt: expiresAt,
+      timestamp: new Date().toISOString(),
+      message: "JWT token generated successfully",
+    });
+  } catch (error) {
+    console.error("[generateJwtToken] Error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to generate JWT token",
+      message: error.message,
+    });
+  }
+};
