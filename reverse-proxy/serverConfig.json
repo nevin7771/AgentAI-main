@@ -1,0 +1,6 @@
+{
+    "isProd": true,
+    "listenIP": "0.0.0.0",
+    "port": 443,
+    "oktaDomain": "https://dev-54126083.okta.com/oauth2/default"
+}
