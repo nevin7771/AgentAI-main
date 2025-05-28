@@ -52,8 +52,8 @@ app.use(
 // CORS configuration
 const corsOptions = {
   origin: [
-    "https://vista.zoomdev.us",
-    "https://www.vista.zoomdev.us",
+    "https://vista.zn.us",
+    "https://www.vista.zn.us",
     "http://localhost:3000",
   ],
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -71,7 +71,6 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 const apiProxy = createProxyMiddleware({
   target: "http://localhost:3030", // Changed to HTTP for local proxy
   changeOrigin: true,
-  pathRewrite: { "^/api": "" },
   secure: false,
   onProxyReq: (proxyReq, req, res) => {
     console.log(`Proxying API request to: ${proxyReq.path}`);
@@ -88,7 +87,7 @@ app.use("/gemini", apiProxy); // Assuming same backend for gemini routes
 
 // Static files
 app.use(
-  express.static(path.resolve(__dirname, "./build"), {
+  express.static(path.resolve(__dirname, "../public/build"), {
     maxAge: "1y",
     setHeaders: (res, path) => {
       if (path.endsWith(".html")) {
@@ -104,7 +103,7 @@ app.get("*", (req, res) => {
     "Strict-Transport-Security",
     "max-age=31536000; includeSubDomains"
   );
-  res.sendFile(path.resolve(__dirname, "./build", "index.html"));
+  res.sendFile(path.resolve(__dirname, "../public/build", "index.html"));
 });
 
 // Create HTTPS server
