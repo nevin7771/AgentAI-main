@@ -1,4 +1,4 @@
-// public/src/components/InputSection/InputSection.js - ENHANCED JIRA AGENT CONVERSATION FIX
+// Fixed InputSection.js - NO UNWANTED BOXES + AUTO-REFRESH RECENTS
 import styles from "./InputSection.module.css";
 import { sendDeepSearchRequest, getRecentChat } from "../../store/chat-action";
 import { sendAgentQuestion } from "../../store/agent-actions";
@@ -6,9 +6,8 @@ import {
   sendDirectConfluenceQuestion,
   sendDirectMonitorQuestion,
 } from "../../store/day-one-agent-actions";
-import { sendChatData } from "../../store/chat-action"; // CRITICAL: Import for regular chat
+import { sendChatData } from "../../store/chat-action";
 import pollAgentTask from "../../utils/agentTaskPoller";
-import { highlightKeywords } from "../../utils/highlightKeywords";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate } from "react-router-dom";
@@ -21,14 +20,17 @@ const InputSection = () => {
   const [userInput, setUserInput] = useState("");
   const [searchMode, setSearchMode] = useState("simple");
   const [showUploadOptions, setShowUploadOptions] = useState(false);
+  const [showComingSoonTooltip, setShowComingSoonTooltip] = useState(false);
   const textareaRef = useRef(null);
   const uploadMenuRef = useRef(null);
+  const comingSoonTimeoutRef = useRef(null);
+
   const chatHistoryId = useSelector((state) => state.chat.chatHistoryId);
   const suggestPrompt = useSelector((state) => state.chat.suggestPrompt);
-  const previousChat = useSelector((state) => state.chat.previousChat); // For conversation continuation
-  const currentChats = useSelector((state) => state.chat.chats); // Current conversation context
+  const previousChat = useSelector((state) => state.chat.previousChat);
+  const currentChats = useSelector((state) => state.chat.chats);
 
-  // CRITICAL FIX: Enhanced loading state detection for all agent types
+  // Enhanced loading state detection for all agent types
   const isLoaderActive = useSelector((state) => {
     const chats = state.chat.chats;
     const hasLoadingChat = chats.some(
@@ -40,14 +42,13 @@ const InputSection = () => {
     return hasLoadingChat ? "yes" : "no";
   });
 
-  // Get selectedAgents from Redux store
   const selectedAgents = useSelector((state) => state.agent.selectedAgents);
 
   // Enhanced agent ID mapping for display names
   const AGENT_DISPLAY_NAMES = {
     conf_ag: "Confluence Agent",
     monitor_ag: "Monitor Agent",
-    jira_ag: "Jira Agent", // CRITICAL: Ensure Jira agent is properly mapped
+    jira_ag: "Jira Agent",
     client_agent: "Client Agent",
     zr_ag: "ZR Agent",
     zp_ag: "ZP Agent",
@@ -91,13 +92,33 @@ const InputSection = () => {
     }, 0);
   };
 
+  // Enhanced upload options handler with coming soon notification
   const toggleUploadOptions = () => {
-    setShowUploadOptions(!showUploadOptions);
+    if (showUploadOptions) {
+      setShowUploadOptions(false);
+      return;
+    }
+
+    // Show coming soon tooltip
+    setShowComingSoonTooltip(true);
+
+    if (comingSoonTimeoutRef.current) {
+      clearTimeout(comingSoonTimeoutRef.current);
+    }
+
+    comingSoonTimeoutRef.current = setTimeout(() => {
+      setShowComingSoonTooltip(false);
+    }, 3000);
   };
 
   const handleUploadOption = (type) => {
-    console.log(`Handling ${type} upload`);
+    console.log(`Handling ${type} upload - Coming Soon`);
     setShowUploadOptions(false);
+
+    setShowComingSoonTooltip(true);
+    setTimeout(() => {
+      setShowComingSoonTooltip(false);
+    }, 2500);
   };
 
   // Close upload options when clicking outside
@@ -108,275 +129,165 @@ const InputSection = () => {
         !uploadMenuRef.current.contains(event.target)
       ) {
         setShowUploadOptions(false);
+        setShowComingSoonTooltip(false);
       }
     };
 
     document.addEventListener("mousedown", handleClickOutside);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
+      if (comingSoonTimeoutRef.current) {
+        clearTimeout(comingSoonTimeoutRef.current);
+      }
     };
   }, []);
 
-  // Function to check if an agent is a Day One streaming agent
   const isDayOneStreamingAgent = useCallback((agentId) => {
     return agentId === "conf_ag" || agentId === "monitor_ag";
   }, []);
 
-  // CRITICAL FIX: Check if agent is Jira agent
   const isJiraAgent = useCallback((agentId) => {
     return agentId === "jira_ag";
   }, []);
 
-  // CRITICAL FIX: Enhanced onSubmitHandler with proper Jira agent conversation continuity
+  // FIXED: Enhanced onSubmitHandler with auto-refresh recents
   const onSubmitHandler = async (e) => {
     e.preventDefault();
     if (!userInput.trim() || isLoaderActive === "yes") return;
 
     const currentInput = userInput;
-    setUserInput(""); // Clear input field immediately
+    setUserInput("");
 
     console.log(`[InputSection] Submitting: "${currentInput}"`);
-    console.log(`[InputSection] Current chat history ID: ${chatHistoryId}`);
-    console.log(`[InputSection] Selected agents: ${selectedAgents.join(", ")}`);
-    console.log(`[InputSection] Has existing conversation: ${!!chatHistoryId}`);
-    console.log(
-      `[InputSection] Current conversation length: ${currentChats?.length || 0}`
-    );
 
     try {
-      // CRITICAL FIX: Enhanced navigation logic - only navigate if no existing conversation
       const hasExistingConversation = chatHistoryId && currentChats?.length > 0;
 
       if (!hasExistingConversation) {
-        const targetUrl = "/app";
-        console.log(
-          `[InputSection] Navigating to new conversation: ${targetUrl}`
-        );
-        navigate(targetUrl);
-      } else {
-        console.log(
-          `[InputSection] Continuing existing conversation: ${chatHistoryId}`
-        );
+        navigate("/app");
       }
 
-      // Always show initial loading state
       dispatch(uiAction.setLoading(true));
 
       if (selectedAgents.length > 0) {
         const selectedAgentId = selectedAgents[0];
-        console.log(
-          `[InputSection] Processing agent request: ${selectedAgentId}`
-        );
 
-        // CRITICAL FIX: Enhanced Jira agent handling with conversation continuity
         if (isJiraAgent(selectedAgentId)) {
-          console.log(
-            `[InputSection] Using Jira Agent with conversation context`
-          );
-
-          // CRITICAL FIX: Pass existing conversation context to Jira agent
           const jiraResponse = await dispatch(
             sendAgentQuestion({
               question: currentInput,
               agents: selectedAgents,
-              chatHistoryId: chatHistoryId, // CRITICAL: Pass existing chat ID
+              chatHistoryId: chatHistoryId,
               navigate,
-              // Additional context for Jira agent
-              conversationContext: {
-                hasExisting: hasExistingConversation,
-                messageCount: currentChats?.length || 0,
-                previousQuestions:
-                  currentChats
-                    ?.filter(
-                      (chat) =>
-                        chat.user &&
-                        chat.isSearch &&
-                        chat.searchType === "agent"
-                    )
-                    ?.slice(-3) // Last 3 Jira questions for context
-                    ?.map((chat) => chat.user) || [],
-              },
             })
           );
 
-          console.log(`[InputSection] Jira agent response:`, jiraResponse);
-
-          // Handle Jira agent response
           if (jiraResponse && jiraResponse.orchestrationComplete === true) {
-            console.log(`[InputSection] Jira agent response completed`);
-
-            // CRITICAL FIX: Enhanced URL management for existing conversations
             const finalChatId =
               jiraResponse.data?.chatHistoryId || chatHistoryId;
 
+            // FIXED: Auto-refresh recent chats
+            setTimeout(() => {
+              dispatch(getRecentChat());
+            }, 1500);
+
             if (finalChatId && !hasExistingConversation) {
-              // Only navigate for new conversations
-              console.log(
-                `[InputSection] Updating URL to: /app/${finalChatId}`
-              );
               setTimeout(() => {
                 navigate(`/app/${finalChatId}`, { replace: true });
-                dispatch(getRecentChat());
               }, 1000);
-            } else if (hasExistingConversation) {
-              // For existing conversations, just refresh the recent chat list
-              console.log(
-                `[InputSection] Refreshing chat list for existing conversation`
-              );
-              setTimeout(() => {
-                dispatch(getRecentChat());
-              }, 500);
             }
-
             dispatch(uiAction.setLoading(false));
             return;
           }
-
-          // Handle any errors or unexpected responses
-          if (!jiraResponse || jiraResponse.success === false) {
-            throw new Error(jiraResponse?.error || "Jira agent request failed");
-          }
         } else if (isDayOneStreamingAgent(selectedAgentId)) {
-          console.log(
-            `[InputSection] Using Day One streaming for ${selectedAgentId}`
-          );
+          console.log(`[InputSection] Using streaming for ${selectedAgentId}`);
 
-          // CRITICAL FIX: Enhanced streaming with conversation context
+          let streamingPromise;
           if (selectedAgentId === "conf_ag") {
-            dispatch(
+            streamingPromise = dispatch(
               sendDirectConfluenceQuestion({
                 question: currentInput,
-                chatHistoryId: chatHistoryId, // Pass existing chat ID
+                chatHistoryId: chatHistoryId,
                 navigate,
-                conversationContext: {
-                  hasExisting: hasExistingConversation,
-                  messageCount: currentChats?.length || 0,
-                },
               })
-            )
-              .then((response) => {
-                console.log(
-                  `[InputSection] Confluence streaming completed:`,
-                  response
-                );
-                if (response && response.success) {
-                  setTimeout(() => {
-                    dispatch(getRecentChat());
-                  }, 1000);
-                }
-              })
-              .catch((error) => {
-                console.error(
-                  `[InputSection] Confluence streaming error:`,
-                  error
-                );
-              });
+            );
           } else if (selectedAgentId === "monitor_ag") {
-            dispatch(
+            streamingPromise = dispatch(
               sendDirectMonitorQuestion({
                 question: currentInput,
-                chatHistoryId: chatHistoryId, // Pass existing chat ID
+                chatHistoryId: chatHistoryId,
                 navigate,
-                conversationContext: {
-                  hasExisting: hasExistingConversation,
-                  messageCount: currentChats?.length || 0,
-                },
               })
-            )
-              .then((response) => {
-                console.log(
-                  `[InputSection] Monitor streaming completed:`,
-                  response
-                );
-                if (response && response.success) {
-                  setTimeout(() => {
-                    dispatch(getRecentChat());
-                  }, 1000);
-                }
-              })
-              .catch((error) => {
-                console.error(`[InputSection] Monitor streaming error:`, error);
-              });
+            );
           }
 
-          // Clean up loading state immediately since streaming will handle its own state
+          streamingPromise
+            .then((response) => {
+              console.log(`[InputSection] Streaming completed:`, response);
+
+              // FIXED: Auto-refresh recent chats after streaming completes
+              setTimeout(() => {
+                dispatch(getRecentChat());
+              }, 2000);
+            })
+            .catch((error) => {
+              console.error(`[InputSection] Streaming error:`, error);
+            });
+
           dispatch(uiAction.setLoading(false));
         } else {
-          // Handle other (non-streaming, non-Jira) agents
-          console.log(
-            `[InputSection] Using standard agent processing for ${selectedAgentId}`
-          );
-
+          // Handle other agents (standard flow)
           const agentResponse = await dispatch(
             sendAgentQuestion({
               question: currentInput,
               agents: selectedAgents,
-              chatHistoryId: chatHistoryId, // Pass existing chat ID
+              chatHistoryId: chatHistoryId,
               navigate,
             })
           );
 
-          console.log(`[InputSection] Agent response:`, agentResponse);
-
-          // Handle orchestrated response
           if (agentResponse && agentResponse.orchestrationComplete === true) {
-            console.log(`[InputSection] Orchestrated response completed`);
-
             const finalChatId =
               agentResponse.data?.chatHistoryId || chatHistoryId;
+
+            // FIXED: Auto-refresh recent chats
+            setTimeout(() => {
+              dispatch(getRecentChat());
+            }, 1500);
+
             if (finalChatId && !hasExistingConversation) {
-              console.log(
-                `[InputSection] Updating URL to: /app/${finalChatId}`
-              );
               setTimeout(() => {
                 navigate(`/app/${finalChatId}`, { replace: true });
-                dispatch(getRecentChat());
               }, 1000);
             }
             return;
           }
 
-          // For standard polling agents
+          // Handle polling for other agents...
           if (!agentResponse || !agentResponse.taskId) {
-            console.error(
-              `[InputSection] Invalid agent response:`,
-              agentResponse
-            );
             throw new Error(
               "Failed to get a valid response from agent service"
             );
           }
 
-          console.log(
-            `[InputSection] Starting polling for task: ${agentResponse.taskId}`
-          );
-
-          // Use pollAgentTask utility for robust polling
           pollAgentTask(agentResponse.taskId, dispatch, {
             interval: 2000,
             maxAttempts: 60,
             onComplete: (data) => {
-              console.log(`[InputSection] Agent task completed:`, data);
               handleAgentResponse({
                 ...data,
                 agentId: selectedAgentId,
                 question: currentInput,
               });
             },
-            onPending: (data) => {
-              console.log(`[InputSection] Agent task pending:`, data);
-            },
             onError: (error) => {
-              console.error(`[InputSection] Agent task error:`, error);
+              console.error("Agent task error:", error);
               dispatch(chatAction.popChat());
               dispatch(
                 chatAction.chatStart({
                   useInput: {
                     user: currentInput,
-                    gemini: `<div class="${styles["error-message"]}">
-                      <h3>Agent Error</h3>
-                      <p>Sorry, there was an error retrieving the agent response: ${error.message}</p>
-                    </div>`,
+                    gemini: `<div>Agent Error: ${error.message}</div>`,
                     isLoader: "no",
                     isSearch: true,
                     searchType: "agent",
@@ -388,86 +299,58 @@ const InputSection = () => {
           });
         }
       } else if (searchMode === "deep" || searchMode === "simple") {
-        // CRITICAL FIX: Handle search modes with proper conversation continuation
-        console.log(
-          `[InputSection] Using ${searchMode} search with conversation context`
+        // Handle search modes
+        let searchResponse;
+        const endpoint =
+          searchMode === "deep" ? "/api/deepsearch" : "/api/simplesearch";
+
+        searchResponse = await dispatch(
+          sendDeepSearchRequest({
+            query: currentInput,
+            sources: ["support.zoom.us", "community.zoom.us", "zoom.us"],
+            endpoint: endpoint,
+            chatHistoryId: chatHistoryId,
+          })
         );
 
-        let searchResponse;
-        if (searchMode === "deep") {
-          searchResponse = await dispatch(
-            sendDeepSearchRequest({
-              query: currentInput,
-              sources: ["support.zoom.us", "community.zoom.us", "zoom.us"],
-              endpoint: "/api/deepsearch",
-              chatHistoryId: chatHistoryId, // CRITICAL: Pass existing chatHistoryId for continuation
-            })
-          );
-        } else {
-          searchResponse = await dispatch(
-            sendDeepSearchRequest({
-              query: currentInput,
-              sources: ["support.zoom.us", "community.zoom.us", "zoom.us"],
-              endpoint: "/api/simplesearch",
-              chatHistoryId: chatHistoryId, // CRITICAL: Pass existing chatHistoryId for continuation
-            })
-          );
-        }
+        // FIXED: Auto-refresh recent chats
+        setTimeout(() => {
+          dispatch(getRecentChat());
+        }, 2000);
 
-        console.log(`[InputSection] Search response:`, searchResponse);
-
-        // CRITICAL FIX: Navigate to proper URL after search only for new conversations
         if (
           searchResponse &&
           searchResponse.chatHistoryId &&
           !hasExistingConversation
         ) {
-          console.log(
-            `[InputSection] Navigating to search result: /app/${searchResponse.chatHistoryId}`
-          );
           setTimeout(() => {
             navigate(`/app/${searchResponse.chatHistoryId}`, { replace: true });
           }, 500);
         }
-
-        // Refresh recent chats after search
-        setTimeout(() => {
-          dispatch(getRecentChat());
-        }, 1500);
       } else {
-        // CRITICAL FIX: Handle regular chat (no agents, no search) with conversation continuation
-        console.log(
-          `[InputSection] Using regular chat mode with conversation context`
-        );
-
+        // Handle regular chat
         const chatResponse = await dispatch(
           sendChatData({
             user: currentInput,
-            previousChat: previousChat, // Include conversation context
-            chatHistoryId: chatHistoryId, // Pass existing chatHistoryId for continuation
+            previousChat: previousChat,
+            chatHistoryId: chatHistoryId,
           })
         );
 
-        console.log(`[InputSection] Chat response:`, chatResponse);
+        // FIXED: Auto-refresh recent chats
+        setTimeout(() => {
+          dispatch(getRecentChat());
+        }, 1500);
 
-        // CRITICAL FIX: Navigate to proper URL only for new conversations
         if (
           chatResponse &&
           chatResponse.chatHistoryId &&
           !hasExistingConversation
         ) {
-          console.log(
-            `[InputSection] Navigating to chat result: /app/${chatResponse.chatHistoryId}`
-          );
           setTimeout(() => {
             navigate(`/app/${chatResponse.chatHistoryId}`, { replace: true });
           }, 500);
         }
-
-        // Refresh recent chats
-        setTimeout(() => {
-          dispatch(getRecentChat());
-        }, 1000);
       }
 
       console.log(`[InputSection] Query processing initiated successfully`);
@@ -478,10 +361,7 @@ const InputSection = () => {
         chatAction.chatStart({
           useInput: {
             user: currentInput,
-            gemini: `<div class="${styles["error-message"]}">
-              <h3>Error</h3>
-              <p>Sorry, an unexpected error occurred: ${error.message}</p>
-            </div>`,
+            gemini: `<div>Error: ${error.message}</div>`,
             isLoader: "no",
             isSearch: selectedAgents.length > 0 || searchMode !== "simple",
             searchType: selectedAgents.length > 0 ? "agent" : searchMode,
@@ -495,39 +375,28 @@ const InputSection = () => {
   useEffect(() => {
     if (suggestPrompt && suggestPrompt.length > 0) {
       setUserInput(suggestPrompt);
-      dispatch(chatAction.clearSuggestPrompt()); // Use proper action
+      dispatch(chatAction.clearSuggestPrompt());
     }
   }, [suggestPrompt, dispatch]);
 
-  // Enhanced handleAgentResponse for non-Day One agents
+  // SIMPLIFIED handleAgentResponse
   const handleAgentResponse = useCallback(
     (data) => {
-      console.log(`[InputSection] Handling agent response:`, data);
-
       let resultText = "";
       if (data.result) {
-        if (
-          typeof data.result === "string" &&
-          data.result.includes("<") &&
-          data.result.includes(">")
-        ) {
+        if (typeof data.result === "string") {
           resultText = data.result;
-        } else if (typeof data.result === "object") {
-          resultText = JSON.stringify(data.result, null, 2);
         } else {
-          resultText = String(data.result);
+          resultText = JSON.stringify(data.result, null, 2);
         }
       } else {
         resultText = "Agent returned no result data.";
       }
 
-      const isPreformattedHTML =
-        resultText.includes("<") && resultText.includes(">");
       const queryKeywords = (data.question || userInput)
         .split(/\s+/)
         .filter((word) => word.length > 3);
 
-      // CRITICAL FIX: Use existing chatHistoryId or generate proper one
       let finalChatHistoryId = data.chatHistoryId || chatHistoryId;
       if (!finalChatHistoryId || finalChatHistoryId.length < 5) {
         finalChatHistoryId = `agent_${Date.now()}_${Math.random()
@@ -535,11 +404,6 @@ const InputSection = () => {
           .substring(2, 9)}`;
       }
 
-      console.log(
-        `[InputSection] Using chat history ID: ${finalChatHistoryId}`
-      );
-
-      // Update the chat state with the final response
       dispatch(
         chatAction.chatStart({
           useInput: {
@@ -551,33 +415,29 @@ const InputSection = () => {
             queryKeywords: queryKeywords,
             sources: data.sources || [],
             relatedQuestions: data.relatedQuestions || [],
-            isPreformattedHTML: isPreformattedHTML,
+            isPreformattedHTML: false,
           },
         })
       );
 
-      // Set chat history ID in Redux
       dispatch(
         chatAction.chatHistoryIdHandler({
           chatHistoryId: finalChatHistoryId,
         })
       );
 
-      // Update URL to show proper chat history ID only if it's different
       if (finalChatHistoryId !== chatHistoryId) {
-        console.log(`[InputSection] Navigating to: /app/${finalChatHistoryId}`);
         setTimeout(() => {
           navigate(`/app/${finalChatHistoryId}`, { replace: true });
         }, 500);
       }
 
-      // Update UI state
       dispatch(uiAction.setLoading(false));
 
-      // Fetch recent chats to update sidebar
+      // FIXED: Auto-refresh recent chats
       setTimeout(() => {
         dispatch(getRecentChat());
-      }, 800);
+      }, 1000);
     },
     [dispatch, chatHistoryId, userInput, navigate]
   );
@@ -599,7 +459,6 @@ const InputSection = () => {
             autoComplete="off"
             rows={1}
             placeholder={
-              // CRITICAL FIX: Enhanced placeholder logic with conversation awareness
               isLoaderActive === "yes"
                 ? "Please wait for the response..."
                 : selectedAgents.length > 0
@@ -638,10 +497,13 @@ const InputSection = () => {
 
         <div className={styles["controls-container"]}>
           <div className={styles["left-controls"]}>
+            {/* FIXED: Removed autocomplete/suggestion boxes that were causing UI issues */}
             <div className={styles["upload-container"]} ref={uploadMenuRef}>
               <button
                 type="button"
-                className={styles["upload-button"]}
+                className={`${styles["upload-button"]} ${
+                  showComingSoonTooltip ? styles["active"] : ""
+                }`}
                 onClick={toggleUploadOptions}
                 title="Add files"
                 disabled={isLoaderActive === "yes"}>
@@ -655,44 +517,32 @@ const InputSection = () => {
                 </svg>
               </button>
 
-              {showUploadOptions && (
-                <div className={styles["upload-options"]}>
-                  <button onClick={() => handleUploadOption("image")}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                      <path
-                        d="M4 16l4-4 4 4m4-4l4 4M4 20h16M4 12V4h16v16"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                    Image
-                  </button>
-                  <button onClick={() => handleUploadOption("files")}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                      <path
-                        d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9m-7-7l7 7m-7-7v7h7"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                    Files
-                  </button>
-                  <button onClick={() => handleUploadOption("drive")}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                      <path
-                        d="M12 2L2 19h20L12 2zM2 19l10-8 10 8"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                    Drive
-                  </button>
+              {/* Coming Soon Tooltip - FIXED: Proper positioning */}
+              {showComingSoonTooltip && (
+                <div className={styles["coming-soon-tooltip"]}>
+                  <div className={styles["tooltip-content"]}>
+                    <div className={styles["tooltip-header"]}>
+                      <svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none">
+                        <path
+                          d="M12 2L13.09 8.26L20 9L13.09 9.74L12 16L10.91 9.74L4 9L10.91 8.26L12 2Z"
+                          fill="currentColor"
+                        />
+                      </svg>
+                      <span>Coming Soon!</span>
+                    </div>
+                    <p>
+                      File upload feature is in development and will be
+                      available in a future release.
+                    </p>
+                    <div className={styles["tooltip-footer"]}>
+                      <span>Stay tuned for updates!</span>
+                    </div>
+                  </div>
+                  <div className={styles["tooltip-arrow"]}></div>
                 </div>
               )}
             </div>
@@ -755,14 +605,12 @@ const InputSection = () => {
                   {selectedAgents.length > 1
                     ? `${selectedAgents.length} Agents Selected`
                     : `${getAgentDisplayName(selectedAgents[0])} Selected`}
-                  {/* CRITICAL FIX: Enhanced badge indicators */}
                   {isJiraAgent(selectedAgents[0]) && (
                     <span className={styles["jira-badge"]}>JIRA</span>
                   )}
                   {isDayOneStreamingAgent(selectedAgents[0]) && (
                     <span className={styles["streaming-badge"]}>STREAM</span>
                   )}
-                  {/* Show conversation indicator if in existing conversation */}
                   {chatHistoryId && currentChats?.length > 0 && (
                     <span className={styles["conversation-badge"]}>
                       ({currentChats.length} msgs)
@@ -778,7 +626,6 @@ const InputSection = () => {
       <div className={styles["input-help"]}>
         <span>
           Press Shift + Enter for new line
-          {/* CRITICAL FIX: Show conversation context in help text */}
           {chatHistoryId && currentChats?.length > 0 && (
             <span className={styles["conversation-help"]}>
               • Continuing conversation ({currentChats.length} messages)

@@ -1,159 +1,104 @@
-// public/src/utils/highlightKeywords.js
+// public/src/utils/highlightKeywords.js - Simple Google AI Style Highlighting
 
 /**
- * Highlights keywords in text by wrapping them in <strong> tags
+ * Simple keyword highlighting with single sky blue color (Google AI style)
  * @param {string} text - The text to highlight keywords in
- * @param {string} query - The search query containing keywords to highlight
+ * @param {string|Array} query - The search query or array of keywords to highlight
  * @returns {string} Text with highlighted keywords
  */
 export const highlightKeywords = (text, query) => {
   if (!text || !query) return text;
 
   try {
-    // Extract keywords from the query (words with 4+ characters)
-    // Filter out common words and prepositions
-    const stopWords = [
-      "about",
-      "above",
-      "after",
-      "again",
-      "against",
-      "all",
-      "and",
-      "any",
-      "are",
-      "because",
-      "been",
-      "before",
-      "being",
-      "below",
-      "between",
-      "both",
-      "but",
-      "does",
-      "doing",
-      "down",
-      "during",
-      "each",
-      "few",
-      "for",
-      "from",
-      "further",
-      "had",
-      "has",
-      "have",
-      "having",
-      "here",
-      "how",
-      "into",
-      "itself",
-      "just",
-      "more",
-      "most",
-      "once",
-      "only",
-      "other",
-      "over",
-      "same",
-      "should",
-      "some",
-      "such",
-      "than",
-      "that",
-      "the",
-      "their",
-      "them",
-      "then",
-      "there",
-      "these",
-      "they",
-      "this",
-      "those",
-      "through",
-      "under",
-      "until",
-      "very",
-      "what",
-      "when",
-      "where",
-      "which",
-      "while",
-      "who",
-      "whom",
-      "why",
-      "will",
-      "with",
-      "your",
-    ];
-
-    const keywords = query
-      .toLowerCase()
-      .split(/\s+/)
-      .filter(
-        (word) => word.length >= 4 && !stopWords.includes(word.toLowerCase())
-      )
-      .map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")); // Escape special regex chars
+    // Extract keywords from query
+    let keywords = [];
+    if (Array.isArray(query)) {
+      keywords = query.filter((k) => k && k.length > 2);
+    } else {
+      keywords = String(query)
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((word) => word.length > 2)
+        .slice(0, 5); // Limit to 5 keywords max
+    }
 
     if (keywords.length === 0) return text;
 
-    // Create regex to find all instances of these keywords (case insensitive)
-    // But avoid highlighting within existing HTML tags, headers, or Markdown syntax
-    const regex = new RegExp(
-      `(${keywords.join("|")})(?![^<>]*>|[^#]*#|[^*]*\\*\\*|[^\\[]*\\])`,
-      "gi"
-    );
+    let highlightedText = text;
 
-    // Replace with highlighted version
-    const highlightedText = text.replace(regex, "<strong>$1</strong>");
+    // Simple Google AI style highlighting - single sky blue color
+    keywords.forEach((keyword) => {
+      const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp(`\\b(${escapedKeyword})\\b`, "gi");
 
-    // Log debugging info for more severe cases
-    if (highlightedText.split("<strong>").length > 15) {
-      console.warn(
-        "Too many highlights detected, original text might be overly highlighted"
-      );
-    }
+      // Single sky blue highlight style (Google AI style)
+      highlightedText = highlightedText.replace(regex, (match) => {
+        return `<mark style="
+          background-color: #e8f0fe;
+          color: #1967d2;
+          padding: 2px 4px;
+          border-radius: 3px;
+          font-weight: 500;
+          text-decoration: none;
+          border: none;
+          box-shadow: none;
+        " data-keyword="${keyword}">${match}</mark>`;
+      });
+    });
 
     return highlightedText;
   } catch (error) {
     console.error("Error highlighting keywords:", error);
-    return text; // Return original text if error occurs
+    return text;
   }
 };
 
 /**
- * Finds and extracts error codes from text
- * @param {string} text - The text to search for error codes
- * @returns {Array} Array of found error codes
+ * Simple chat keyword highlighting (Google AI style)
+ * @param {string} text - Text to highlight
+ * @param {Array} keywords - Keywords to highlight
+ * @returns {string} Highlighted text
  */
-export const extractErrorCodes = (text) => {
-  if (!text) return [];
-
-  try {
-    // Match common error code patterns (number sequences that look like error codes)
-    const errorCodePatterns = [
-      /Error\s+(\d{3,6})/gi, // "Error 12345"
-      /Code\s+(\d{3,6})/gi, // "Code 12345"
-      /(\d{3,6})\s+Error/gi, // "12345 Error"
-      /#(\d{3,6})/gi, // "#12345"
-      /Error:\s*(\d{3,6})/gi, // "Error: 12345"
-    ];
-
-    const errorCodes = [];
-
-    // Apply each pattern and collect results
-    errorCodePatterns.forEach((pattern) => {
-      let match;
-      while ((match = pattern.exec(text)) !== null) {
-        errorCodes.push(match[1]);
-      }
-    });
-
-    // Remove duplicates and return
-    return [...new Set(errorCodes)];
-  } catch (error) {
-    console.error("Error extracting error codes:", error);
-    return [];
-  }
+export const highlightChatKeywords = (text, keywords = []) => {
+  return highlightKeywords(text, keywords);
 };
 
+/**
+ * Initialize simple highlighting system
+ */
+export const initializeKeywordHighlighting = () => {
+  if (typeof document === "undefined") return;
+
+  console.log(
+    "🎨 Initializing simple keyword highlighting (Google AI style)..."
+  );
+
+  // Add simple click handler for keyword copying
+  document.addEventListener("click", (event) => {
+    if (
+      event.target.tagName === "MARK" &&
+      event.target.hasAttribute("data-keyword")
+    ) {
+      const keyword = event.target.getAttribute("data-keyword");
+
+      // Copy to clipboard
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(keyword).then(() => {
+          console.log(`Keyword "${keyword}" copied to clipboard`);
+
+          // Simple visual feedback
+          const original = event.target.style.backgroundColor;
+          event.target.style.backgroundColor = "#c8e6c9";
+          setTimeout(() => {
+            event.target.style.backgroundColor = original;
+          }, 500);
+        });
+      }
+    }
+  });
+
+  console.log("✅ Simple keyword highlighting initialized");
+};
+
+// Default export
 export default highlightKeywords;

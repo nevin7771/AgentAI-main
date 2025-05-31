@@ -1,14 +1,12 @@
 import styles from "./Sidebar.module.css";
 import { themeIcon } from "../../asset";
-// import { commonIcon } from "../../asset"; // Removed
 import { useSelector, useDispatch } from "react-redux";
 import { uiAction } from "../../store/ui-gemini";
-import { useEffect, useState, useCallback } from "react"; // useMemo removed, useCallback added
+import { useEffect, useState, useCallback } from "react";
 import { chatAction } from "../../store/chat";
 import { Link, useNavigate } from "react-router-dom";
 import { userUpdateLocation } from "../../store/user-action";
 import { deleteChatHistory } from "../../store/chat-action";
-// import { deleteAgentChatHistory } from "../../store/agent-actions"; // Removed
 
 const Sidebar = () => {
   const dispatch = useDispatch();
@@ -41,8 +39,6 @@ const Sidebar = () => {
       const searchHistory = JSON.parse(
         localStorage.getItem("searchHistory") || "[]"
       );
-
-      // Removed console.log for found items to prevent continuous logging
 
       const formattedSavedChats = savedChats.map((chat) => ({
         _id: chat.id,
@@ -87,10 +83,9 @@ const Sidebar = () => {
         .join(",");
 
       if (uniqueChatsIdsString !== localChatsFromReduxIdsString) {
-        // Removed console.log for adding chats to prevent continuous logging
         const combinedChats = [
-          ...recentChat.filter((chat) => !chat.fromLocalStorage), // Keep non-local chats
-          ...uniqueChats, // Replace Redux local chats with fresh ones from localStorage
+          ...recentChat.filter((chat) => !chat.fromLocalStorage),
+          ...uniqueChats,
         ];
         combinedChats.sort((a, b) => {
           const dateA = a.timestamp ? new Date(a.timestamp) : new Date(0);
@@ -99,7 +94,6 @@ const Sidebar = () => {
         });
         dispatch(chatAction.recentChatHandler({ recentChat: combinedChats }));
       } else if (allLocalChats.length === 0 && localChatsFromRedux.length > 0) {
-        // If localStorage is empty, but Redux still has local chats, clear them.
         const combinedChats = recentChat.filter(
           (chat) => !chat.fromLocalStorage
         );
@@ -113,7 +107,6 @@ const Sidebar = () => {
   // Listen for storage events to update sidebar and load on mount
   useEffect(() => {
     const handleStorageChange = () => {
-      // console.log("Storage changed, reloading chat history from Sidebar"); // Optional: for debugging storage events
       loadLocalStorageChats();
     };
 
@@ -124,14 +117,41 @@ const Sidebar = () => {
     return () => {
       window.removeEventListener("storage", handleStorageChange);
     };
-  }, [loadLocalStorageChats]); // This dependency is correct if loadLocalStorageChats is stable or changes only when necessary
-
-  // The second useEffect calling loadLocalStorageChats was removed as it was redundant and problematic.
+  }, [loadLocalStorageChats]);
 
   const settingsHandler = (e) => {
     dispatch(uiAction.toggleSettings());
     if (e.view.innerWidth <= 960) {
       dispatch(uiAction.toggleSideBar());
+    }
+  };
+
+  // FIXED: Help button handler to redirect to Zoom chat
+  const helpHandler = () => {
+    const zoomChatUrl =
+      "https://zoom.us/launch/chat/v2/eyJzaWQiOiI0YWQ5ZTllZGY4ODY0NjAzOTI1MjI5ODY1ZGVhNzdmNUBjb25mZXJlbmNlLnhtcHAuem9vbS51cyJ9";
+
+    try {
+      // Try to open in new window/tab
+      const newWindow = window.open(
+        zoomChatUrl,
+        "_blank",
+        "noopener,noreferrer"
+      );
+
+      // Fallback if popup blocked
+      if (
+        !newWindow ||
+        newWindow.closed ||
+        typeof newWindow.closed === "undefined"
+      ) {
+        // Fallback: direct navigation
+        window.location.href = zoomChatUrl;
+      }
+    } catch (error) {
+      console.error("Error opening Zoom chat:", error);
+      // Ultimate fallback
+      window.location.href = zoomChatUrl;
     }
   };
 
@@ -181,8 +201,6 @@ const Sidebar = () => {
             "searchHistory",
             JSON.stringify(filteredSearchHistory)
           );
-
-          // console.log(`Removed chat ${chatId} from localStorage collections`); // Optional debug log
         } catch (err) {
           console.error("Error removing from localStorage:", err);
         }
@@ -192,7 +210,6 @@ const Sidebar = () => {
         if (deleteAction && typeof deleteAction.then === "function") {
           deleteAction
             .then(() => {
-              // console.log(`Successfully deleted chat history ${chatId} from server`); // Optional debug log
               dispatch(
                 chatAction.recentChatHandler({
                   recentChat: recentChat.filter((chat) => chat._id !== chatId),
@@ -216,7 +233,6 @@ const Sidebar = () => {
               }
             });
         } else {
-          // console.warn("deleteChatHistory did not return a Promise, using client-side removal"); // Optional debug log
           dispatch(
             chatAction.recentChatHandler({
               recentChat: recentChat.filter((chat) => chat._id !== chatId),
@@ -319,7 +335,8 @@ const Sidebar = () => {
       </div>
 
       <div className={styles["settings-section"]}>
-        <div className={styles["help"]}>
+        {/* FIXED: Help button with Zoom chat redirect */}
+        <div className={styles["help"]} onClick={helpHandler}>
           <img src={icon.helpIcon} alt="help icon"></img>
           {isSidebarLong && <p>Help</p>}
         </div>

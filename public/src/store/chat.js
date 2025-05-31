@@ -1,4 +1,4 @@
-// public/src/store/chat.js - ULTRA-OPTIMIZED FOR ZERO BLINKING
+// public/src/store/chat.js - FIXED SERIALIZABLE STATE
 import { createSlice } from "@reduxjs/toolkit";
 
 const initialState = {
@@ -15,7 +15,8 @@ const initialState = {
   showScrollBottom: false,
   streamingInProgress: false,
   lastStreamingUpdate: 0,
-  streamingDebounceMap: {}, // CRITICAL FIX: Track streaming updates per message
+  streamingDebounceMap: {},
+  pendingSaves: [], // FIXED: Use array instead of Set for serializable state
 };
 
 const chatSlice = createSlice({
@@ -34,10 +35,7 @@ const chatSlice = createSlice({
         useInput.streamingId ||
         `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
-      console.log(
-        `[chatStart] Processing message - ID: ${newMessageId}, streamingId: ${useInput.streamingId}, isLoader: ${useInput.isLoader}`
-      );
-
+      // OPTIMIZED LOGGING - Only log important events
       if (
         useInput.isLoader === "streaming" ||
         useInput.isLoader === "partial"
@@ -47,19 +45,12 @@ const chatSlice = createSlice({
         );
 
         if (existingStreamingMessage) {
-          console.log(
-            `[chatStart] Updating existing streaming message: ${useInput.streamingId}`
-          );
+          // SMOOTH UPDATE: Only update content without timestamp to prevent re-renders
           existingStreamingMessage.gemini = useInput.gemini;
           existingStreamingMessage.isLoader = useInput.isLoader;
-          existingStreamingMessage.timestamp = new Date().toISOString();
           return;
         }
       }
-
-      console.log(
-        `[chatStart] Adding new message: ${newMessageId}, streamingId: ${useInput.streamingId}`
-      );
 
       state.chats.push({
         id: newMessageId,
@@ -89,7 +80,7 @@ const chatSlice = createSlice({
       state.newChat = false;
     },
 
-    // CRITICAL FIX: Ultra-aggressive streaming optimization
+    // ENHANCED: Ultra-optimized streaming with save tracking
     updateStreamingChat(state, action) {
       const {
         streamingId,
@@ -100,11 +91,10 @@ const chatSlice = createSlice({
         error,
       } = action.payload;
 
-      console.log(
-        `[updateStreamingChat] ${streamingId}, complete: ${isComplete}, content length: ${
-          content?.length || 0
-        }`
-      );
+      // REDUCED LOGGING - Only log completion
+      if (isComplete) {
+        console.log(`[updateStreamingChat] Completing ${streamingId}`);
+      }
 
       // Find the message to update
       let messageIndex = state.chats.findIndex(
@@ -121,9 +111,14 @@ const chatSlice = createSlice({
       if (messageIndex !== -1) {
         const existingMessage = state.chats[messageIndex];
 
-        // Update content
-        existingMessage.gemini = content || "";
-        existingMessage.timestamp = new Date().toISOString();
+        // SMOOTH UPDATE: Only update content if it actually changed
+        if (existingMessage.gemini !== content) {
+          existingMessage.gemini = content || "";
+          // Only update timestamp on completion to prevent flicker
+          if (isComplete) {
+            existingMessage.timestamp = new Date().toISOString();
+          }
+        }
 
         // Ensure streamingId is preserved
         if (!existingMessage.streamingId && streamingId) {
@@ -137,23 +132,24 @@ const chatSlice = createSlice({
           existingMessage.isPreformattedHTML = true;
           state.isSubmitting = false;
           state.streamingInProgress = false;
+          existingMessage.timestamp = new Date().toISOString();
         } else if (isComplete) {
-          console.log(`[updateStreamingChat] Marking message as complete`);
           existingMessage.isLoader = "no";
           existingMessage.sources = sources || existingMessage.sources;
           existingMessage.relatedQuestions =
             relatedQuestions || existingMessage.relatedQuestions;
           state.isSubmitting = false;
           state.streamingInProgress = false;
+          existingMessage.timestamp = new Date().toISOString();
+
+          // ENHANCED: Mark as ready for save verification
+          existingMessage.readyForSaveVerification = true;
         } else {
           existingMessage.isLoader = "streaming";
           state.streamingInProgress = true;
         }
       } else {
-        console.log(
-          `[updateStreamingChat] Message not found, creating new one`
-        );
-
+        // Create new message if not found
         state.chats.push({
           id: streamingId,
           streamingId: streamingId,
@@ -169,12 +165,14 @@ const chatSlice = createSlice({
           error: error || null,
           timestamp: new Date().toISOString(),
           newChat: false,
+          readyForSaveVerification: isComplete,
         });
 
         state.streamingInProgress = !isComplete;
       }
     },
 
+    // ENHANCED: Check for active streaming
     hasActiveStreaming(state) {
       return (
         state.streamingInProgress ||
@@ -185,7 +183,6 @@ const chatSlice = createSlice({
     },
 
     newChatHandler(state) {
-      console.log(`[newChatHandler] Starting new chat session`);
       state.previousChat = [];
       state.newChat = true;
       state.chats = [];
@@ -196,14 +193,12 @@ const chatSlice = createSlice({
       state.suggestPrompt = "";
       state.streamingInProgress = false;
       state.lastStreamingUpdate = 0;
-      state.streamingDebounceMap = {}; // CRITICAL FIX: Clear debounce map
+      state.streamingDebounceMap = {};
+      state.pendingSaves = []; // FIXED: Reset as empty array
     },
 
     getChatHandler(state, action) {
       const chats = action.payload.chats || [];
-      console.log(
-        `[getChatHandler] Loading ${chats.length} chat messages from history`
-      );
 
       state.chats = chats.map((chat, index) => ({
         ...chat,
@@ -234,14 +229,16 @@ const chatSlice = createSlice({
       state.isLoader = false;
       state.streamingInProgress = false;
       state.lastStreamingUpdate = 0;
-      state.streamingDebounceMap = {}; // CRITICAL FIX: Clear debounce map
+      state.streamingDebounceMap = {};
+      state.pendingSaves = []; // FIXED: Reset as empty array
     },
 
     replaceChat(state, action) {
       state.chats = action.payload.chats || [];
       state.streamingInProgress = false;
       state.lastStreamingUpdate = 0;
-      state.streamingDebounceMap = {}; // CRITICAL FIX: Clear debounce map
+      state.streamingDebounceMap = {};
+      state.pendingSaves = []; // FIXED: Reset as empty array
     },
 
     suggestPromptHandler(state, action) {
@@ -253,11 +250,12 @@ const chatSlice = createSlice({
       state.geminiBackendOption = action.payload.geminiBackendOption;
     },
 
+    // ENHANCED: Chat history ID handler with logging
     chatHistoryIdHandler(state, action) {
       const newHistoryId = action.payload.chatHistoryId;
       if (newHistoryId !== state.chatHistoryId) {
         console.log(
-          `[chatHistoryIdHandler] Changing chat history ID: ${state.chatHistoryId} -> ${newHistoryId}`
+          `[chatHistoryIdHandler] Updating chat history ID: ${state.chatHistoryId} -> ${newHistoryId}`
         );
         state.chatHistoryId = newHistoryId;
       }
@@ -266,26 +264,20 @@ const chatSlice = createSlice({
     recentChatHandler(state, action) {
       const recentChats = action.payload.recentChat;
       if (Array.isArray(recentChats)) {
-        console.log(
-          `[recentChatHandler] Loading ${recentChats.length} recent chats`
-        );
         state.recentChat = recentChats;
       } else {
-        console.warn(`[recentChatHandler] Invalid recent chat data received`);
         state.recentChat = [];
       }
     },
 
+    // ENHANCED: Previous chat handler with logging
     previousChatHandler(state, action) {
       if (Array.isArray(action.payload.previousChat)) {
         console.log(
-          `[previousChatHandler] Setting previous chat context: ${action.payload.previousChat.length} messages`
+          `[previousChatHandler] Setting conversation context: ${action.payload.previousChat.length} messages`
         );
         state.previousChat = action.payload.previousChat;
       } else {
-        console.warn(
-          `[previousChatHandler] Invalid previous chat data received`
-        );
         state.previousChat = [];
       }
     },
@@ -299,9 +291,6 @@ const chatSlice = createSlice({
     popChat(state) {
       if (state.chats.length > 0) {
         const lastMessage = state.chats[state.chats.length - 1];
-        console.log(
-          `[popChat] Removing last message: ${lastMessage.id}, isLoader: ${lastMessage.isLoader}`
-        );
 
         // Clean up debounce tracking for removed message
         if (lastMessage.streamingId) {
@@ -333,7 +322,6 @@ const chatSlice = createSlice({
 
     removeChatHistory(state, action) {
       const chatIdToRemove = action.payload.chatId;
-      console.log(`[removeChatHistory] Removing chat: ${chatIdToRemove}`);
 
       state.recentChat = state.recentChat.filter(
         (c) => c._id !== chatIdToRemove && c.id !== chatIdToRemove
@@ -349,7 +337,8 @@ const chatSlice = createSlice({
         state.isLoader = false;
         state.streamingInProgress = false;
         state.lastStreamingUpdate = 0;
-        state.streamingDebounceMap = {}; // CRITICAL FIX: Clear debounce map
+        state.streamingDebounceMap = {};
+        state.pendingSaves = []; // FIXED: Reset as empty array
       }
     },
 
@@ -371,6 +360,7 @@ const chatSlice = createSlice({
         }
         if (isComplete) {
           state.chats[loadingChatIndex].isLoader = "no";
+          state.chats[loadingChatIndex].timestamp = new Date().toISOString();
           state.isSubmitting = false;
           state.streamingInProgress = false;
         }
@@ -378,9 +368,6 @@ const chatSlice = createSlice({
     },
 
     setSubmitting(state, action) {
-      console.log(
-        `[setSubmitting] Setting submission state: ${action.payload}`
-      );
       state.isSubmitting = action.payload;
       if (!action.payload) {
         const hasStreamingMessages = state.chats.some(
@@ -402,9 +389,6 @@ const chatSlice = createSlice({
       );
 
       if (loadingMessages.length > 1) {
-        console.log(
-          `[clearDuplicateLoadingMessages] Found ${loadingMessages.length} loading messages, keeping most recent`
-        );
         const mostRecent = loadingMessages[loadingMessages.length - 1];
         state.chats = state.chats.filter(
           (chat) =>
@@ -421,10 +405,6 @@ const chatSlice = createSlice({
     appendChatMessage(state, action) {
       const useInput = action.payload.useInput;
 
-      console.log(
-        `[appendChatMessage] Appending message to existing conversation: ${state.chatHistoryId}`
-      );
-
       const newMessageId =
         useInput.id ||
         useInput.streamingId ||
@@ -440,10 +420,7 @@ const chatSlice = createSlice({
         );
 
         if (existingLoadingMessage) {
-          console.log(
-            `[appendChatMessage] Preventing duplicate loading message`
-          );
-          return;
+          return; // Prevent duplicate loading message
         }
 
         if (useInput.user) {
@@ -463,10 +440,6 @@ const chatSlice = createSlice({
         );
 
         if (loadingMessageIndex !== -1) {
-          console.log(
-            `[appendChatMessage] Replacing loading message at index: ${loadingMessageIndex}`
-          );
-
           // Clean up debounce tracking for replaced message
           const oldMessage = state.chats[loadingMessageIndex];
           if (oldMessage.streamingId) {
@@ -498,7 +471,6 @@ const chatSlice = createSlice({
         state.streamingInProgress = false;
       }
 
-      console.log(`[appendChatMessage] Adding new message: ${newMessageId}`);
       state.chats.push({
         id: newMessageId,
         user: useInput.user || "",
@@ -527,13 +499,13 @@ const chatSlice = createSlice({
       );
 
       if (messageIndex !== -1) {
-        console.log(
-          `[updateStreamingResponse] Updating message: ${messageId}, complete: ${isComplete}`
-        );
-
+        // SMOOTH UPDATE: Only update if content actually changed
         if (state.chats[messageIndex].gemini !== content) {
           state.chats[messageIndex].gemini = content;
-          state.chats[messageIndex].timestamp = new Date().toISOString();
+          // Only update timestamp on completion
+          if (isComplete) {
+            state.chats[messageIndex].timestamp = new Date().toISOString();
+          }
         }
 
         if (isComplete) {
@@ -548,24 +520,14 @@ const chatSlice = createSlice({
           state.chats[messageIndex].isLoader = "streaming";
           state.streamingInProgress = true;
         }
-      } else {
-        console.warn(
-          `[updateStreamingResponse] Message not found: ${messageId}`
-        );
       }
     },
 
     clearError(state) {
-      console.log(`[clearError] Clearing error messages`);
-      const errorCount = state.chats.filter((chat) => chat.error).length;
       state.chats = state.chats.filter((chat) => !chat.error);
-      if (errorCount > 0) {
-        console.log(`[clearError] Removed ${errorCount} error messages`);
-      }
     },
 
     retryLastMessage(state) {
-      console.log(`[retryLastMessage] Retrying last message`);
       let lastUserMessageIndex = -1;
 
       for (let i = state.chats.length - 1; i >= 0; i--) {
@@ -576,14 +538,10 @@ const chatSlice = createSlice({
       }
 
       if (lastUserMessageIndex !== -1) {
-        const removedCount = state.chats.length - lastUserMessageIndex - 1;
         state.chats = state.chats.slice(0, lastUserMessageIndex + 1);
         state.isSubmitting = false;
         state.isLoader = false;
         state.streamingInProgress = false;
-        console.log(
-          `[retryLastMessage] Removed ${removedCount} messages after last user message`
-        );
       }
     },
 
@@ -594,10 +552,6 @@ const chatSlice = createSlice({
       );
 
       if (messageIndex !== -1) {
-        console.log(
-          `[markMessageAsError] Marking message as error: ${messageId}`
-        );
-
         // Clean up debounce tracking for error message
         const message = state.chats[messageIndex];
         if (message.streamingId) {
@@ -609,6 +563,7 @@ const chatSlice = createSlice({
         state.chats[messageIndex].isLoader = "no";
         state.chats[messageIndex].gemini = `<p>Error: ${error}</p>`;
         state.chats[messageIndex].isPreformattedHTML = true;
+        state.chats[messageIndex].timestamp = new Date().toISOString();
         state.isSubmitting = false;
         state.streamingInProgress = false;
       }
@@ -621,10 +576,7 @@ const chatSlice = createSlice({
       );
 
       if (messageIndex !== -1) {
-        console.log(
-          `[updateMessageContent] Updating content for message: ${messageId}`
-        );
-
+        // SMOOTH UPDATE: Only update if content actually changed
         if (state.chats[messageIndex].gemini !== content) {
           state.chats[messageIndex].gemini = content;
           state.chats[messageIndex].timestamp = new Date().toISOString();
@@ -636,22 +588,22 @@ const chatSlice = createSlice({
       }
     },
 
-    // CRITICAL FIX: Enhanced clearStreamingState
     clearStreamingState(state) {
-      console.log(`[clearStreamingState] Forcing clear of streaming state`);
       state.streamingInProgress = false;
       state.isSubmitting = false;
       state.lastStreamingUpdate = 0;
-      state.streamingDebounceMap = {}; // CRITICAL FIX: Clear all debounce tracking
+      state.streamingDebounceMap = {};
+      state.pendingSaves = []; // FIXED: Reset as empty array
 
       state.chats.forEach((chat) => {
         if (chat.isLoader === "streaming" || chat.isLoader === "partial") {
           chat.isLoader = "no";
+          chat.timestamp = new Date().toISOString();
         }
       });
     },
 
-    // CRITICAL FIX: Force update streaming content (bypass throttling)
+    // ENHANCED: Force update with save tracking
     forceUpdateStreamingChat(state, action) {
       const {
         streamingId,
@@ -662,8 +614,6 @@ const chatSlice = createSlice({
         error,
       } = action.payload;
 
-      console.log(`[forceUpdateStreamingChat] Force updating ${streamingId}`);
-
       const messageIndex = state.chats.findIndex(
         (chat) => chat.streamingId === streamingId || chat.id === streamingId
       );
@@ -671,15 +621,22 @@ const chatSlice = createSlice({
       if (messageIndex !== -1) {
         const existingMessage = state.chats[messageIndex];
 
-        existingMessage.gemini = content;
-        existingMessage.timestamp = new Date().toISOString();
-        state.lastStreamingUpdate = Date.now();
+        // SMOOTH UPDATE: Only update if content actually changed
+        if (existingMessage.gemini !== content) {
+          existingMessage.gemini = content;
+          state.lastStreamingUpdate = Date.now();
+          // Only update timestamp on completion or error
+          if (isComplete || error) {
+            existingMessage.timestamp = new Date().toISOString();
+          }
+        }
 
         if (error) {
           existingMessage.error = error;
           existingMessage.isLoader = "no";
           existingMessage.gemini = `<p>Error: ${error}</p>`;
           existingMessage.isPreformattedHTML = true;
+          existingMessage.timestamp = new Date().toISOString();
           state.isSubmitting = false;
           state.streamingInProgress = false;
         } else if (isComplete) {
@@ -687,12 +644,42 @@ const chatSlice = createSlice({
           existingMessage.sources = sources || existingMessage.sources;
           existingMessage.relatedQuestions =
             relatedQuestions || existingMessage.relatedQuestions;
+          existingMessage.timestamp = new Date().toISOString();
+          existingMessage.readyForSaveVerification = true;
           state.isSubmitting = false;
           state.streamingInProgress = false;
         } else {
           existingMessage.isLoader = "streaming";
           state.streamingInProgress = true;
         }
+      }
+    },
+
+    // FIXED: Track save operations using arrays instead of Set
+    addPendingSave(state, action) {
+      const { chatHistoryId } = action.payload;
+      if (!state.pendingSaves.includes(chatHistoryId)) {
+        state.pendingSaves.push(chatHistoryId);
+      }
+    },
+
+    removePendingSave(state, action) {
+      const { chatHistoryId } = action.payload;
+      state.pendingSaves = state.pendingSaves.filter(
+        (id) => id !== chatHistoryId
+      );
+    },
+
+    // NEW: Mark messages as saved
+    markMessageAsSaved(state, action) {
+      const { messageId, chatHistoryId } = action.payload;
+      const messageIndex = state.chats.findIndex(
+        (chat) => chat.id === messageId || chat.streamingId === messageId
+      );
+
+      if (messageIndex !== -1) {
+        state.chats[messageIndex].saved = true;
+        state.chats[messageIndex].savedChatHistoryId = chatHistoryId;
       }
     },
   },

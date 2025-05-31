@@ -1,3 +1,4 @@
+// Enhanced ScrollChat.js - INTEGRATED WITH YOUR BACKEND
 import styles from "./ScrollChat.module.css";
 import { commonIcon } from "../../../asset";
 import { useSelector, useDispatch } from "react-redux";
@@ -17,153 +18,324 @@ import {
   sendDeepSearchRequest,
 } from "../../../store/chat-action";
 import { chatAction } from "../../../store/chat";
-import CopyBtn from "../../Ui/CopyBtn";
-import ShareBtn from "../../Ui/ShareBtn";
 import DOMPurify from "dompurify";
-import { highlightKeywords } from "../../../utils/highlightKeywords";
+import { highlightChatKeywords } from "../../../utils/highlightKeywords";
+import apiHelper from "../../../utils/apiHelper";
 
-// Helper function to extract keywords
-const extractKeywords = (text) => {
-  if (!text) return [];
-  const stopWords = new Set([
-    "a",
-    "an",
-    "the",
-    "is",
-    "are",
-    "was",
-    "were",
-    "be",
-    "been",
-    "being",
-    "have",
-    "has",
-    "had",
-    "do",
-    "does",
-    "did",
-    "will",
-    "would",
-    "should",
-    "can",
-    "could",
-    "may",
-    "might",
-    "must",
-    "and",
-    "but",
-    "or",
-    "nor",
-    "for",
-    "so",
-    "yet",
-    "in",
-    "on",
-    "at",
-    "by",
-    "from",
-    "to",
-    "with",
-    "about",
-    "as",
-    "if",
-    "it",
-    "this",
-    "that",
-    "then",
-    "thus",
-    "of",
-    "not",
-  ]);
-  return String(text)
-    .toLowerCase()
-    .replace(/[\p{P}\p{S}\s+]/gu, " ")
-    .split(" ")
-    .filter((word) => word.length > 3 && !stopWords.has(word));
+// Enhanced error reporting for your backend
+const reportError = async (errorType, errorData, context = {}) => {
+  try {
+    const errorReport = {
+      type: errorType,
+      timestamp: new Date().toISOString(),
+      url: window.location.href,
+      userAgent: navigator.userAgent,
+      error: errorData,
+      context: {
+        ...context,
+        sessionId: localStorage.getItem("sessionId") || `session_${Date.now()}`,
+        viewport: {
+          width: window.innerWidth,
+          height: window.innerHeight,
+        },
+      },
+    };
+
+    console.error(`[Error Report - ${errorType}]:`, errorReport);
+
+    // Send to your backend
+    const response = await apiHelper.apiFetch("/error-report", {
+      method: "POST",
+      body: JSON.stringify(errorReport),
+    });
+
+    if (response.ok) {
+      console.log("✅ Error report sent to backend");
+    } else {
+      throw new Error(`HTTP ${response.status}`);
+    }
+  } catch (reportingError) {
+    console.error("❌ Failed to send error report:", reportingError);
+    // Store locally for later retry
+    const storedErrors = JSON.parse(
+      localStorage.getItem("pendingErrorReports") || "[]"
+    );
+    storedErrors.push({
+      errorType,
+      errorData,
+      context,
+      timestamp: new Date().toISOString(),
+    });
+    localStorage.setItem(
+      "pendingErrorReports",
+      JSON.stringify(storedErrors.slice(-10))
+    );
+  }
 };
 
-// CRITICAL FIX: Ultra-stable streaming component that never changes structure
-const StreamingContent = memo(
+// Enhanced feedback submission for your backend
+const submitFeedback = async (feedbackData) => {
+  try {
+    const enhancedFeedback = {
+      ...feedbackData,
+      timestamp: new Date().toISOString(),
+      url: window.location.href,
+      userAgent: navigator.userAgent,
+      sessionId: localStorage.getItem("sessionId") || `session_${Date.now()}`,
+      viewport: {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      },
+    };
+
+    console.log("📤 Submitting feedback:", enhancedFeedback.feedbackType);
+
+    const response = await apiHelper.apiFetch("/feedback", {
+      method: "POST",
+      body: JSON.stringify(enhancedFeedback),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    console.log("✅ Feedback submitted successfully:", result);
+    return { success: true, result };
+  } catch (error) {
+    console.error("❌ Failed to submit feedback:", error);
+    await reportError("feedback_submission_failed", error, { feedbackData });
+    return { success: false, error: error.message };
+  }
+};
+
+// Enhanced Message Action Buttons integrated with your backend
+const EnhancedMessageActions = memo(
+  ({ chatItem, messageId, chatHistoryId, onRetry }) => {
+    const [copyState, setCopyState] = useState("idle");
+    const [feedbackState, setFeedbackState] = useState(null);
+    const [retryState, setRetryState] = useState("idle");
+
+    const handleCopy = useCallback(async () => {
+      setCopyState("copying");
+      try {
+        const tempDiv = document.createElement("div");
+        tempDiv.innerHTML = chatItem?.gemini || "";
+        const textContent = tempDiv.textContent || tempDiv.innerText || "";
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(textContent);
+        } else {
+          // Fallback for older browsers
+          const textArea = document.createElement("textarea");
+          textArea.value = textContent;
+          textArea.style.position = "fixed";
+          textArea.style.left = "-999999px";
+          document.body.appendChild(textArea);
+          textArea.focus();
+          textArea.select();
+          document.execCommand("copy");
+          textArea.remove();
+        }
+
+        setCopyState("copied");
+        setTimeout(() => setCopyState("idle"), 3000);
+
+        // Submit feedback to your backend
+        await submitFeedback({
+          type: "copy_action",
+          feedbackType: "copy",
+          messageId,
+          chatHistoryId,
+          contentLength: textContent.length,
+          success: true,
+        });
+      } catch (error) {
+        setCopyState("error");
+        setTimeout(() => setCopyState("idle"), 3000);
+        await reportError("copy_failed", error, { messageId, chatHistoryId });
+      }
+    }, [chatItem?.gemini, messageId, chatHistoryId]);
+
+    const handleFeedback = useCallback(
+      async (type) => {
+        if (feedbackState === "submitting") return;
+
+        setFeedbackState("submitting");
+        try {
+          const result = await submitFeedback({
+            type: "message_feedback",
+            feedbackType: type,
+            messageId,
+            chatHistoryId,
+            messageContent: chatItem?.gemini || "",
+            userQuery: chatItem?.user || "",
+            searchType: chatItem?.searchType,
+            isSearch: chatItem?.isSearch,
+            sources: chatItem?.sources || [],
+            relatedQuestions: chatItem?.relatedQuestions || [],
+          });
+
+          if (result.success) {
+            setFeedbackState(type);
+            setTimeout(() => setFeedbackState(null), 5000);
+
+            // Show success message
+            const messages = {
+              positive: "👍 Thanks for your positive feedback!",
+              negative: "👎 Thanks for your feedback. We'll work to improve!",
+            };
+            console.log(messages[type]);
+          } else {
+            throw new Error(result.error);
+          }
+        } catch (error) {
+          setFeedbackState(null);
+          await reportError("feedback_failed", error, {
+            messageId,
+            chatHistoryId,
+            feedbackType: type,
+          });
+        }
+      },
+      [chatItem, messageId, chatHistoryId, feedbackState]
+    );
+
+    const handleRetry = useCallback(async () => {
+      if (retryState === "retrying") return;
+
+      setRetryState("retrying");
+      try {
+        await submitFeedback({
+          type: "retry_action",
+          feedbackType: "retry",
+          messageId,
+          chatHistoryId,
+          originalQuery: chatItem?.user || "",
+          retryReason: "user_initiated",
+        });
+
+        onRetry?.(chatItem);
+        setTimeout(() => setRetryState("idle"), 2000);
+      } catch (error) {
+        setRetryState("idle");
+        await reportError("retry_failed", error, { messageId, chatHistoryId });
+      }
+    }, [chatItem, messageId, chatHistoryId, onRetry, retryState]);
+
+    const getCopyButtonContent = () => {
+      switch (copyState) {
+        case "copying":
+          return { icon: "⏳", text: "Copying..." };
+        case "copied":
+          return { icon: "✅", text: "Copied!" };
+        case "error":
+          return { icon: "❌", text: "Failed" };
+        default:
+          return { icon: "📋", text: "Copy" };
+      }
+    };
+
+    const getFeedbackIcon = (type) => {
+      if (feedbackState === "submitting") return "⏳";
+      if (feedbackState === type) return "✅";
+      return type === "positive" ? "👍" : "👎";
+    };
+
+    const copyContent = getCopyButtonContent();
+
+    return (
+      <div className={styles["message-actions-toolbar"]}>
+        <button
+          onClick={handleCopy}
+          className={`${styles["action-button"]} ${styles["copy-button"]}`}
+          disabled={copyState === "copying"}
+          title={copyContent.text}>
+          <span>{copyContent.icon}</span>
+          <span>{copyContent.text}</span>
+        </button>
+
+        <button
+          onClick={() => handleFeedback("positive")}
+          className={`${styles["action-button"]} ${styles["feedback-button"]} ${
+            feedbackState === "positive" ? styles["feedback-given"] : ""
+          }`}
+          disabled={feedbackState === "submitting"}
+          title="Good response">
+          <span>{getFeedbackIcon("positive")}</span>
+          {feedbackState === "positive" && <span>Thanks!</span>}
+        </button>
+
+        <button
+          onClick={() => handleFeedback("negative")}
+          className={`${styles["action-button"]} ${styles["feedback-button"]} ${
+            feedbackState === "negative" ? styles["feedback-given"] : ""
+          }`}
+          disabled={feedbackState === "submitting"}
+          title="Poor response">
+          <span>{getFeedbackIcon("negative")}</span>
+          {feedbackState === "negative" && <span>Noted</span>}
+        </button>
+
+        <button
+          onClick={handleRetry}
+          className={`${styles["action-button"]} ${styles["retry-button"]}`}
+          disabled={retryState === "retrying"}
+          title="Retry this response">
+          <span>{retryState === "retrying" ? "⏳" : "🔄"}</span>
+          <span>{retryState === "retrying" ? "Retrying..." : "Retry"}</span>
+        </button>
+      </div>
+    );
+  }
+);
+
+EnhancedMessageActions.displayName = "EnhancedMessageActions";
+
+// Optimized streaming content with sky blue highlighting
+const OptimizedStreamingContent = memo(
   ({ chatItem, processMessageContent, currentLoadingText }) => {
     const contentRef = useRef(null);
     const lastContentRef = useRef("");
-    const isStreamingRef = useRef(false);
+    const lastProcessedRef = useRef("");
 
-    // SMOOTH STREAMING: Update content without structure changes
     useEffect(() => {
       if (!contentRef.current) return;
 
       const content = chatItem?.gemini || "";
       const isStreaming = chatItem?.isLoader === "streaming";
       const isLoading = chatItem?.isLoader === "yes";
-      const isComplete = chatItem?.isLoader === "no";
+      const isComplete = chatItem?.isLoader === "no" && content;
 
-      // Initialize container if needed
-      if (!contentRef.current.hasChildNodes()) {
-        contentRef.current.innerHTML = `
-          <div class="streaming-container">
-            <div class="loading-text" style="display:none;font-style:italic;color:#666;">
-              ${currentLoadingText}
-            </div>
-            <div class="answer-content" style="min-height:20px;"></div>
-            <span class="typing-dots" style="display:none;">
-              <span style="animation: blink 1s infinite;">.</span>
-              <span style="animation: blink 1s infinite 0.2s;">.</span>
-              <span style="animation: blink 1s infinite 0.4s;">.</span>
-            </span>
-          </div>
-        `;
+      if (content === lastContentRef.current && !isComplete) {
+        return;
       }
 
-      const loadingDiv = contentRef.current.querySelector(".loading-text");
-      const answerDiv = contentRef.current.querySelector(".answer-content");
-      const typingDiv = contentRef.current.querySelector(".typing-dots");
+      lastContentRef.current = content;
 
-      if (!loadingDiv || !answerDiv || !typingDiv) return;
-
-      // Handle different states
       if (isLoading) {
-        // Show loading state
-        loadingDiv.style.display = "block";
-        loadingDiv.textContent = currentLoadingText;
-        answerDiv.style.display = "none";
-        typingDiv.style.display = "none";
-        isStreamingRef.current = false;
-      } else if (isStreaming) {
-        // Show streaming content
-        loadingDiv.style.display = "none";
-        answerDiv.style.display = "block";
-        typingDiv.style.display = "inline";
+        const loadingText = currentLoadingText || "Loading...";
+        contentRef.current.innerHTML = `<p style="font-style: italic; opacity: 0.7; line-height: 1.5 !important;">${loadingText}</p>`;
+      } else if (isStreaming || isComplete) {
+        const processedContent = processMessageContent(
+          content,
+          chatItem?.queryKeywords || [],
+          chatItem?.isPreformattedHTML
+        );
 
-        // SMOOTH UPDATE: Only update if content actually changed
-        if (content !== lastContentRef.current) {
-          const processedContent = processMessageContent(
-            content,
-            chatItem?.queryKeywords,
-            chatItem?.isPreformattedHTML
-          );
+        if (processedContent !== lastProcessedRef.current) {
+          lastProcessedRef.current = processedContent;
+          contentRef.current.innerHTML = processedContent;
 
-          // Smooth content update without flicker
-          answerDiv.innerHTML = processedContent || "Connecting...";
-          lastContentRef.current = content;
-        }
-        isStreamingRef.current = true;
-      } else if (isComplete && content) {
-        // Show completed content
-        loadingDiv.style.display = "none";
-        answerDiv.style.display = "block";
-        typingDiv.style.display = "none";
-
-        // Final content update
-        if (content !== lastContentRef.current || isStreamingRef.current) {
-          const processedContent = processMessageContent(
-            content,
-            chatItem?.queryKeywords,
-            chatItem?.isPreformattedHTML
-          );
-          answerDiv.innerHTML = processedContent;
-          lastContentRef.current = content;
-          isStreamingRef.current = false;
+          // Force consistent spacing
+          if (contentRef.current) {
+            const allElements = contentRef.current.querySelectorAll("*");
+            allElements.forEach((el) => {
+              if (el.style) {
+                el.style.lineHeight = "1.5";
+              }
+            });
+          }
         }
       }
     }, [
@@ -171,392 +343,122 @@ const StreamingContent = memo(
       chatItem?.isLoader,
       chatItem?.queryKeywords,
       chatItem?.isPreformattedHTML,
-      processMessageContent,
       currentLoadingText,
+      processMessageContent,
     ]);
 
     return (
       <div
         ref={contentRef}
         className={styles["message-content"]}
-        style={{ minHeight: "20px" }}
+        style={{
+          minHeight: "24px",
+          fontFamily: "'Google Sans', 'PT Sans', sans-serif",
+          lineHeight: "1.5 !important",
+          whiteSpace: "pre-wrap",
+          margin: 0,
+          padding: 0,
+        }}
       />
     );
-  },
-  // Prevent unnecessary re-renders during streaming
-  (prevProps, nextProps) => {
-    const prev = prevProps.chatItem;
-    const next = nextProps.chatItem;
-
-    // Don't re-render if just moving from streaming to complete
-    if (prev?.isLoader === "streaming" && next?.isLoader === "no") {
-      return true;
-    }
-
-    // Only re-render if significant changes
-    return (
-      prev?.isLoader === next?.isLoader &&
-      prev?.gemini === next?.gemini &&
-      prev?.error === next?.error
-    );
   }
 );
 
-StreamingContent.displayName = "StreamingContent";
+OptimizedStreamingContent.displayName = "OptimizedStreamingContent";
 
-// CRITICAL FIX: Prevent any re-renders during streaming completion
-const ChatMessage = memo(
-  ({
-    chatItem,
-    index,
-    userLogo,
-    geminiLogo,
-    agentLogo,
-    currentLoadingText,
-    processMessageContent,
-    handleRelatedQuestionClick,
-    historyId,
-    generateUniqueKey,
-    getAnswerKeywords,
-  }) => {
-    const uniqueKey = generateUniqueKey(chatItem, index);
+// AI Disclaimer with sky blue theme
+const AIDisclaimer = memo(() => {
+  const [isVisible, setIsVisible] = useState(true);
+  const [isHovered, setIsHovered] = useState(false);
 
-    // CRITICAL FIX: Prevent expensive computations during streaming
-    const answerKeywords = useMemo(() => {
-      if (
-        chatItem?.isLoader === "streaming" ||
-        chatItem?.isLoader === "yes" ||
-        chatItem?.isLoader === "partial"
-      ) {
-        return []; // Skip during streaming to prevent re-renders
-      }
-      return getAnswerKeywords(chatItem?.gemini);
-    }, [chatItem?.gemini, chatItem?.isLoader, getAnswerKeywords]);
+  const handleDismiss = useCallback(() => {
+    setIsVisible(false);
+    localStorage.setItem("disclaimerDismissed", "true");
+  }, []);
 
-    // CRITICAL FIX: Stable icon selection
-    const messageIcon = useMemo(() => {
-      if (
-        chatItem?.isLoader === "yes" ||
-        chatItem?.isLoader === "streaming" ||
-        chatItem?.isLoader === "partial"
-      ) {
-        return commonIcon.geminiLaoder;
-      }
-      return chatItem?.isSearch || chatItem?.searchType === "agent"
-        ? agentLogo
-        : geminiLogo;
-    }, [
-      chatItem?.isLoader,
-      chatItem?.isSearch,
-      chatItem?.searchType,
-      agentLogo,
-      geminiLogo,
-    ]);
+  useEffect(() => {
+    const dismissed = localStorage.getItem("disclaimerDismissed");
+    if (dismissed === "true") {
+      setIsVisible(false);
+    }
+  }, []);
 
-    const iconAlt = useMemo(() => {
-      if (
-        chatItem?.isLoader === "yes" ||
-        chatItem?.isLoader === "streaming" ||
-        chatItem?.isLoader === "partial"
-      ) {
-        return "Loading";
-      }
-      return chatItem?.isSearch || chatItem?.searchType === "agent"
-        ? "Agent"
-        : "AI";
-    }, [chatItem?.isLoader, chatItem?.isSearch, chatItem?.searchType]);
+  if (!isVisible) return null;
 
-    const iconClass = useMemo(() => {
-      const baseClass = styles["ai-icon"];
-      const loadingClass =
-        chatItem?.isLoader === "yes" ||
-        chatItem?.isLoader === "streaming" ||
-        chatItem?.isLoader === "partial"
-          ? styles["loading-animation"]
-          : "";
-      return `${baseClass} ${loadingClass}`.trim();
-    }, [chatItem?.isLoader]);
-
-    if (chatItem?.error) {
-      return (
-        <div className={styles["single-chat"]}>
-          <div className={styles["gemini-chat-container"]}>
-            <div
-              className={`${styles.gemini} ${styles["message-bubble"]} ${styles["error-bubble"]}`}>
-              <div className={styles["sender-info"]}>
-                <img
-                  src={agentLogo}
-                  alt="Error"
-                  className={styles["ai-icon"]}
-                />
-              </div>
-              <div className={styles["message-content-wrapper"]}>
-                <div
-                  className={`${styles["message-content"]} ${styles["error-message"]}`}>
-                  <p>
-                    {chatItem.error?.message ||
-                      chatItem.error ||
-                      "An error occurred."}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
+  return (
+    <div
+      className={styles["ai-disclaimer"]}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      style={{
+        position: "fixed",
+        bottom: "24px",
+        right: "24px",
+        background: "rgba(227, 242, 253, 0.95)", // Sky blue background
+        backdropFilter: "blur(10px)",
+        border: "1px solid #2196f3",
+        borderRadius: "12px",
+        padding: "12px 16px",
+        maxWidth: "320px",
+        boxShadow: "0 4px 12px rgba(33, 150, 243, 0.2)",
+        zIndex: 1000,
+        fontFamily: "'Google Sans', sans-serif",
+        transition: "all 0.3s ease",
+      }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          style={{ color: "#1976d2", flexShrink: 0, marginTop: "2px" }}>
+          <circle
+            cx="12"
+            cy="12"
+            r="10"
+            stroke="currentColor"
+            strokeWidth="2"
+          />
+          <path
+            d="M12 6v6l4 2"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <circle cx="12" cy="12" r="1" fill="currentColor" />
+        </svg>
+        <div style={{ flex: 1 }}>
+          <span
+            style={{ fontSize: "13px", color: "#0d47a1", lineHeight: "1.4" }}>
+            AI responses may contain inaccuracies. Please verify important
+            information.
+          </span>
+          {isHovered && (
+            <button
+              onClick={handleDismiss}
+              style={{
+                marginLeft: "8px",
+                background: "none",
+                border: "none",
+                color: "#1976d2",
+                cursor: "pointer",
+                fontSize: "12px",
+                textDecoration: "underline",
+              }}
+              title="Dismiss">
+              Dismiss
+            </button>
+          )}
         </div>
-      );
-    }
-
-    return (
-      <div className={styles["single-chat"]}>
-        {chatItem?.user && (
-          <div className={styles["user-chat-container"]}>
-            <div className={`${styles.user} ${styles["message-bubble"]}`}>
-              <div className={styles["sender-info"]}>
-                <img src={userLogo} alt="User" />
-              </div>
-              <div className={styles["message-content"]}>
-                <div className={styles["user-text"]}>{chatItem.user}</div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {(chatItem?.gemini ||
-          chatItem?.isLoader === "yes" ||
-          chatItem?.isLoader === "streaming" ||
-          chatItem?.isLoader === "partial") && (
-          <div className={styles["gemini-chat-container"]}>
-            <div className={`${styles.gemini} ${styles["message-bubble"]}`}>
-              <div className={styles["sender-info"]}>
-                <img src={messageIcon} alt={iconAlt} className={iconClass} />
-              </div>
-              <div className={styles["message-content-wrapper"]}>
-                {/* CRITICAL FIX: Ultra-stable streaming content */}
-                <div
-                  className={`${
-                    chatItem?.isSearch ? styles["search-message-content"] : ""
-                  } ${
-                    chatItem?.isLoader === "streaming" ||
-                    chatItem?.isLoader === "partial"
-                      ? styles["partial-response"]
-                      : ""
-                  }`}>
-                  <StreamingContent
-                    chatItem={chatItem}
-                    processMessageContent={processMessageContent}
-                    currentLoadingText={currentLoadingText}
-                  />
-                </div>
-
-                {/* CRITICAL FIX: Only render when completely done streaming */}
-                {chatItem.isLoader === "no" && !chatItem.error && (
-                  <>
-                    {chatItem.sources && chatItem.sources.length > 0 && (
-                      <div className={styles["unified-info-card"]}>
-                        <div className={styles["sources-section"]}>
-                          <h3 className={styles["section-title"]}>
-                            Sources ({chatItem.sources.length})
-                          </h3>
-                          <div className={styles["sources-grid"]}>
-                            {chatItem.sources.map((source, idx) => {
-                              const sourceKey = source.id
-                                ? `source-${source.id}`
-                                : `source-${uniqueKey}-${idx}`;
-
-                              const sourceTextForMatching = `${
-                                source.title || ""
-                              } ${source.snippet || ""}`.toLowerCase();
-                              const isHighlighted = answerKeywords.some(
-                                (keyword) =>
-                                  sourceTextForMatching.includes(keyword)
-                              );
-
-                              let displayTitle =
-                                source.title || "Untitled Source";
-                              let domain = "";
-                              if (source.url) {
-                                try {
-                                  domain = new URL(source.url).hostname;
-                                } catch (e) {
-                                  /* ignore invalid URL */
-                                }
-                              } else {
-                                domain = source.domain || "";
-                              }
-
-                              if (
-                                source.type === "jira" ||
-                                source.type === "confluence"
-                              ) {
-                                displayTitle =
-                                  source.citationLabel ||
-                                  source.title ||
-                                  "Untitled Link";
-                              }
-
-                              return (
-                                <div
-                                  key={sourceKey}
-                                  className={`${styles["source-card"]} ${
-                                    isHighlighted
-                                      ? styles["highlighted-source"]
-                                      : ""
-                                  }`}>
-                                  <a
-                                    href={source.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className={styles["source-link"]}
-                                    title={source.title || source.url}>
-                                    <div className={styles["source-header"]}>
-                                      {source.favicon && (
-                                        <img
-                                          src={source.favicon}
-                                          alt=""
-                                          className={styles["source-favicon"]}
-                                        />
-                                      )}
-                                      {domain && (
-                                        <div
-                                          className={styles["source-domain"]}>
-                                          {domain}
-                                        </div>
-                                      )}
-                                    </div>
-                                    <div
-                                      className={styles["source-title"]}
-                                      dangerouslySetInnerHTML={{
-                                        __html: DOMPurify.sanitize(
-                                          highlightKeywords(
-                                            displayTitle,
-                                            chatItem.queryKeywords?.join(" ") ||
-                                              ""
-                                          )
-                                        ),
-                                      }}
-                                    />
-                                    {(source.type === "jira" ||
-                                      source.type === "confluence") && (
-                                      <span
-                                        className={styles["source-type-badge"]}>
-                                        {source.type.toUpperCase()}
-                                      </span>
-                                    )}
-                                    {source.snippet && (
-                                      <div
-                                        className={styles["source-snippet"]}
-                                        dangerouslySetInnerHTML={{
-                                          __html: DOMPurify.sanitize(
-                                            highlightKeywords(
-                                              source.snippet,
-                                              chatItem.queryKeywords?.join(
-                                                " "
-                                              ) || ""
-                                            )
-                                          ),
-                                        }}
-                                      />
-                                    )}
-                                  </a>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {chatItem.relatedQuestions &&
-                      chatItem.relatedQuestions.length > 0 && (
-                        <div className={styles["unified-info-card"]}>
-                          <div className={styles["related-questions-section"]}>
-                            <h3 className={styles["section-title"]}>
-                              Related Questions
-                            </h3>
-                            <div className={styles["related-questions-list"]}>
-                              {chatItem.relatedQuestions.map(
-                                (question, idx) => (
-                                  <div
-                                    key={`question-${uniqueKey}-${idx}`}
-                                    className={styles["related-question-chip"]}
-                                    onClick={() =>
-                                      handleRelatedQuestionClick(
-                                        question,
-                                        chatItem.searchType,
-                                        chatItem.isSearch
-                                      )
-                                    }>
-                                    <span className={styles["question-text"]}>
-                                      {question}
-                                    </span>
-                                    <span className={styles["question-icon"]}>
-                                      +
-                                    </span>
-                                  </div>
-                                )
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                    {chatItem?.gemini && (
-                      <div className={styles["message-actions-toolbar"]}>
-                        <CopyBtn data={chatItem?.gemini} />
-                        {historyId && (
-                          <ShareBtn
-                            chatId={historyId}
-                            messageId={chatItem?.id}
-                          />
-                        )}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
       </div>
-    );
-  },
-  (prevProps, nextProps) => {
-    // CRITICAL FIX: Ultra-aggressive memo to prevent completion re-renders
-    const prev = prevProps.chatItem;
-    const next = nextProps.chatItem;
+    </div>
+  );
+});
 
-    // CRITICAL FIX: Never re-render during streaming completion transition
-    const isCompletingTransition =
-      (prev?.isLoader === "streaming" && next?.isLoader === "no") ||
-      (prev?.isLoader === "partial" && next?.isLoader === "no");
+AIDisclaimer.displayName = "AIDisclaimer";
 
-    if (isCompletingTransition) {
-      console.log(
-        `[ChatMessage] Preventing completion re-render for ${next?.id}`
-      );
-      return true; // Prevent re-render during completion
-    }
-
-    // For active streaming, only re-render if significant content change
-    if (next?.isLoader === "streaming" || next?.isLoader === "partial") {
-      const contentLengthDiff = Math.abs(
-        (next?.gemini?.length || 0) - (prev?.gemini?.length || 0)
-      );
-      return contentLengthDiff < 100; // Prevent re-render for small changes
-    }
-
-    // For other states, do minimal comparison
-    return (
-      prev?.id === next?.id &&
-      prev?.isLoader === next?.isLoader &&
-      prev?.error === next?.error &&
-      (prev?.gemini?.length || 0) === (next?.gemini?.length || 0)
-    );
-  }
-);
-
-ChatMessage.displayName = "ChatMessage";
-
+// Main ScrollChat component
 const ScrollChat = () => {
   const dispatch = useDispatch();
   const { historyId } = useParams();
@@ -572,6 +474,8 @@ const ScrollChat = () => {
 
   const [isLoadingChat, setIsLoadingChat] = useState(false);
   const [lastLoadedHistoryId, setLastLoadedHistoryId] = useState(null);
+  const [loadError, setLoadError] = useState(null);
+  const [showScrollButton, setShowScrollButton] = useState(false);
 
   const userLogo = userImage || commonIcon.avatarIcon;
   const geminiLogo = commonIcon.chatGeminiIcon;
@@ -580,30 +484,113 @@ const ScrollChat = () => {
   const loadingTexts = useMemo(
     () => [
       "Generating response...",
-      "Just a moment...",
       "Processing your request...",
+      "Just a moment...",
       "Thinking...",
-      "Searching for information...",
-      "Reading relevant documents...",
-      "Reviewing sources...",
-      "Crafting a response...",
-      "Almost ready...",
-      "Synthesizing information...",
-      "Organizing thoughts...",
-      "Connecting ideas...",
     ],
     []
   );
 
   const [currentLoadingText, setCurrentLoadingText] = useState(loadingTexts[0]);
-  const [showScrollButton, setShowScrollButton] = useState(false);
 
-  // Load chat histories when historyId changes
+  // Enhanced message processing with sky blue highlighting
+  const processMessageContent = useCallback(
+    (text, queryKeywords = [], isPreformattedHTML = false) => {
+      if (!text) return "";
+
+      let processedText = String(text);
+
+      try {
+        if (isPreformattedHTML) {
+          if (queryKeywords && queryKeywords.length > 0) {
+            processedText = highlightChatKeywords(processedText, queryKeywords);
+          }
+          return DOMPurify.sanitize(processedText, {
+            USE_PROFILES: { html: true },
+          });
+        }
+
+        // Enhanced markdown processing with consistent spacing
+        processedText = processedText
+          .replace(
+            /^### (.*$)/gim,
+            "<h3 style='margin: 12px 0 6px 0 !important; line-height: 1.3 !important; color: #1976d2;'>$1</h3>"
+          )
+          .replace(
+            /^## (.*$)/gim,
+            "<h2 style='margin: 12px 0 6px 0 !important; line-height: 1.3 !important; color: #1976d2;'>$1</h2>"
+          )
+          .replace(
+            /^# (.*$)/gim,
+            "<h1 style='margin: 12px 0 6px 0 !important; line-height: 1.3 !important; color: #1976d2;'>$1</h1>"
+          )
+          .replace(
+            /\*\*(.*?)\*\*/g,
+            "<strong style='color: #0d47a1;'>$1</strong>"
+          )
+          .replace(/\*(.*?)\*/g, "<em style='color: #1565c0;'>$1</em>")
+          .replace(
+            /```([\s\S]*?)```/g,
+            "<pre style='margin: 8px 0 !important; line-height: 1.4 !important; background: #e3f2fd; border-left: 4px solid #2196f3; padding: 12px;'><code>$1</code></pre>"
+          )
+          .replace(
+            /`([^`]+)`/g,
+            "<code style='background: #e3f2fd; color: #0d47a1; padding: 2px 4px; border-radius: 3px;'>$1</code>"
+          )
+          .replace(
+            /^\s*\* (.+)$/gm,
+            "<li style='margin-bottom: 2px !important; line-height: 1.5 !important;'>$1</li>"
+          )
+          .replace(
+            /(<li.*?<\/li>)/s,
+            "<ul style='margin: 8px 0 !important;'>$1</ul>"
+          )
+          .replace(
+            /^\s*\d+\. (.+)$/gm,
+            "<li style='margin-bottom: 2px !important; line-height: 1.5 !important;'>$1</li>"
+          )
+          .replace(
+            /\n\s*\n\s*\n/g,
+            "</p><p style='margin: 6px 0 !important; line-height: 1.5 !important;'>"
+          )
+          .replace(
+            /\n\s*\n/g,
+            "</p><p style='margin: 6px 0 !important; line-height: 1.5 !important;'>"
+          )
+          .replace(/\n(?![^<]*>)/g, "<br>");
+
+        if (!processedText.match(/^<(h[1-6]|p|div|ul|ol|blockquote|pre)/)) {
+          processedText = `<p style='margin: 6px 0 !important; line-height: 1.5 !important;'>${processedText}</p>`;
+        }
+
+        // Apply sky blue keyword highlighting
+        if (queryKeywords && queryKeywords.length > 0) {
+          processedText = highlightChatKeywords(processedText, queryKeywords);
+        }
+
+        return DOMPurify.sanitize(processedText, {
+          USE_PROFILES: { html: true },
+        });
+      } catch (error) {
+        console.error("Error processing message content:", error);
+        reportError("content_processing_failed", error, {
+          originalText: text?.substring(0, 100),
+          queryKeywords,
+        });
+        return text;
+      }
+    },
+    []
+  );
+
+  // Chat loading with error reporting
   useEffect(() => {
     if (historyId && historyId !== lastLoadedHistoryId && !isLoadingChat) {
       console.log(`[ScrollChat] Loading chat history: ${historyId}`);
       setIsLoadingChat(true);
       setLastLoadedHistoryId(historyId);
+      setLoadError(null);
+
       dispatch(chatAction.getChatHandler({ chats: [] }));
 
       dispatch(getChat(historyId))
@@ -615,70 +602,98 @@ const ScrollChat = () => {
           dispatch(
             chatAction.chatHistoryIdHandler({ chatHistoryId: historyId })
           );
+          setLoadError(null);
         })
-        .catch((error) => {
+        .catch(async (error) => {
           console.error(`[ScrollChat] Error loading chat: ${historyId}`, error);
-          dispatch(
-            chatAction.chatHistoryIdHandler({ chatHistoryId: historyId })
-          );
-        })
-        .finally(() => {
-          setIsLoadingChat(false);
-        });
-    } else if (
-      historyId &&
-      historyId === chatHistoryId &&
-      chat.length === 0 &&
-      !isLoadingChat
-    ) {
-      console.log(
-        `[ScrollChat] No messages found, attempting to load: ${historyId}`
-      );
-      setIsLoadingChat(true);
+          setLoadError(error.message || "Failed to load conversation");
 
-      dispatch(getChat(historyId))
-        .then((result) => {
-          console.log(
-            `[ScrollChat] Loaded missing messages for: ${historyId}`,
-            result
-          );
-        })
-        .catch((error) => {
-          console.error(
-            `[ScrollChat] Error loading missing messages: ${historyId}`,
-            error
-          );
+          await reportError("chat_load_failed", error, {
+            historyId,
+            chatHistoryId,
+            userAgent: navigator.userAgent,
+          });
         })
         .finally(() => {
           setIsLoadingChat(false);
         });
     }
-  }, [
-    dispatch,
-    historyId,
-    lastLoadedHistoryId,
-    isLoadingChat,
-    chatHistoryId,
-    chat.length,
-  ]);
+  }, [dispatch, historyId, lastLoadedHistoryId, isLoadingChat, chatHistoryId]);
 
-  // CRITICAL FIX: Stable auto-scroll without re-renders
+  // Retry handler with feedback
+  const handleRetryMessage = useCallback(
+    async (chatItem) => {
+      try {
+        if (chatItem?.user) {
+          if (chatItem.isSearch) {
+            const endpoint =
+              chatItem.searchType === "deep"
+                ? "/api/deepsearch"
+                : "/api/simplesearch";
+            await dispatch(
+              sendDeepSearchRequest({
+                query: chatItem.user,
+                endpoint: endpoint,
+                chatHistoryId: chatHistoryId,
+              })
+            );
+          } else {
+            await dispatch(
+              sendChatData({
+                user: chatItem.user,
+                previousChat: previousChat,
+                chatHistoryId: chatHistoryId,
+              })
+            );
+          }
+        }
+      } catch (error) {
+        await reportError("retry_message_failed", error, {
+          chatItem: {
+            user: chatItem?.user,
+            isSearch: chatItem?.isSearch,
+            searchType: chatItem?.searchType,
+          },
+          chatHistoryId,
+        });
+      }
+    },
+    [dispatch, chatHistoryId, previousChat]
+  );
+
+  // Auto-scroll and other effects...
   useEffect(() => {
     const chatContainer = chatRef.current;
     if (chatContainer && chat.length > 0) {
-      // Use setTimeout to prevent scroll during DOM updates
-      setTimeout(() => {
-        const { scrollTop, scrollHeight, clientHeight } = chatContainer;
-        const isNearBottom = scrollHeight - scrollTop <= clientHeight + 100;
+      const scrollToBottom = () => {
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+      };
 
-        if (isNearBottom || streamingInProgress) {
-          chatContainer.scrollTop = scrollHeight;
-          setShowScrollButton(false);
-        }
-      }, 50); // Small delay to ensure DOM is stable
+      if (streamingInProgress) {
+        setTimeout(scrollToBottom, 100);
+      } else {
+        scrollToBottom();
+      }
     }
-  }, [chat.length, streamingInProgress]);
+  }, [chat, streamingInProgress]);
 
+  // Loading text rotation
+  useEffect(() => {
+    const hasLoading = chat.some((c) => c.isLoader === "yes");
+    let intervalId;
+    if (hasLoading) {
+      intervalId = setInterval(() => {
+        setCurrentLoadingText((prevText) => {
+          const currentIndex = loadingTexts.indexOf(prevText);
+          const nextIndex = (currentIndex + 1) % loadingTexts.length;
+          return loadingTexts[nextIndex];
+        });
+      }, 2000);
+    }
+    return () => clearInterval(intervalId);
+  }, [chat, loadingTexts]);
+
+  // Scroll button functionality
   const handleScroll = useCallback(() => {
     const chatContainer = chatRef.current;
     if (chatContainer) {
@@ -692,35 +707,9 @@ const ScrollChat = () => {
     const chatContainer = chatRef.current;
     if (chatContainer) {
       chatContainer.addEventListener("scroll", handleScroll);
-      return () => {
-        chatContainer.removeEventListener("scroll", handleScroll);
-      };
+      return () => chatContainer.removeEventListener("scroll", handleScroll);
     }
   }, [handleScroll]);
-
-  useEffect(() => {
-    const hasStandardLoadingMessage = chat.some(
-      (c) =>
-        c.isLoader === "yes" &&
-        (c.searchType === "agent" ||
-          c.searchType === "deep" ||
-          c.searchType === "simple")
-    );
-
-    let intervalId;
-    if (hasStandardLoadingMessage) {
-      setCurrentLoadingText(loadingTexts[0]);
-      intervalId = setInterval(() => {
-        setCurrentLoadingText((prevText) => {
-          const currentIndex = loadingTexts.indexOf(prevText);
-          const nextIndex = (currentIndex + 1) % loadingTexts.length;
-          return loadingTexts[nextIndex];
-        });
-      }, 2500);
-    }
-
-    return () => clearInterval(intervalId);
-  }, [chat, loadingTexts]);
 
   const forceScrollToBottom = useCallback(() => {
     if (chatRef.current) {
@@ -729,218 +718,203 @@ const ScrollChat = () => {
     }
   }, []);
 
-  const processMessageContent = useCallback(
-    (text, queryKeywords = [], isPreformattedHTML = false) => {
-      if (text === null || typeof text === "undefined") return "";
-      let processedText = String(text);
-
-      if (
-        isPreformattedHTML ||
-        processedText.includes('<div class="llm-gateway-search-results">')
-      ) {
-        processedText = processedText
-          .replace(/<div class="llm-gateway-search-results">/g, "")
-          .replace(/<div class="search-answer-container">/g, "")
-          .replace(
-            /<\/div>\s*<div class="search-sources">/g,
-            '<div class="search-sources">'
-          )
-          .replace(/^<div class="search-answer-container">\s*/g, "")
-          .replace(/\s*<\/div>$/g, "");
-
-        processedText = processedText
-          .replace(/^# /gm, "")
-          .replace(/^## /gm, "")
-          .replace(/^### /gm, "")
-          .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-          .replace(/\*([^*]+)\*/g, "<em>$1</em>")
-          .replace(/```[\s\S]*?```/g, "")
-          .replace(/`([^`]+)`/g, "$1")
-          .replace(/\n{3,}/g, "\n\n")
-          .trim();
-
-        if (
-          !processedText.includes("<p>") &&
-          !processedText.includes("<div>")
-        ) {
-          processedText = processedText
-            .split("\n\n")
-            .filter((para) => para.trim().length > 0)
-            .map((para) => `<p>${para.trim()}</p>`)
-            .join("");
-        }
-
-        return DOMPurify.sanitize(processedText, {
-          USE_PROFILES: { html: true },
-          ALLOW_DATA_ATTR: true,
-        });
-      }
-
-      // Apply markdown processing
-      processedText = processedText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-
-      processedText = processedText.replace(
-        /```(\w+)?\n?([\s\S]*?)```/g,
-        (match, lang, code) => {
-          const escapedCode = DOMPurify.sanitize(code.trim(), {
-            USE_PROFILES: { html: false },
-          })
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;");
-          return `<pre><code class="language-${
-            lang || ""
-          }">${escapedCode}</code></pre>`;
-        }
-      );
-
-      processedText = processedText.replace(
-        /`([^`\n]+)`/g,
-        '<code class="inline-code">$1</code>'
-      );
-      processedText = processedText.replace(/^### (.*$)/gim, "<h3>$1</h3>");
-      processedText = processedText.replace(/^## (.*$)/gim, "<h2>$1</h2>");
-      processedText = processedText.replace(/^# (.*$)/gim, "<h1>$1</h1>");
-      processedText = processedText.replace(
-        /^\s*[-*+]\s+(.*)/gm,
-        "<li>$1</li>"
-      );
-      processedText = processedText.replace(
-        /^\s*\d+\.\s+(.*)/gm,
-        "<li>$1</li>"
-      );
-      processedText = processedText.replace(
-        /(<li>.*?<\/li>\s*)+/gs,
-        (match) => `<ul>${match}</ul>`
-      );
-      processedText = processedText.replace(
-        /^>\s*(.*)/gm,
-        "<blockquote>$1</blockquote>"
-      );
-      processedText = processedText.replace(
-        /\*\*(.*?)\*\*/g,
-        "<strong>$1</strong>"
-      );
-      processedText = processedText.replace(/\*(.*?)\*/g, "<em>$1</em>");
-      processedText = processedText.replace(/~~(.*?)~~/g, "<del>$1</del>");
-      processedText = processedText.replace(
-        /\[([^\]]+)\]\(([^)]+)\)/g,
-        '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'
-      );
-      processedText = processedText.replace(/\n\s*\n/g, "</p><p>");
-      processedText = processedText.replace(/\n(?![^<]*>)/g, "<br>");
-
-      if (!processedText.match(/^<(h[1-6]|p|div|ul|ol|blockquote|pre)/)) {
-        processedText = `<p>${processedText}</p>`;
-      }
-
-      if (queryKeywords && queryKeywords.length > 0) {
-        try {
-          processedText = highlightKeywords(
-            processedText,
-            queryKeywords.join(" ")
-          );
-        } catch (highlightError) {
-          console.error("Error applying keyword highlighting:", highlightError);
-        }
-      }
-
-      return DOMPurify.sanitize(processedText, {
-        USE_PROFILES: { html: true },
-        ALLOW_DATA_ATTR: true,
-      });
-    },
-    []
-  );
-
-  const getAnswerKeywords = useCallback(
-    (geminiText) => {
-      if (!geminiText) return [];
-      const tempDiv = document.createElement("div");
-      tempDiv.innerHTML = processMessageContent(geminiText, [], false);
-      return extractKeywords(tempDiv.textContent || tempDiv.innerText || "");
-    },
-    [processMessageContent]
-  );
-
-  const handleRelatedQuestionClick = useCallback(
-    (question, originalSearchType, originalIsSearch) => {
-      console.log(`[ScrollChat] Related question clicked: ${question}`);
-
-      if (originalIsSearch) {
-        let endpoint = "/api/simplesearch";
-        if (
-          ["deep", "deepSearchAgent", "deepResearchAgent", "agent"].includes(
-            originalSearchType
-          )
-        ) {
-          endpoint = "/api/deepsearch";
-        }
-        dispatch(
-          sendDeepSearchRequest({
-            query: question,
-            endpoint: endpoint,
-            chatHistoryId: chatHistoryId,
-          })
-        );
-      } else {
-        dispatch(
-          sendChatData({
-            user: question,
-            previousChat: previousChat,
-            chatHistoryId: chatHistoryId,
-          })
-        );
-      }
-    },
-    [dispatch, chatHistoryId, previousChat]
-  );
-
-  const generateUniqueKey = useCallback((chatItem, index) => {
-    const baseId = chatItem?.id || chatItem?._id || `msg_${index}`;
-    const timestamp = chatItem?.timestamp || Date.now();
-    const userHash = chatItem?.user
-      ? chatItem.user.substring(0, 10).replace(/\s/g, "")
-      : "empty";
-    const geminiHash = chatItem?.gemini
-      ? chatItem.gemini.substring(0, 10).replace(/\s/g, "")
-      : "empty";
-    const streamingId = chatItem?.streamingId || "nostream";
-
-    return `chat-${baseId}-${timestamp}-${userHash}-${geminiHash}-${streamingId}-${index}`;
-  }, []);
-
-  // CRITICAL FIX: Stable chat section
+  // Enhanced chat rendering with all features
   const chatSection = useMemo(() => {
-    return chat.map((c, chatIndex) => (
-      <Fragment key={generateUniqueKey(c, chatIndex)}>
-        <ChatMessage
-          chatItem={c}
-          index={chatIndex}
-          userLogo={userLogo}
-          geminiLogo={geminiLogo}
-          agentLogo={agentLogo}
-          currentLoadingText={currentLoadingText}
-          processMessageContent={processMessageContent}
-          handleRelatedQuestionClick={handleRelatedQuestionClick}
-          historyId={historyId}
-          generateUniqueKey={generateUniqueKey}
-          getAnswerKeywords={getAnswerKeywords}
-        />
-      </Fragment>
-    ));
+    return chat.map((chatItem, chatIndex) => {
+      const uniqueKey = `chat-${chatItem?.id || chatIndex}-${
+        chatItem?.timestamp || Date.now()
+      }`;
+
+      return (
+        <Fragment key={uniqueKey}>
+          <div className={styles["single-chat"]}>
+            {/* User Message */}
+            {chatItem?.user && (
+              <div className={styles["user-chat-container"]}>
+                <div className={`${styles.user} ${styles["message-bubble"]}`}>
+                  <div className={styles["sender-info"]}>
+                    <img src={userLogo} alt="User" />
+                  </div>
+                  <div className={styles["message-content"]}>
+                    <div className={styles["user-text"]}>{chatItem.user}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* AI Message */}
+            {(chatItem?.gemini ||
+              chatItem?.isLoader === "yes" ||
+              chatItem?.isLoader === "streaming") && (
+              <div className={styles["gemini-chat-container"]}>
+                <div className={`${styles.gemini} ${styles["message-bubble"]}`}>
+                  <div className={styles["sender-info"]}>
+                    <img
+                      src={
+                        chatItem?.isLoader === "yes" ||
+                        chatItem?.isLoader === "streaming"
+                          ? commonIcon.geminiLaoder
+                          : chatItem?.isSearch ||
+                            chatItem?.searchType === "agent"
+                          ? agentLogo
+                          : geminiLogo
+                      }
+                      alt="AI"
+                      className={`${styles["ai-icon"]} ${
+                        chatItem?.isLoader === "yes" ||
+                        chatItem?.isLoader === "streaming"
+                          ? styles["loading-animation"]
+                          : ""
+                      }`}
+                    />
+                  </div>
+                  <div className={styles["message-content-wrapper"]}>
+                    <OptimizedStreamingContent
+                      chatItem={chatItem}
+                      processMessageContent={processMessageContent}
+                      currentLoadingText={currentLoadingText}
+                    />
+
+                    {/* Sources and Related Questions */}
+                    {chatItem.isLoader === "no" && !chatItem.error && (
+                      <>
+                        {chatItem.sources && chatItem.sources.length > 0 && (
+                          <div className={styles["unified-info-card"]}>
+                            <div className={styles["sources-section"]}>
+                              <h3 className={styles["section-title"]}>
+                                Sources ({chatItem.sources.length})
+                              </h3>
+                              <div className={styles["sources-grid"]}>
+                                {chatItem.sources.map((source, idx) => (
+                                  <div
+                                    key={`source-${idx}`}
+                                    className={styles["source-card"]}>
+                                    <a
+                                      href={source.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className={styles["source-link"]}>
+                                      <div className={styles["source-header"]}>
+                                        {source.favicon && (
+                                          <img
+                                            src={source.favicon}
+                                            alt=""
+                                            className={styles["source-favicon"]}
+                                          />
+                                        )}
+                                        <div
+                                          className={styles["source-domain"]}>
+                                          {source.domain ||
+                                            new URL(source.url || "").hostname}
+                                        </div>
+                                      </div>
+                                      <div className={styles["source-title"]}>
+                                        {source.title || "Untitled Source"}
+                                      </div>
+                                      {source.snippet && (
+                                        <div
+                                          className={styles["source-snippet"]}>
+                                          {source.snippet}
+                                        </div>
+                                      )}
+                                    </a>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {chatItem.relatedQuestions &&
+                          chatItem.relatedQuestions.length > 0 && (
+                            <div className={styles["unified-info-card"]}>
+                              <div
+                                className={styles["related-questions-section"]}>
+                                <h3 className={styles["section-title"]}>
+                                  Related Questions
+                                </h3>
+                                <div
+                                  className={styles["related-questions-list"]}>
+                                  {chatItem.relatedQuestions.map(
+                                    (question, idx) => (
+                                      <div
+                                        key={`question-${idx}`}
+                                        className={
+                                          styles["related-question-chip"]
+                                        }
+                                        onClick={() => {
+                                          if (chatItem.isSearch) {
+                                            const endpoint =
+                                              chatItem.searchType === "deep"
+                                                ? "/api/deepsearch"
+                                                : "/api/simplesearch";
+                                            dispatch(
+                                              sendDeepSearchRequest({
+                                                query: question,
+                                                endpoint: endpoint,
+                                                chatHistoryId: chatHistoryId,
+                                              })
+                                            );
+                                          } else {
+                                            dispatch(
+                                              sendChatData({
+                                                user: question,
+                                                previousChat: previousChat,
+                                                chatHistoryId: chatHistoryId,
+                                              })
+                                            );
+                                          }
+                                        }}>
+                                        <span
+                                          className={styles["question-text"]}>
+                                          {question}
+                                        </span>
+                                        <span
+                                          className={styles["question-icon"]}>
+                                          +
+                                        </span>
+                                      </div>
+                                    )
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                        {/* Enhanced Message Actions */}
+                        {chatItem?.gemini && (
+                          <EnhancedMessageActions
+                            chatItem={chatItem}
+                            messageId={chatItem?.id || uniqueKey}
+                            chatHistoryId={historyId}
+                            onRetry={handleRetryMessage}
+                          />
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </Fragment>
+      );
+    });
   }, [
     chat,
     currentLoadingText,
     processMessageContent,
-    handleRelatedQuestionClick,
-    historyId,
     userLogo,
     geminiLogo,
     agentLogo,
-    generateUniqueKey,
-    getAnswerKeywords,
+    historyId,
+    handleRetryMessage,
+    dispatch,
+    chatHistoryId,
+    previousChat,
   ]);
 
+  // Loading and error states
   if (isLoadingChat && chat.length === 0) {
     return (
       <div className={styles["scroll-chat-container"]}>
@@ -952,6 +926,44 @@ const ScrollChat = () => {
               className={styles["loading-animation"]}
             />
             <p>Loading conversation...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (loadError && chat.length === 0) {
+    return (
+      <div className={styles["scroll-chat-container"]}>
+        <div className={styles["scroll-chat-main"]}>
+          <div className={styles["error-container"]}>
+            <div className={styles["error-content"]}>
+              <img
+                src={commonIcon.advanceGeminiIcon}
+                alt="Error"
+                style={{ opacity: 0.5, width: 48, height: 48 }}
+              />
+              <h3 style={{ color: "#ea4335", margin: "16px 0 8px 0" }}>
+                Failed to Load Conversation
+              </h3>
+              <p style={{ color: "#5f6368", margin: "8px 0" }}>{loadError}</p>
+              <button
+                onClick={() => {
+                  setLastLoadedHistoryId(null);
+                  setLoadError(null);
+                }}
+                style={{
+                  background: "#1a73e8",
+                  color: "white",
+                  border: "none",
+                  borderRadius: "6px",
+                  padding: "10px 20px",
+                  cursor: "pointer",
+                  marginTop: "16px",
+                }}>
+                Retry Loading
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -977,16 +989,25 @@ const ScrollChat = () => {
         )}
       </div>
 
+      {/* Scroll to bottom button */}
       {showScrollButton && (
         <button
           className={styles["scroll-to-bottom"]}
           onClick={forceScrollToBottom}
-          title="Scroll to bottom">
+          title="Scroll to bottom"
+          style={{
+            background: "#e3f2fd",
+            borderColor: "#2196f3",
+            color: "#1976d2",
+          }}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
             <path d="M7 14L12 19L17 14H7Z" fill="currentColor" />
           </svg>
         </button>
       )}
+
+      {/* AI Disclaimer with sky blue theme */}
+      <AIDisclaimer />
     </div>
   );
 };

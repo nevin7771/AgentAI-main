@@ -1,4 +1,4 @@
-// public/src/store/day-one-agent-actions.js - OPTIMIZED STREAMING VERSION
+// public/src/store/day-one-agent-actions.js - STREAMING FIXED + SAVING RESTORED
 import { chatAction } from "./chat";
 import { uiAction } from "./ui-gemini";
 import { agentAction } from "./agent";
@@ -27,52 +27,64 @@ const extractKeywords = (queryStr) => {
 };
 
 /**
- * CRITICAL FIX: Debounced streaming updates to prevent UI blinking
+ * OPTIMIZED STREAMING MANAGER - Smooth streaming without UI flicker
  */
-class StreamingManager {
+class OptimizedStreamingManager {
   constructor() {
-    this.pendingUpdates = new Map();
+    this.contentBuffer = new Map();
     this.updateTimeouts = new Map();
-    this.DEBOUNCE_DELAY = 150; // 150ms debounce
-    this.BATCH_SIZE = 10; // Batch multiple characters together
+    this.lastUpdateTimes = new Map();
+    this.UPDATE_INTERVAL = 200; // Optimized timing
+    this.MINIMUM_CONTENT_CHANGE = 15; // Content threshold
+    this.WORD_THRESHOLD = 4; // Update every 4 words
   }
 
   scheduleUpdate(streamingId, content, dispatch, isComplete = false) {
-    // Clear existing timeout for this stream
+    // Clear existing timeout
     if (this.updateTimeouts.has(streamingId)) {
       clearTimeout(this.updateTimeouts.get(streamingId));
     }
 
-    // Store the latest content
-    this.pendingUpdates.set(streamingId, content);
+    const previousContent = this.contentBuffer.get(streamingId) || "";
+    const lastUpdateTime = this.lastUpdateTimes.get(streamingId) || 0;
+    const now = Date.now();
 
-    // CRITICAL FIX: For completion, delay slightly to batch with any final updates
+    this.contentBuffer.set(streamingId, content);
+
+    // IMMEDIATE update for completion
     if (isComplete) {
-      console.log(
-        `[StreamingManager] Scheduling completion update for ${streamingId}`
-      );
-      const timeoutId = setTimeout(() => {
-        this.flushUpdate(streamingId, dispatch, true);
-      }, 100); // Small delay to batch completion
-      this.updateTimeouts.set(streamingId, timeoutId);
+      console.log(`[OptimizedStreaming] Completing ${streamingId}`);
+      this.flushUpdate(streamingId, dispatch, true);
       return;
     }
 
-    // Set debounced update for streaming
-    const timeoutId = setTimeout(() => {
-      this.flushUpdate(streamingId, dispatch, false);
-    }, this.DEBOUNCE_DELAY);
+    // Calculate content difference
+    const contentDiff = Math.abs(
+      (content?.length || 0) - (previousContent?.length || 0)
+    );
+    const wordsDiff = Math.floor(contentDiff / 5); // Approximate words
+    const timeSinceLastUpdate = now - lastUpdateTime;
 
-    this.updateTimeouts.set(streamingId, timeoutId);
+    // Update if enough content changed or enough time passed
+    if (
+      contentDiff >= this.MINIMUM_CONTENT_CHANGE ||
+      wordsDiff >= this.WORD_THRESHOLD ||
+      timeSinceLastUpdate >= this.UPDATE_INTERVAL * 2
+    ) {
+      this.flushUpdate(streamingId, dispatch, false);
+    } else {
+      // Schedule delayed update
+      const timeoutId = setTimeout(() => {
+        this.flushUpdate(streamingId, dispatch, false);
+      }, this.UPDATE_INTERVAL);
+
+      this.updateTimeouts.set(streamingId, timeoutId);
+    }
   }
 
   flushUpdate(streamingId, dispatch, isComplete) {
-    const content = this.pendingUpdates.get(streamingId);
+    const content = this.contentBuffer.get(streamingId);
     if (content !== undefined) {
-      console.log(
-        `[StreamingManager] Flushing update for ${streamingId}, complete: ${isComplete}`
-      );
-
       dispatch(
         chatAction.updateStreamingChat({
           streamingId: streamingId,
@@ -81,11 +93,18 @@ class StreamingManager {
         })
       );
 
-      // Clean up
-      this.pendingUpdates.delete(streamingId);
-      if (this.updateTimeouts.has(streamingId)) {
-        clearTimeout(this.updateTimeouts.get(streamingId));
-        this.updateTimeouts.delete(streamingId);
+      // Track update time
+      this.lastUpdateTimes.set(streamingId, Date.now());
+
+      // Clean up on completion
+      if (isComplete) {
+        this.cleanup(streamingId);
+      } else {
+        // Clear timeout after successful update
+        if (this.updateTimeouts.has(streamingId)) {
+          clearTimeout(this.updateTimeouts.get(streamingId));
+          this.updateTimeouts.delete(streamingId);
+        }
       }
     }
   }
@@ -95,12 +114,13 @@ class StreamingManager {
       clearTimeout(this.updateTimeouts.get(streamingId));
       this.updateTimeouts.delete(streamingId);
     }
-    this.pendingUpdates.delete(streamingId);
+    this.contentBuffer.delete(streamingId);
+    this.lastUpdateTimes.delete(streamingId);
   }
 }
 
-// Global streaming manager instance
-const streamingManager = new StreamingManager();
+// Global streaming manager
+const optimizedStreamingManager = new OptimizedStreamingManager();
 
 /**
  * Get Day One token from the server
@@ -109,9 +129,7 @@ const getDayOneToken = async () => {
   try {
     const response = await fetch(`${BASE_URL}/api/dayone/token`, {
       method: "GET",
-      headers: {
-        Accept: "application/json",
-      },
+      headers: { Accept: "application/json" },
       credentials: "include",
     });
 
@@ -134,25 +152,91 @@ const getDayOneToken = async () => {
 };
 
 /**
- * Enhanced conversation saving with retry logic
+ * CRITICAL FIX: Proper save function using correct API endpoints
  */
-const saveConversationToMongoDB = async (
+const saveAgentChatToBackend = async (
   chatHistoryId,
+  agentType,
   question,
-  answer,
+  response,
   isNewConversation
 ) => {
   try {
-    const endpoint = isNewConversation
+    console.log(
+      `[SaveAgentChat] Saving ${agentType} chat, new: ${isNewConversation}`
+    );
+
+    if (isNewConversation) {
+      // Create new chat history using the original working endpoint
+      const createResponse = await fetch(`${BASE_URL}/api/save-agent-chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          chatHistoryId: chatHistoryId,
+          agentType: agentType,
+          question: question,
+          response: response,
+          isNewConversation: true,
+        }),
+      });
+
+      if (createResponse.ok) {
+        const createData = await createResponse.json();
+        console.log(`[SaveAgentChat] Created new chat history:`, createData);
+        return createData.chatHistoryId || chatHistoryId;
+      } else {
+        console.warn(
+          `[SaveAgentChat] Failed to create new chat:`,
+          createResponse.status
+        );
+      }
+    } else {
+      // Append to existing chat history
+      const appendResponse = await fetch(`${BASE_URL}/api/save-agent-chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          chatHistoryId: chatHistoryId,
+          agentType: agentType,
+          question: question,
+          response: response,
+          isNewConversation: false,
+        }),
+      });
+
+      if (appendResponse.ok) {
+        const appendData = await appendResponse.json();
+        console.log(`[SaveAgentChat] Appended to existing chat:`, appendData);
+        return chatHistoryId;
+      } else {
+        console.warn(
+          `[SaveAgentChat] Failed to append to chat:`,
+          appendResponse.status
+        );
+      }
+    }
+
+    // Fallback: Try alternative endpoints
+    console.log(`[SaveAgentChat] Trying fallback save method...`);
+
+    const fallbackEndpoint = isNewConversation
       ? `${BASE_URL}/api/create-chat-history-enhanced`
       : `${BASE_URL}/api/append-chat-message`;
 
-    const body = isNewConversation
+    const fallbackBody = isNewConversation
       ? {
-          title: `Agent: ${question.substring(0, 40)}`,
+          title: `${agentType}: ${question.substring(0, 40)}`,
           message: {
             user: question,
-            gemini: answer,
+            gemini: response,
             sources: [],
             relatedQuestions: [],
             queryKeywords: extractKeywords(question),
@@ -166,7 +250,7 @@ const saveConversationToMongoDB = async (
           chatHistoryId: chatHistoryId,
           message: {
             user: question,
-            gemini: answer,
+            gemini: response,
             sources: [],
             relatedQuestions: [],
             queryKeywords: extractKeywords(question),
@@ -176,31 +260,31 @@ const saveConversationToMongoDB = async (
           searchType: "agent",
         };
 
-    const response = await fetch(endpoint, {
+    const fallbackResponse = await fetch(fallbackEndpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
       },
       credentials: "include",
-      body: JSON.stringify(body),
+      body: JSON.stringify(fallbackBody),
     });
 
-    if (response.ok) {
-      const result = await response.json();
-      return result.chatHistoryId || chatHistoryId;
-    } else {
-      console.warn("Failed to save conversation:", response.status);
-      return chatHistoryId;
+    if (fallbackResponse.ok) {
+      const fallbackData = await fallbackResponse.json();
+      console.log(`[SaveAgentChat] Fallback save successful:`, fallbackData);
+      return fallbackData.chatHistoryId || chatHistoryId;
     }
+
+    throw new Error(`All save attempts failed`);
   } catch (error) {
-    console.error("Error saving conversation:", error);
-    return chatHistoryId;
+    console.error(`[SaveAgentChat] Save error:`, error);
+    return chatHistoryId; // Return original ID even if save fails
   }
 };
 
 /**
- * CRITICAL FIX: Optimized streaming with minimal UI updates
+ * ENHANCED STREAMING with proper save functionality
  */
 const streamFromDayOne = async (
   agentType,
@@ -217,13 +301,14 @@ const streamFromDayOne = async (
   }
 
   console.log(
-    `[StreamDayOne] Starting ${agentType} stream - ID: ${streamingId}`
+    `[EnhancedStreamDayOne] Starting ${agentType} stream - ID: ${streamingId}`
   );
 
   let accumulatedText = "";
   let finalChatHistoryId = currentChatHistoryId;
   let streamCompleted = false;
-  let updateCount = 0;
+  let chunkCount = 0;
+  let wordCount = 0;
 
   try {
     const response = await fetch(DAY_ONE_API_URL, {
@@ -250,7 +335,7 @@ const streamFromDayOne = async (
       const { done, value } = await reader.read();
 
       if (done) {
-        console.log("[StreamDayOne] Stream reader done");
+        console.log(`[EnhancedStreamDayOne] Stream completed for ${agentType}`);
         streamCompleted = true;
         break;
       }
@@ -277,85 +362,104 @@ const streamFromDayOne = async (
           try {
             data = JSON.parse(jsonStr);
           } catch (parseError) {
-            // Try to extract message from partial JSON
+            // Extract message from partial JSON
             if (jsonStr.includes('"message"')) {
               const messageMatch = jsonStr.match(/"message"\s*:\s*"([^"]*)"/);
               if (messageMatch && messageMatch[1]) {
                 accumulatedText += messageMatch[1];
-                updateCount++;
-
-                // SMOOTH UPDATE: Only update every 3-4 chunks to reduce blinking
-                if (updateCount % 3 === 0) {
-                  dispatch(
-                    chatAction.updateStreamingChat({
-                      streamingId: streamingId,
-                      content: accumulatedText,
-                      isComplete: false,
-                    })
-                  );
-                }
+                chunkCount++;
+                wordCount += messageMatch[1].split(/\s+/).length;
               }
             }
             continue;
           }
 
-          // Process valid JSON data
+          // Process valid JSON
           if (data && data.message) {
             accumulatedText += data.message;
-            updateCount++;
+            chunkCount++;
+            wordCount += data.message.split(/\s+/).length;
+          }
 
-            // SMOOTH UPDATE: Reduce update frequency
-            if (updateCount % 3 === 0) {
-              dispatch(
-                chatAction.updateStreamingChat({
-                  streamingId: streamingId,
-                  content: accumulatedText,
-                  isComplete: false,
-                })
-              );
-            }
+          // OPTIMIZED STREAMING: Update every 4 words or 5 chunks
+          if (wordCount >= 4 || chunkCount % 5 === 0) {
+            optimizedStreamingManager.scheduleUpdate(
+              streamingId,
+              accumulatedText,
+              dispatch,
+              false
+            );
+            wordCount = 0; // Reset word count after update
           }
 
           // Check for completion
           if (data && (data.status === "complete" || data.complete === true)) {
-            console.log("[StreamDayOne] Received completion signal");
+            console.log(
+              `[EnhancedStreamDayOne] ${agentType} completion signal received`
+            );
             streamCompleted = true;
             break;
           }
         } catch (error) {
-          console.error("[StreamDayOne] Error processing chunk:", error);
+          console.error(
+            `[EnhancedStreamDayOne] ${agentType} chunk processing error:`,
+            error
+          );
           continue;
         }
       }
     }
 
-    // Final update with complete content
+    // FINAL update with complete content
     console.log(
-      `[StreamDayOne] Stream completed, final length: ${accumulatedText.length}`
+      `[EnhancedStreamDayOne] ${agentType} completed - final length: ${accumulatedText.length}`
     );
 
-    dispatch(
-      chatAction.updateStreamingChat({
-        streamingId: streamingId,
-        content: accumulatedText,
-        isComplete: true,
-      })
+    optimizedStreamingManager.scheduleUpdate(
+      streamingId,
+      accumulatedText,
+      dispatch,
+      true
     );
 
-    // Generate chat history ID for new conversations
+    // CRITICAL FIX: Generate proper chat history ID for new conversations
     if (isNewConversation && !finalChatHistoryId) {
       finalChatHistoryId = `agent_${agentType}_${Date.now()}_${Math.random()
         .toString(36)
         .substring(2, 7)}`;
+
+      console.log(
+        `[EnhancedStreamDayOne] Generated new chat ID: ${finalChatHistoryId}`
+      );
     }
 
-    // Save to MongoDB
-    finalChatHistoryId = await saveConversationToMongoDB(
-      finalChatHistoryId,
-      question,
-      accumulatedText,
-      isNewConversation
-    );
+    // CRITICAL FIX: Save chat to backend using proper endpoints
+    if (finalChatHistoryId && accumulatedText) {
+      try {
+        console.log(`[EnhancedStreamDayOne] Attempting to save chat...`);
+
+        const savedChatHistoryId = await saveAgentChatToBackend(
+          finalChatHistoryId,
+          agentType,
+          question,
+          accumulatedText,
+          isNewConversation
+        );
+
+        if (savedChatHistoryId) {
+          finalChatHistoryId = savedChatHistoryId;
+          console.log(
+            `[EnhancedStreamDayOne] Chat saved with ID: ${finalChatHistoryId}`
+          );
+        }
+      } catch (saveError) {
+        console.error(
+          `[EnhancedStreamDayOne] Save error (continuing anyway):`,
+          saveError
+        );
+        // Don't fail the entire operation if save fails
+      }
+    }
 
     return {
       text: accumulatedText,
@@ -363,77 +467,25 @@ const streamFromDayOne = async (
       success: true,
     };
   } catch (error) {
-    console.error("[StreamDayOne] Error:", error);
+    console.error(`[EnhancedStreamDayOne] ${agentType} error:`, error);
 
-    // Update UI with error
     dispatch(
       chatAction.updateStreamingChat({
         streamingId: streamingId,
-        content: `<p><strong>Error:</strong> ${error.message}</p>`,
+        content: `Error: ${error.message}`,
         isComplete: true,
         error: error.message,
       })
     );
 
     throw error;
+  } finally {
+    optimizedStreamingManager.cleanup(streamingId);
   }
 };
 
 /**
- * Enhanced verification function to ensure chat exists
- */
-const verifyChatExists = async (chatHistoryId, maxAttempts = 5) => {
-  let attempts = 0;
-
-  while (attempts < maxAttempts) {
-    try {
-      console.log(
-        `[VerifyChat] Checking chat existence (attempt ${
-          attempts + 1
-        }): ${chatHistoryId}`
-      );
-
-      const response = await fetch(`${BASE_URL}/api/chatdata`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include",
-        body: JSON.stringify({ chatHistoryId: chatHistoryId }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success && data.chats) {
-          console.log(
-            `[VerifyChat] Chat verified successfully: ${chatHistoryId}`
-          );
-          return true;
-        }
-      }
-
-      attempts++;
-      if (attempts < maxAttempts) {
-        console.log(`[VerifyChat] Chat not ready, waiting 1 second...`);
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      }
-    } catch (error) {
-      console.error(`[VerifyChat] Error verifying chat:`, error);
-      attempts++;
-      if (attempts < maxAttempts) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      }
-    }
-  }
-
-  console.warn(
-    `[VerifyChat] Could not verify chat after ${maxAttempts} attempts`
-  );
-  return false;
-};
-
-/**
- * MAIN FUNCTION: Send Day One request with optimized streaming
+ * MAIN FUNCTION: Enhanced Day One request with streaming + saving
  */
 export const sendDirectDayOneRequest = (requestData) => {
   return async (dispatch, getState) => {
@@ -444,7 +496,7 @@ export const sendDirectDayOneRequest = (requestData) => {
       !currentChatHistoryId || currentChatHistoryId.length < 5;
 
     console.log(
-      `[DirectDayOne] ${agentType} - New: ${isNewConversation}, ChatID: ${currentChatHistoryId}`
+      `[DirectDayOneRequest] ${agentType} request - New: ${isNewConversation}, ChatID: ${currentChatHistoryId}`
     );
 
     dispatch(uiAction.setLoading(true));
@@ -459,7 +511,7 @@ export const sendDirectDayOneRequest = (requestData) => {
         .substring(2, 7)}`;
 
       if (isNewConversation) {
-        // Add user message + streaming response
+        // Single message for new conversations
         dispatch(
           chatAction.chatStart({
             useInput: {
@@ -477,7 +529,7 @@ export const sendDirectDayOneRequest = (requestData) => {
           })
         );
       } else {
-        // Add user message
+        // Two separate messages for existing conversations
         dispatch(
           chatAction.chatStart({
             useInput: {
@@ -494,7 +546,6 @@ export const sendDirectDayOneRequest = (requestData) => {
           })
         );
 
-        // Add streaming agent response
         dispatch(
           chatAction.chatStart({
             useInput: {
@@ -516,7 +567,7 @@ export const sendDirectDayOneRequest = (requestData) => {
       dispatch(uiAction.setLoading(false));
       dispatch(agentAction.setLoading(false));
 
-      // Start streaming
+      // Start enhanced streaming with save functionality
       const streamResult = await streamFromDayOne(
         agentType,
         question,
@@ -527,14 +578,24 @@ export const sendDirectDayOneRequest = (requestData) => {
         isNewConversation
       );
 
-      // Update chat history ID
-      dispatch(
-        chatAction.chatHistoryIdHandler({
-          chatHistoryId: streamResult.chatHistoryId,
-        })
-      );
+      console.log(`[DirectDayOneRequest] ${agentType} completed successfully`);
 
-      // Update previous chat context
+      // CRITICAL FIX: Update Redux with final chat history ID
+      if (
+        streamResult.chatHistoryId &&
+        streamResult.chatHistoryId !== currentChatHistoryId
+      ) {
+        console.log(
+          `[DirectDayOneRequest] Updating Redux with chat ID: ${streamResult.chatHistoryId}`
+        );
+        dispatch(
+          chatAction.chatHistoryIdHandler({
+            chatHistoryId: streamResult.chatHistoryId,
+          })
+        );
+      }
+
+      // CRITICAL FIX: Update previous chat context for conversation continuity
       const state = getState();
       const updatedPreviousChat = [
         ...(state.chat.previousChat || []),
@@ -548,11 +609,14 @@ export const sendDirectDayOneRequest = (requestData) => {
         })
       );
 
-      // Navigate for new conversations
+      // CRITICAL FIX: Navigate for new conversations only
       if (isNewConversation && navigate && streamResult.chatHistoryId) {
+        console.log(
+          `[DirectDayOneRequest] Navigating to: /app/${streamResult.chatHistoryId}`
+        );
         setTimeout(() => {
           navigate(`/app/${streamResult.chatHistoryId}`, { replace: true });
-        }, 1000);
+        }, 800); // Small delay to ensure state is updated
       }
 
       return {
@@ -565,14 +629,14 @@ export const sendDirectDayOneRequest = (requestData) => {
         },
       };
     } catch (error) {
-      console.error(`[DirectDayOne] Error:`, error);
+      console.error(`[DirectDayOneRequest] ${agentType} error:`, error);
 
       dispatch(chatAction.popChat());
       dispatch(
         chatAction.chatStart({
           useInput: {
             user: question,
-            gemini: `<p>Agent Error: ${error.message}</p>`,
+            gemini: `Agent Error: ${error.message}`,
             isLoader: "no",
             isSearch: true,
             searchType: "agent",
@@ -580,7 +644,7 @@ export const sendDirectDayOneRequest = (requestData) => {
             sources: [],
             relatedQuestions: [],
             error: true,
-            isPreformattedHTML: true,
+            isPreformattedHTML: false,
           },
         })
       );
@@ -597,26 +661,19 @@ export const sendDirectDayOneRequest = (requestData) => {
   };
 };
 
-// Specific function for Confluence agent
+// Specific functions for agents
 export const sendDirectConfluenceQuestion = (requestData) => {
   console.log(
-    "[DirectDayOne] Sending Confluence agent question:",
-    requestData.question
+    "[DirectDayOneRequest] Confluence request:",
+    requestData.question?.substring(0, 50) + "..."
   );
-  return sendDirectDayOneRequest({
-    ...requestData,
-    agentType: "confluence",
-  });
+  return sendDirectDayOneRequest({ ...requestData, agentType: "confluence" });
 };
 
-// Specific function for Monitor agent
 export const sendDirectMonitorQuestion = (requestData) => {
   console.log(
-    "[DirectDayOne] Sending Monitor agent question:",
-    requestData.question
+    "[DirectDayOneRequest] Monitor request:",
+    requestData.question?.substring(0, 50) + "..."
   );
-  return sendDirectDayOneRequest({
-    ...requestData,
-    agentType: "monitor",
-  });
+  return sendDirectDayOneRequest({ ...requestData, agentType: "monitor" });
 };
