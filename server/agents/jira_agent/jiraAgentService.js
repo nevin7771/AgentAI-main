@@ -944,6 +944,54 @@ Format with clear headers and bullet points.`;
     return this.convertTicketIdsToHyperlinks(response);
   }
 
+  convertMarkdownToHtml(text) {
+    if (!text) return text;
+
+    let html = text;
+
+    // Convert headings
+    html = html.replace(
+      /^# (.*$)/gim,
+      '<h1 style="color: #1976d2; margin: 12px 0 8px 0; font-weight: 700;">$1</h1>'
+    );
+    html = html.replace(
+      /^## (.*$)/gim,
+      '<h2 style="color: #1976d2; margin: 10px 0 6px 0; font-weight: 700;">$1</h2>'
+    );
+    html = html.replace(
+      /^### (.*$)/gim,
+      '<h3 style="color: #1976d2; margin: 8px 0 4px 0; font-weight: 700;">$1</h3>'
+    );
+
+    // Convert bold text
+    html = html.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+
+    // Convert list items
+    html = html.replace(/^- (.+)$/gm, '<li style="margin: 2px 0;">$1</li>');
+
+    // Wrap consecutive list items in ul
+    html = html.replace(
+      /(<li[^>]*>.*?<\/li>\s*)+/gs,
+      '<ul style="margin: 8px 0; padding-left: 20px;">$&</ul>'
+    );
+
+    // Convert line breaks to paragraphs
+    html = html.replace(/\n\s*\n/g, '</p><p style="margin: 4px 0;">');
+
+    // Wrap in main container
+    if (!html.includes("<div")) {
+      html = `<div style="font-family: 'Google Sans', sans-serif; line-height: 1.6;">${html}</div>`;
+    }
+
+    // Add paragraph wrapper if needed
+    if (!html.includes("<p") && !html.includes("<h")) {
+      html = html
+        .replace(/^(?!<)/, '<p style="margin: 4px 0;">')
+        .replace(/(?!>)$/, "</p>");
+    }
+
+    return html;
+  }
   /**
    * Helper: Format customer query response
    */
@@ -967,7 +1015,7 @@ Format with clear headers and bullet points.`;
         ).toLocaleDateString()}\n\n`;
       });
     }
-
+    response = this.convertMarkdownToHtml(response);
     return this.convertTicketIdsToHyperlinks(response);
   }
 

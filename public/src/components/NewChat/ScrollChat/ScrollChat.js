@@ -1,4 +1,4 @@
-// Enhanced ScrollChat.js - INTEGRATED WITH YOUR BACKEND
+// Enhanced ScrollChat.js - FIXED CONTENT PROCESSING AND SPACING
 import styles from "./ScrollChat.module.css";
 import { commonIcon } from "../../../asset";
 import { useSelector, useDispatch } from "react-redux";
@@ -109,12 +109,11 @@ const submitFeedback = async (feedbackData) => {
   }
 };
 
-// Enhanced Message Action Buttons integrated with your backend
-const EnhancedMessageActions = memo(
-  ({ chatItem, messageId, chatHistoryId, onRetry }) => {
+// FIXED: Simplified Message Actions - No Retry, Simple Buttons
+const SimplifiedMessageActions = memo(
+  ({ chatItem, messageId, chatHistoryId }) => {
     const [copyState, setCopyState] = useState("idle");
     const [feedbackState, setFeedbackState] = useState(null);
-    const [retryState, setRetryState] = useState("idle");
 
     const handleCopy = useCallback(async () => {
       setCopyState("copying");
@@ -201,98 +200,63 @@ const EnhancedMessageActions = memo(
       [chatItem, messageId, chatHistoryId, feedbackState]
     );
 
-    const handleRetry = useCallback(async () => {
-      if (retryState === "retrying") return;
-
-      setRetryState("retrying");
-      try {
-        await submitFeedback({
-          type: "retry_action",
-          feedbackType: "retry",
-          messageId,
-          chatHistoryId,
-          originalQuery: chatItem?.user || "",
-          retryReason: "user_initiated",
-        });
-
-        onRetry?.(chatItem);
-        setTimeout(() => setRetryState("idle"), 2000);
-      } catch (error) {
-        setRetryState("idle");
-        await reportError("retry_failed", error, { messageId, chatHistoryId });
-      }
-    }, [chatItem, messageId, chatHistoryId, onRetry, retryState]);
-
-    const getCopyButtonContent = () => {
+    const getCopyText = () => {
       switch (copyState) {
         case "copying":
-          return { icon: "⏳", text: "Copying..." };
+          return "📋 Copying...";
         case "copied":
-          return { icon: "✅", text: "Copied!" };
+          return "✅ Copied!";
         case "error":
-          return { icon: "❌", text: "Failed" };
+          return "❌ Failed";
         default:
-          return { icon: "📋", text: "Copy" };
+          return "📋 Copy";
       }
     };
 
-    const getFeedbackIcon = (type) => {
+    const getFeedbackText = (type) => {
       if (feedbackState === "submitting") return "⏳";
-      if (feedbackState === type) return "✅";
+      if (feedbackState === type)
+        return type === "positive" ? "👍 Thanks!" : "👎 Noted";
       return type === "positive" ? "👍" : "👎";
     };
 
-    const copyContent = getCopyButtonContent();
-
     return (
-      <div className={styles["message-actions-toolbar"]}>
+      <div className={styles["simple-actions-toolbar"]}>
         <button
           onClick={handleCopy}
-          className={`${styles["action-button"]} ${styles["copy-button"]}`}
+          className={styles["simple-action-btn"]}
           disabled={copyState === "copying"}
-          title={copyContent.text}>
-          <span>{copyContent.icon}</span>
-          <span>{copyContent.text}</span>
+          title="Copy response">
+          {getCopyText()}
         </button>
 
         <button
           onClick={() => handleFeedback("positive")}
-          className={`${styles["action-button"]} ${styles["feedback-button"]} ${
+          className={`${styles["simple-action-btn"]} ${
             feedbackState === "positive" ? styles["feedback-given"] : ""
           }`}
           disabled={feedbackState === "submitting"}
           title="Good response">
-          <span>{getFeedbackIcon("positive")}</span>
-          {feedbackState === "positive" && <span>Thanks!</span>}
+          {getFeedbackText("positive")}
         </button>
 
         <button
           onClick={() => handleFeedback("negative")}
-          className={`${styles["action-button"]} ${styles["feedback-button"]} ${
+          className={`${styles["simple-action-btn"]} ${
             feedbackState === "negative" ? styles["feedback-given"] : ""
           }`}
           disabled={feedbackState === "submitting"}
           title="Poor response">
-          <span>{getFeedbackIcon("negative")}</span>
-          {feedbackState === "negative" && <span>Noted</span>}
-        </button>
-
-        <button
-          onClick={handleRetry}
-          className={`${styles["action-button"]} ${styles["retry-button"]}`}
-          disabled={retryState === "retrying"}
-          title="Retry this response">
-          <span>{retryState === "retrying" ? "⏳" : "🔄"}</span>
-          <span>{retryState === "retrying" ? "Retrying..." : "Retry"}</span>
+          {getFeedbackText("negative")}
         </button>
       </div>
     );
   }
 );
 
-EnhancedMessageActions.displayName = "EnhancedMessageActions";
+SimplifiedMessageActions.displayName = "SimplifiedMessageActions";
 
-// Optimized streaming content with sky blue highlighting
+// FIXED: Optimized streaming content with proper processing detection
 const OptimizedStreamingContent = memo(
   ({ chatItem, processMessageContent, currentLoadingText }) => {
     const contentRef = useRef(null);
@@ -315,27 +279,43 @@ const OptimizedStreamingContent = memo(
 
       if (isLoading) {
         const loadingText = currentLoadingText || "Loading...";
-        contentRef.current.innerHTML = `<p style="font-style: italic; opacity: 0.7; line-height: 1.5 !important;">${loadingText}</p>`;
+        contentRef.current.innerHTML = `<p class="${styles["loading-text"]}">${loadingText}</p>`;
       } else if (isStreaming || isComplete) {
-        const processedContent = processMessageContent(
-          content,
-          chatItem?.queryKeywords || [],
-          chatItem?.isPreformattedHTML
-        );
+        // CRITICAL FIX: Check if content is already HTML (from Jira agent)
+        const isPreformattedHTML =
+          chatItem?.isPreformattedHTML === true ||
+          chatItem?.searchType === "agent" ||
+          content.includes("<h1>") ||
+          content.includes("<h2>") ||
+          content.includes("<h3>") ||
+          content.includes("<p>") ||
+          content.includes("<strong>");
+
+        let processedContent;
+        if (isPreformattedHTML) {
+          // Content is already HTML - just sanitize and highlight
+          processedContent = content;
+          if (chatItem?.queryKeywords && chatItem.queryKeywords.length > 0) {
+            processedContent = highlightChatKeywords(
+              processedContent,
+              chatItem.queryKeywords
+            );
+          }
+          processedContent = DOMPurify.sanitize(processedContent, {
+            USE_PROFILES: { html: true },
+          });
+        } else {
+          // Content is markdown - process normally
+          processedContent = processMessageContent(
+            content,
+            chatItem?.queryKeywords || [],
+            false
+          );
+        }
 
         if (processedContent !== lastProcessedRef.current) {
           lastProcessedRef.current = processedContent;
           contentRef.current.innerHTML = processedContent;
-
-          // Force consistent spacing
-          if (contentRef.current) {
-            const allElements = contentRef.current.querySelectorAll("*");
-            allElements.forEach((el) => {
-              if (el.style) {
-                el.style.lineHeight = "1.5";
-              }
-            });
-          }
         }
       }
     }, [
@@ -343,24 +323,12 @@ const OptimizedStreamingContent = memo(
       chatItem?.isLoader,
       chatItem?.queryKeywords,
       chatItem?.isPreformattedHTML,
+      chatItem?.searchType,
       currentLoadingText,
       processMessageContent,
     ]);
 
-    return (
-      <div
-        ref={contentRef}
-        className={styles["message-content"]}
-        style={{
-          minHeight: "24px",
-          fontFamily: "'Google Sans', 'PT Sans', sans-serif",
-          lineHeight: "1.5 !important",
-          whiteSpace: "pre-wrap",
-          margin: 0,
-          padding: 0,
-        }}
-      />
-    );
+    return <div ref={contentRef} className={styles["message-content"]} />;
   }
 );
 
@@ -468,9 +436,6 @@ const ScrollChat = () => {
   const chatHistoryId = useSelector((state) => state.chat.chatHistoryId);
   const userImage = useSelector((state) => state.user.user.profileImg);
   const previousChat = useSelector((state) => state.chat.previousChat);
-  const streamingInProgress = useSelector(
-    (state) => state.chat.streamingInProgress
-  );
 
   const [isLoadingChat, setIsLoadingChat] = useState(false);
   const [lastLoadedHistoryId, setLastLoadedHistoryId] = useState(null);
@@ -493,7 +458,7 @@ const ScrollChat = () => {
 
   const [currentLoadingText, setCurrentLoadingText] = useState(loadingTexts[0]);
 
-  // Enhanced message processing with sky blue highlighting
+  // FIXED: Enhanced message processing - no double processing
   const processMessageContent = useCallback(
     (text, queryKeywords = [], isPreformattedHTML = false) => {
       if (!text) return "";
@@ -501,6 +466,7 @@ const ScrollChat = () => {
       let processedText = String(text);
 
       try {
+        // If it's already HTML, just sanitize and highlight
         if (isPreformattedHTML) {
           if (queryKeywords && queryKeywords.length > 0) {
             processedText = highlightChatKeywords(processedText, queryKeywords);
@@ -510,60 +476,51 @@ const ScrollChat = () => {
           });
         }
 
-        // Enhanced markdown processing with consistent spacing
+        // Only process as markdown if it's NOT already HTML
         processedText = processedText
-          .replace(
-            /^### (.*$)/gim,
-            "<h3 style='margin: 12px 0 6px 0 !important; line-height: 1.3 !important; color: #1976d2;'>$1</h3>"
-          )
-          .replace(
-            /^## (.*$)/gim,
-            "<h2 style='margin: 12px 0 6px 0 !important; line-height: 1.3 !important; color: #1976d2;'>$1</h2>"
-          )
-          .replace(
-            /^# (.*$)/gim,
-            "<h1 style='margin: 12px 0 6px 0 !important; line-height: 1.3 !important; color: #1976d2;'>$1</h1>"
-          )
-          .replace(
-            /\*\*(.*?)\*\*/g,
-            "<strong style='color: #0d47a1;'>$1</strong>"
-          )
-          .replace(/\*(.*?)\*/g, "<em style='color: #1565c0;'>$1</em>")
+          // Convert headings with proper bold styling
+          .replace(/^### (.*$)/gim, "<h3 class='content-heading-3'>$1</h3>")
+          .replace(/^## (.*$)/gim, "<h2 class='content-heading-2'>$1</h2>")
+          .replace(/^# (.*$)/gim, "<h1 class='content-heading-1'>$1</h1>")
+          // Bold text
+          .replace(/\*\*(.*?)\*\*/g, "<strong class='content-bold'>$1</strong>")
+          // Italic text
+          .replace(/\*(.*?)\*/g, "<em class='content-italic'>$1</em>")
+          // Code blocks
           .replace(
             /```([\s\S]*?)```/g,
-            "<pre style='margin: 8px 0 !important; line-height: 1.4 !important; background: #e3f2fd; border-left: 4px solid #2196f3; padding: 12px;'><code>$1</code></pre>"
+            "<pre class='content-code-block'><code>$1</code></pre>"
           )
-          .replace(
-            /`([^`]+)`/g,
-            "<code style='background: #e3f2fd; color: #0d47a1; padding: 2px 4px; border-radius: 3px;'>$1</code>"
-          )
-          .replace(
-            /^\s*\* (.+)$/gm,
-            "<li style='margin-bottom: 2px !important; line-height: 1.5 !important;'>$1</li>"
-          )
-          .replace(
-            /(<li.*?<\/li>)/s,
-            "<ul style='margin: 8px 0 !important;'>$1</ul>"
-          )
+          // Inline code
+          .replace(/`([^`]+)`/g, "<code class='content-inline-code'>$1</code>")
+          // List items
+          .replace(/^\s*[-*] (.+)$/gm, "<li class='content-list-item'>$1</li>")
           .replace(
             /^\s*\d+\. (.+)$/gm,
-            "<li style='margin-bottom: 2px !important; line-height: 1.5 !important;'>$1</li>"
+            "<li class='content-numbered-item'>$1</li>"
+          )
+          // Wrap consecutive list items
+          .replace(
+            /(<li class='content-list-item'>.*?<\/li>[\s\n]*)+/gs,
+            "<ul class='content-list'>$&</ul>"
           )
           .replace(
-            /\n\s*\n\s*\n/g,
-            "</p><p style='margin: 6px 0 !important; line-height: 1.5 !important;'>"
+            /(<li class='content-numbered-item'>.*?<\/li>[\s\n]*)+/gs,
+            "<ol class='content-numbered-list'>$&</ol>"
           )
-          .replace(
-            /\n\s*\n/g,
-            "</p><p style='margin: 6px 0 !important; line-height: 1.5 !important;'>"
-          )
+          // Clean up multiple ul tags
+          .replace(/<\/ul>[\s\n]*<ul>/g, "")
+          .replace(/<\/ol>[\s\n]*<ol>/g, "")
+          // Convert line breaks
+          .replace(/\n\s*\n/g, "</p><p class='content-paragraph'>")
           .replace(/\n(?![^<]*>)/g, "<br>");
 
+        // Wrap in paragraph if not already wrapped
         if (!processedText.match(/^<(h[1-6]|p|div|ul|ol|blockquote|pre)/)) {
-          processedText = `<p style='margin: 6px 0 !important; line-height: 1.5 !important;'>${processedText}</p>`;
+          processedText = `<p class='content-paragraph'>${processedText}</p>`;
         }
 
-        // Apply sky blue keyword highlighting
+        // Apply keyword highlighting
         if (queryKeywords && queryKeywords.length > 0) {
           processedText = highlightChatKeywords(processedText, queryKeywords);
         }
@@ -620,62 +577,43 @@ const ScrollChat = () => {
     }
   }, [dispatch, historyId, lastLoadedHistoryId, isLoadingChat, chatHistoryId]);
 
-  // Retry handler with feedback
-  const handleRetryMessage = useCallback(
-    async (chatItem) => {
-      try {
-        if (chatItem?.user) {
-          if (chatItem.isSearch) {
-            const endpoint =
-              chatItem.searchType === "deep"
-                ? "/api/deepsearch"
-                : "/api/simplesearch";
-            await dispatch(
-              sendDeepSearchRequest({
-                query: chatItem.user,
-                endpoint: endpoint,
-                chatHistoryId: chatHistoryId,
-              })
-            );
-          } else {
-            await dispatch(
-              sendChatData({
-                user: chatItem.user,
-                previousChat: previousChat,
-                chatHistoryId: chatHistoryId,
-              })
-            );
-          }
-        }
-      } catch (error) {
-        await reportError("retry_message_failed", error, {
-          chatItem: {
-            user: chatItem?.user,
-            isSearch: chatItem?.isSearch,
-            searchType: chatItem?.searchType,
-          },
-          chatHistoryId,
-        });
-      }
-    },
-    [dispatch, chatHistoryId, previousChat]
-  );
-
   // Auto-scroll and other effects...
+  // PERFECT: Auto-scroll only when user asks new questions
+  const prevUserQuestionCount = useRef(0);
+
   useEffect(() => {
     const chatContainer = chatRef.current;
-    if (chatContainer && chat.length > 0) {
-      const scrollToBottom = () => {
-        chatContainer.scrollTop = chatContainer.scrollHeight;
-      };
+    if (!chatContainer) return;
 
-      if (streamingInProgress) {
-        setTimeout(scrollToBottom, 100);
-      } else {
-        scrollToBottom();
-      }
+    // Count user questions in the chat
+    const userQuestions = chat.filter(
+      (message) => message?.user && message.user.trim()
+    );
+    const currentUserQuestionCount = userQuestions.length;
+
+    // Scroll when user asks a new question
+    if (currentUserQuestionCount > prevUserQuestionCount.current) {
+      console.log(
+        `📜 User asked question #${currentUserQuestionCount} - scrolling`
+      );
+
+      setTimeout(() => {
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+      }, 100);
     }
-  }, [chat, streamingInProgress]);
+
+    prevUserQuestionCount.current = currentUserQuestionCount;
+  }, [chat]);
+
+  // Also scroll when loading existing conversation
+  useEffect(() => {
+    const chatContainer = chatRef.current;
+    if (chatContainer && chat.length > 0 && !isLoadingChat) {
+      setTimeout(() => {
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+      }, 200);
+    }
+  }, [historyId, chat.length]); // When conversation loads
 
   // Loading text rotation
   useEffect(() => {
@@ -718,7 +656,7 @@ const ScrollChat = () => {
     }
   }, []);
 
-  // Enhanced chat rendering with all features
+  // Enhanced chat rendering with simplified actions
   const chatSection = useMemo(() => {
     return chat.map((chatItem, chatIndex) => {
       const uniqueKey = `chat-${chatItem?.id || chatIndex}-${
@@ -881,13 +819,12 @@ const ScrollChat = () => {
                             </div>
                           )}
 
-                        {/* Enhanced Message Actions */}
+                        {/* FIXED: Simplified Message Actions */}
                         {chatItem?.gemini && (
-                          <EnhancedMessageActions
+                          <SimplifiedMessageActions
                             chatItem={chatItem}
                             messageId={chatItem?.id || uniqueKey}
                             chatHistoryId={historyId}
-                            onRetry={handleRetryMessage}
                           />
                         )}
                       </>
@@ -908,7 +845,6 @@ const ScrollChat = () => {
     geminiLogo,
     agentLogo,
     historyId,
-    handleRetryMessage,
     dispatch,
     chatHistoryId,
     previousChat,
