@@ -340,14 +340,6 @@ const Sidebar = () => {
           <img src={icon.helpIcon} alt="help icon"></img>
           {isSidebarLong && <p>Help</p>}
         </div>
-        <div className={styles["activity"]}>
-          <img src={icon.activityIcon} alt="activity icon"></img>
-          {isSidebarLong && <p>Activity</p>}
-        </div>
-        <div className={styles["settings"]} onClick={settingsHandler}>
-          <img src={icon.settingsIcon} alt="settings icon"></img>
-          {isSidebarLong && <p>Settings</p>}
-        </div>
         <div className={styles["location"]} onClick={updateLocationHandler}>
           <div className={styles["dot"]}>
             <img src={icon.dotIcon} alt="dot icon"></img>

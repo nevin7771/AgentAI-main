@@ -1,4 +1,4 @@
-// Fixed InputSection.js - NO UNWANTED BOXES + AUTO-REFRESH RECENTS
+// Updated InputSection.js - Auto-select Agent + Enhanced Chat History Detection
 import styles from "./InputSection.module.css";
 import { sendDeepSearchRequest, getRecentChat } from "../../store/chat-action";
 import { sendAgentQuestion } from "../../store/agent-actions";
@@ -10,13 +10,26 @@ import { sendChatData } from "../../store/chat-action";
 import pollAgentTask from "../../utils/agentTaskPoller";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { chatAction } from "../../store/chat";
+import { agentAction } from "../../store/agent";
 import { uiAction } from "../../store/ui-gemini";
+
+// Enhanced agent ID mapping for display names - moved outside component
+const AGENT_DISPLAY_NAMES = {
+  conf_ag: "Confluence Agent",
+  monitor_ag: "Monitor Agent",
+  jira_ag: "Jira Agent",
+  client_agent: "Client Agent",
+  zr_ag: "ZR Agent",
+  zp_ag: "ZP Agent",
+  dayone_ag: "Day One Agent",
+};
 
 const InputSection = () => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
+  const params = useParams();
   const [userInput, setUserInput] = useState("");
   const [searchMode, setSearchMode] = useState("simple");
   const [showUploadOptions, setShowUploadOptions] = useState(false);
@@ -29,6 +42,7 @@ const InputSection = () => {
   const suggestPrompt = useSelector((state) => state.chat.suggestPrompt);
   const previousChat = useSelector((state) => state.chat.previousChat);
   const currentChats = useSelector((state) => state.chat.chats);
+  const recentChat = useSelector((state) => state.chat.recentChat);
 
   // Enhanced loading state detection for all agent types
   const isLoaderActive = useSelector((state) => {
@@ -44,20 +58,37 @@ const InputSection = () => {
 
   const selectedAgents = useSelector((state) => state.agent.selectedAgents);
 
-  // Enhanced agent ID mapping for display names
-  const AGENT_DISPLAY_NAMES = {
-    conf_ag: "Confluence Agent",
-    monitor_ag: "Monitor Agent",
-    jira_ag: "Jira Agent",
-    client_agent: "Client Agent",
-    zr_ag: "ZR Agent",
-    zp_ag: "ZP Agent",
-    dayone_ag: "Day One Agent",
-  };
-
   const getAgentDisplayName = useCallback((agentId) => {
     return AGENT_DISPLAY_NAMES[agentId] || "Agent";
   }, []);
+
+  // Auto-select agent when entering existing chat
+  useEffect(() => {
+    const historyId = params.historyId || chatHistoryId;
+
+    if (historyId && recentChat.length > 0) {
+      // Find the current chat in recent chat history
+      const currentChatHistory = recentChat.find(
+        (chat) => chat._id === historyId
+      );
+
+      if (currentChatHistory) {
+        console.log("Found chat history:", currentChatHistory);
+
+        // Auto-select agent based on chat history
+        dispatch(
+          agentAction.autoSelectAgentFromChat({
+            chatTitle: currentChatHistory.title,
+            chatType: currentChatHistory.searchType,
+            agentId: currentChatHistory.agentId || currentChatHistory.agent,
+          })
+        );
+      }
+    } else if (!historyId) {
+      // Clear agent selection when starting new chat
+      dispatch(agentAction.clearSelectedAgents());
+    }
+  }, [params.historyId, chatHistoryId, recentChat, dispatch]);
 
   const userInputHandler = (e) => {
     setUserInput(e.target.value);
@@ -75,6 +106,8 @@ const InputSection = () => {
   const setSimpleSearch = () => {
     setSearchMode("simple");
     setShowUploadOptions(false);
+    // Clear agent selection when switching to search mode
+    dispatch(agentAction.clearSelectedAgents());
     setTimeout(() => {
       if (textareaRef.current) {
         textareaRef.current.focus();
@@ -85,6 +118,8 @@ const InputSection = () => {
   const setDeepSearch = () => {
     setSearchMode("deep");
     setShowUploadOptions(false);
+    // Clear agent selection when switching to search mode
+    dispatch(agentAction.clearSelectedAgents());
     setTimeout(() => {
       if (textareaRef.current) {
         textareaRef.current.focus();
@@ -109,16 +144,6 @@ const InputSection = () => {
     comingSoonTimeoutRef.current = setTimeout(() => {
       setShowComingSoonTooltip(false);
     }, 3000);
-  };
-
-  const handleUploadOption = (type) => {
-    console.log(`Handling ${type} upload - Coming Soon`);
-    setShowUploadOptions(false);
-
-    setShowComingSoonTooltip(true);
-    setTimeout(() => {
-      setShowComingSoonTooltip(false);
-    }, 2500);
   };
 
   // Close upload options when clicking outside
@@ -150,7 +175,7 @@ const InputSection = () => {
     return agentId === "jira_ag";
   }, []);
 
-  // FIXED: Enhanced onSubmitHandler with auto-refresh recents
+  // ENHANCED: onSubmitHandler with auto-refresh recents and better agent handling
   const onSubmitHandler = async (e) => {
     e.preventDefault();
     if (!userInput.trim() || isLoaderActive === "yes") return;
@@ -170,7 +195,7 @@ const InputSection = () => {
       dispatch(uiAction.setLoading(true));
 
       if (selectedAgents.length > 0) {
-        const selectedAgentId = selectedAgents[0];
+        const selectedAgentId = selectedAgents[0]; // Only one agent allowed
 
         if (isJiraAgent(selectedAgentId)) {
           const jiraResponse = await dispatch(
@@ -186,7 +211,7 @@ const InputSection = () => {
             const finalChatId =
               jiraResponse.data?.chatHistoryId || chatHistoryId;
 
-            // FIXED: Auto-refresh recent chats
+            // Auto-refresh recent chats
             setTimeout(() => {
               dispatch(getRecentChat());
             }, 1500);
@@ -225,7 +250,7 @@ const InputSection = () => {
             .then((response) => {
               console.log(`[InputSection] Streaming completed:`, response);
 
-              // FIXED: Auto-refresh recent chats after streaming completes
+              // Auto-refresh recent chats after streaming completes
               setTimeout(() => {
                 dispatch(getRecentChat());
               }, 2000);
@@ -250,7 +275,7 @@ const InputSection = () => {
             const finalChatId =
               agentResponse.data?.chatHistoryId || chatHistoryId;
 
-            // FIXED: Auto-refresh recent chats
+            // Auto-refresh recent chats
             setTimeout(() => {
               dispatch(getRecentChat());
             }, 1500);
@@ -313,7 +338,7 @@ const InputSection = () => {
           })
         );
 
-        // FIXED: Auto-refresh recent chats
+        // Auto-refresh recent chats
         setTimeout(() => {
           dispatch(getRecentChat());
         }, 2000);
@@ -337,7 +362,7 @@ const InputSection = () => {
           })
         );
 
-        // FIXED: Auto-refresh recent chats
+        // Auto-refresh recent chats
         setTimeout(() => {
           dispatch(getRecentChat());
         }, 1500);
@@ -434,7 +459,7 @@ const InputSection = () => {
 
       dispatch(uiAction.setLoading(false));
 
-      // FIXED: Auto-refresh recent chats
+      // Auto-refresh recent chats
       setTimeout(() => {
         dispatch(getRecentChat());
       }, 1000);
@@ -462,11 +487,9 @@ const InputSection = () => {
               isLoaderActive === "yes"
                 ? "Please wait for the response..."
                 : selectedAgents.length > 0
-                ? `${chatHistoryId ? "Continue asking" : "Ask"} ${
-                    selectedAgents.length > 1
-                      ? "agents"
-                      : getAgentDisplayName(selectedAgents[0])
-                  }...`
+                ? `${
+                    chatHistoryId ? "Continue asking" : "Ask"
+                  } ${getAgentDisplayName(selectedAgents[0])}...`
                 : searchMode === "simple"
                 ? `${
                     chatHistoryId ? "Ask another" : "Ask for a"
@@ -497,7 +520,6 @@ const InputSection = () => {
 
         <div className={styles["controls-container"]}>
           <div className={styles["left-controls"]}>
-            {/* FIXED: Removed autocomplete/suggestion boxes that were causing UI issues */}
             <div className={styles["upload-container"]} ref={uploadMenuRef}>
               <button
                 type="button"
@@ -517,7 +539,7 @@ const InputSection = () => {
                 </svg>
               </button>
 
-              {/* Coming Soon Tooltip - FIXED: Proper positioning */}
+              {/* Coming Soon Tooltip */}
               {showComingSoonTooltip && (
                 <div className={styles["coming-soon-tooltip"]}>
                   <div className={styles["tooltip-content"]}>
@@ -602,9 +624,7 @@ const InputSection = () => {
                   />
                 </svg>
                 <span>
-                  {selectedAgents.length > 1
-                    ? `${selectedAgents.length} Agents Selected`
-                    : `${getAgentDisplayName(selectedAgents[0])} Selected`}
+                  {getAgentDisplayName(selectedAgents[0])} Selected
                   {isJiraAgent(selectedAgents[0]) && (
                     <span className={styles["jira-badge"]}>JIRA</span>
                   )}

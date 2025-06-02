@@ -1,14 +1,12 @@
-// Fixed App.js - Automatic SSO Check + Existing Auth Integration
+// Updated App.js - Light Theme Only, No Settings Section
 import "./App.css";
 import "./DeepSearch.css";
 import "./DeepResearch.css";
 import "./AgentStyles.css";
 import "../../public/src/styles/GeminiResults.css";
 import ChatSection from "./components/ChatSection/ChatSection";
-import SettingSection from "./components/SettingSection/SettingSecion";
 import Sidebar from "./components/Sidebar/Sidebar";
 import { useSelector, useDispatch } from "react-redux";
-import { uiAction } from "./store/ui-gemini";
 import { useEffect, useState } from "react";
 import { getRecentChat } from "./store/chat-action";
 import UserDetails from "./components/UserDetails/UserDetails";
@@ -16,6 +14,7 @@ import { refreshToken, loginHandler } from "./store/auth-action";
 import UserIntroPrompt from "./components/UserIntroPrompt/UserIntroPrompt";
 import AgentProvider from "./components/AgentChat/AgentProvider";
 import { continueWithOktaOauth } from "./utils/getOktaAuthUrl";
+import { uiAction } from "./store/ui-gemini";
 
 // Loading spinner component for authentication check
 const AuthLoadingSpinner = ({ message = "Checking authentication..." }) => (
@@ -73,7 +72,7 @@ const AuthLoadingSpinner = ({ message = "Checking authentication..." }) => (
   </div>
 );
 
-// Clean login screen - no separate SSO button
+// Clean login screen
 const UnauthorizedAccess = ({ onLoginClick }) => (
   <div
     style={{
@@ -179,10 +178,7 @@ const UnauthorizedAccess = ({ onLoginClick }) => (
 
 function App() {
   const dispatch = useDispatch();
-  const settingsShow = useSelector((state) => state.ui.isSettingsShow);
-  const isAdvanceGeminiPrompt = useSelector((state) => state.ui.isAdvanceShow);
   const newChat = useSelector((state) => state.chat.newChat);
-  const isDark = useSelector((state) => state.ui.isDark);
   const isUserDetails = useSelector((state) => state.ui.isUserDetailsShow);
   const isLogin = useSelector((state) => state.auth.isLogin);
   const isIntroPrompt = useSelector((state) => state.ui.showIntroUserPrompt);
@@ -194,18 +190,6 @@ function App() {
     hasChecked: false,
     loadingMessage: "Checking authentication...",
   });
-
-  const settingHandler = () => {
-    if (settingsShow === true) {
-      dispatch(uiAction.toggleSettings());
-    }
-    if (isAdvanceGeminiPrompt === true) {
-      dispatch(uiAction.toggleAdvanceShow());
-    }
-    if (isUserDetails === true) {
-      dispatch(uiAction.toggleUserDetailsShow());
-    }
-  };
 
   // ENHANCED: Automatic SSO check using Okta silent authentication
   const performAutomaticSSOCheck = async () => {
@@ -269,8 +253,6 @@ function App() {
             if (!resolved) {
               try {
                 // Try to access iframe content
-                const iframeDoc =
-                  iframe.contentDocument || iframe.contentWindow.document;
                 const iframeUrl = iframe.contentWindow.location.href;
 
                 console.log("🔗 SSO iframe loaded, checking URL...");
@@ -498,12 +480,10 @@ function App() {
     }
   }, [authState.hasChecked, authState.isChecking, isLogin]);
 
-  // Apply theme
+  // Apply light theme only
   useEffect(() => {
-    const getLocalTheme = localStorage.getItem("theme");
-    const theme = getLocalTheme || "dark";
-    document.documentElement.setAttribute("data-theme", theme);
-  }, [isDark]);
+    document.documentElement.setAttribute("data-theme", "light");
+  }, []);
 
   // Load recent chat only when authenticated
   useEffect(() => {
@@ -559,18 +539,8 @@ function App() {
       <AgentProvider>
         <Sidebar />
         <ChatSection />
-        <SettingSection />
         {isUserDetails && isLogin && <UserDetails />}
         {!isLogin && isIntroPrompt && <UserIntroPrompt />}
-        {settingsShow && (
-          <div onClick={settingHandler} className="bg-focus-dark"></div>
-        )}
-        {isAdvanceGeminiPrompt && (
-          <div onClick={settingHandler} className="bg-focus-dark"></div>
-        )}
-        {isUserDetails && isLogin && (
-          <div onClick={settingHandler} className="bg-focus-dark"></div>
-        )}
       </AgentProvider>
     </div>
   );

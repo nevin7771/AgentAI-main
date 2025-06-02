@@ -45,14 +45,14 @@ const AgentSelector = () => {
     }
   }, [agents, dispatch]);
 
-  // Toggle agent selection
+  // Toggle agent selection - UPDATED: Only allow one agent at a time
   const toggleAgent = (agentId) => {
     try {
       if (selectedAgents.includes(agentId)) {
+        // If clicking the same agent, deselect it
         dispatch(agentAction.removeSelectedAgent(agentId));
       } else {
-        // Deselect any previously selected agents before selecting the new one
-        // (We want to limit to one agent at a time for Day One agents)
+        // Clear all selected agents first, then select the new one
         dispatch(agentAction.clearSelectedAgents());
         dispatch(agentAction.addSelectedAgent(agentId));
       }
@@ -66,18 +66,7 @@ const AgentSelector = () => {
     setIsOpen(!isOpen);
   };
 
-  // Select all agents
-  const selectAllAgents = () => {
-    try {
-      if (agents && agents.length > 0) {
-        dispatch(
-          agentAction.setSelectedAgents(agents.map((agent) => agent.id))
-        );
-      }
-    } catch (err) {
-      console.error("Error in selectAllAgents:", err);
-    }
-  };
+  // REMOVED: Select all agents function (no longer needed)
 
   // Clear all selections
   const clearSelections = () => {
@@ -93,7 +82,7 @@ const AgentSelector = () => {
 
   // Function to get the display name of the selected agent
   const getSelectedAgentName = () => {
-    if (selectedAgents.length === 0) return "Select Agents";
+    if (selectedAgents.length === 0) return "Select an Agent";
 
     if (selectedAgents.length === 1) {
       const selectedAgentId = selectedAgents[0];
@@ -105,6 +94,7 @@ const AgentSelector = () => {
         : `Agent Selected`;
     }
 
+    // This shouldn't happen with single selection, but just in case
     return `${selectedAgents.length} Agents Selected`;
   };
 
@@ -123,16 +113,9 @@ const AgentSelector = () => {
       {isOpen && (
         <div className={styles["dropdown-content"]}>
           <div className={styles["dropdown-header"]}>
-            <h4>Select AI Agents</h4>
+            <h4>Select AI Agent</h4>
             <div className={styles["dropdown-actions"]}>
-              <button
-                className={styles["select-all-btn"]}
-                onClick={selectAllAgents}
-                disabled={
-                  agentCount === selectedAgents.length || agentCount === 0
-                }>
-                Select All
-              </button>
+              {/* REMOVED: Select All button since we only allow one agent */}
               <button
                 className={styles["clear-btn"]}
                 onClick={clearSelections}
