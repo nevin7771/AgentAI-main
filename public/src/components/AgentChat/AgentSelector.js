@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import styles from "./AgentSelector.module.css";
 import { useDispatch, useSelector } from "react-redux";
 import { agentAction } from "../../store/agent";
@@ -15,6 +15,7 @@ const AgentSelector = () => {
   const error = useSelector((state) => state.agent.error);
 
   const [isOpen, setIsOpen] = useState(false);
+  const selectorRef = useRef(null); // FIXED: Ref for entire selector
 
   // Fetch available agents on component mount
   useEffect(() => {
@@ -23,62 +24,99 @@ const AgentSelector = () => {
     });
   }, [dispatch]);
 
+  // FIXED: Improved auto-close functionality
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleClickOutside = (event) => {
+      // Check if click is outside the entire selector component
+      if (selectorRef.current && !selectorRef.current.contains(event.target)) {
+        console.log("[AgentSelector] Closing dropdown - outside click");
+        setIsOpen(false);
+      }
+    };
+
+    const handleEscapeKey = (event) => {
+      if (event.key === "Escape") {
+        console.log("[AgentSelector] Closing dropdown - escape key");
+        setIsOpen(false);
+      }
+    };
+
+    // FIXED: Use document instead of window for better detection
+    document.addEventListener("mousedown", handleClickOutside, true);
+    document.addEventListener("keydown", handleEscapeKey, true);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside, true);
+      document.removeEventListener("keydown", handleEscapeKey, true);
+    };
+  }, [isOpen]);
+
   // Mock function to ensure Monitor agent is added if not present in response
   useEffect(() => {
     if (agents && agents.length > 0) {
-      const hasConfluenceAgent = agents.some((agent) => agent.id === "conf_ag");
       const hasMonitorAgent = agents.some((agent) => agent.id === "monitor_ag");
 
-      // If we have agents but no Monitor agent, add it
       if (!hasMonitorAgent) {
         const updatedAgents = [...agents];
-
-        // Add the Monitor agent (if not found)
         updatedAgents.push({
           id: "monitor_ag",
           name: "Monitor Agent",
           description: "Search logs and monitor data",
         });
-
         dispatch(agentAction.setAgents(updatedAgents));
       }
     }
   }, [agents, dispatch]);
 
-  // Toggle agent selection - UPDATED: Only allow one agent at a time
-  const toggleAgent = (agentId) => {
-    try {
-      if (selectedAgents.includes(agentId)) {
-        // If clicking the same agent, deselect it
-        dispatch(agentAction.removeSelectedAgent(agentId));
-      } else {
-        // Clear all selected agents first, then select the new one
-        dispatch(agentAction.clearSelectedAgents());
-        dispatch(agentAction.addSelectedAgent(agentId));
+  // FIXED: Enhanced agent selection with reliable auto-close
+  const toggleAgent = useCallback(
+    (agentId) => {
+      try {
+        console.log(`[AgentSelector] Selecting agent: ${agentId}`);
+
+        if (selectedAgents.includes(agentId)) {
+          // If clicking the same agent, deselect it
+          dispatch(agentAction.removeSelectedAgent(agentId));
+        } else {
+          // Clear all selected agents first, then select the new one
+          dispatch(agentAction.clearSelectedAgents());
+          dispatch(agentAction.addSelectedAgent(agentId));
+        }
+
+        // FIXED: Immediate close with proper timing
+        console.log("[AgentSelector] Auto-closing dropdown after selection");
+        setTimeout(() => {
+          setIsOpen(false);
+        }, 150); // Reduced delay for better UX
+      } catch (err) {
+        console.error("Error in toggleAgent:", err);
       }
-    } catch (err) {
-      console.error("Error in toggleAgent:", err);
-    }
-  };
+    },
+    [selectedAgents, dispatch]
+  );
 
-  // Toggle dropdown
-  const toggleDropdown = () => {
-    setIsOpen(!isOpen);
-  };
-
-  // REMOVED: Select all agents function (no longer needed)
+  // FIXED: Enhanced dropdown toggle
+  const toggleDropdown = useCallback(
+    (event) => {
+      event.stopPropagation(); // Prevent event bubbling
+      console.log(`[AgentSelector] Toggling dropdown: ${!isOpen}`);
+      setIsOpen(!isOpen);
+    },
+    [isOpen]
+  );
 
   // Clear all selections
-  const clearSelections = () => {
+  const clearSelections = useCallback(() => {
     try {
+      console.log("[AgentSelector] Clearing all selections");
       dispatch(agentAction.clearSelectedAgents());
+      // Don't auto-close for clear action - user might want to select another
     } catch (err) {
       console.error("Error in clearSelections:", err);
     }
-  };
-
-  // Safely get the count of agents
-  const agentCount = Array.isArray(agents) ? agents.length : 0;
+  }, [dispatch]);
 
   // Function to get the display name of the selected agent
   const getSelectedAgentName = () => {
@@ -94,13 +132,22 @@ const AgentSelector = () => {
         : `Agent Selected`;
     }
 
-    // This shouldn't happen with single selection, but just in case
     return `${selectedAgents.length} Agents Selected`;
   };
 
   return (
-    <div className={styles["agent-selector"]}>
-      <div className={styles["selector-toggle"]} onClick={toggleDropdown}>
+    <div className={styles["agent-selector"]} ref={selectorRef}>
+      <div
+        className={styles["selector-toggle"]}
+        onClick={toggleDropdown}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            toggleDropdown(e);
+          }
+        }}>
         <span className={styles["toggle-text"]}>{getSelectedAgentName()}</span>
         <span
           className={`${styles["toggle-arrow"]} ${
@@ -115,7 +162,6 @@ const AgentSelector = () => {
           <div className={styles["dropdown-header"]}>
             <h4>Select AI Agent</h4>
             <div className={styles["dropdown-actions"]}>
-              {/* REMOVED: Select All button since we only allow one agent */}
               <button
                 className={styles["clear-btn"]}
                 onClick={clearSelections}
@@ -145,11 +191,21 @@ const AgentSelector = () => {
                         ? styles["selected"]
                         : ""
                     } ${
-                      agent.id === "conf_ag" || agent.id === "monitor_ag"
+                      agent.id === "conf_ag" ||
+                      agent.id === "monitor_ag" ||
+                      agent.id === "jira_ag"
                         ? styles["day-one-agent"]
                         : ""
                     }`}
-                    onClick={() => toggleAgent(agent.id)}>
+                    onClick={() => toggleAgent(agent.id)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        toggleAgent(agent.id);
+                      }
+                    }}>
                     <div className={styles["agent-checkbox"]}>
                       {selectedAgents.includes(agent.id) && (
                         <svg
@@ -169,9 +225,10 @@ const AgentSelector = () => {
                       <span className={styles["agent-name"]}>
                         {agent.name}
                         {(agent.id === "conf_ag" ||
-                          agent.id === "monitor_ag") && (
+                          agent.id === "monitor_ag" ||
+                          agent.id === "jira_ag") && (
                           <span className={styles["streaming-badge"]}>
-                            Streaming
+                            {agent.id === "jira_ag" ? "Smart" : "Streaming"}
                           </span>
                         )}
                       </span>
@@ -197,7 +254,7 @@ const AgentSelector = () => {
   );
 };
 
-// JWT Status component
+// JWT Status component (unchanged)
 const JwtStatus = () => {
   const jwtToken = useSelector((state) => state.agent.jwtToken);
   const jwtExpiry = useSelector((state) => state.agent.jwtExpiry);

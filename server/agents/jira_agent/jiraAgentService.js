@@ -269,7 +269,14 @@ class JiraAgentService {
 
     response += `---\n*Summary generated: ${new Date().toLocaleString()}*`;
 
-    return response;
+    return {
+      content: response, // Clean markdown content
+      contentType: "markdown", // Tell frontend this is markdown
+      hasTicketIds: true, // Frontend should process ticket IDs
+      metadata: {
+        ticketCount: (response.match(/\b[A-Z]+-\d+\b/g) || []).length,
+      },
+    };
   }
 
   async getSentimentAnalysis(ticketId) {
@@ -375,7 +382,7 @@ class JiraAgentService {
       }
 
       // Convert ticket IDs to hyperlinks
-      formattedResponse = this.convertTicketIdsToHyperlinks(formattedResponse);
+      //formattedResponse = this.convertTicketIdsToHyperlinks(formattedResponse);
 
       return {
         success: true,
@@ -1016,7 +1023,7 @@ Format with clear headers and bullet points.`;
       });
     }
     response = this.convertMarkdownToHtml(response);
-    return this.convertTicketIdsToHyperlinks(response);
+    return response;
   }
 
   /**
@@ -1042,7 +1049,7 @@ Format with clear headers and bullet points.`;
       ).toLocaleDateString()}\n\n`;
     });
 
-    return this.convertTicketIdsToHyperlinks(response);
+    return response;
   }
 
   /**
@@ -2718,7 +2725,7 @@ Format with clear headers and bullet points.`;
     });
 
     // CRITICAL FIX: Convert ticket IDs to hyperlinks
-    response = this.convertTicketIdsToHyperlinks(response);
+    //response = this.convertTicketIdsToHyperlinks(response);
 
     return {
       response: response,
@@ -2806,7 +2813,7 @@ Format with clear headers and bullet points.`;
     });
 
     // CRITICAL FIX: Convert ticket IDs to hyperlinks
-    response = this.convertTicketIdsToHyperlinks(response);
+    //response = this.convertTicketIdsToHyperlinks(response);
 
     return {
       response: response,
@@ -2891,13 +2898,27 @@ Format with clear headers and bullet points.`;
 
     // Pattern to match Jira ticket IDs (like ZSEE-123456)
     const jiraTicketPattern = /\b([A-Z]+-\d+)\b/g;
+    //const jiraBaseUrl =
+    //  process.env.JIRA_API_URL || "https://your-jira-instance.atlassian.net";
+
+    // Replace ticket IDs with clickable hyperlinks that open in new tab
+    //return text.replace(jiraTicketPattern, (match, ticketId) => {
+    //  const ticketUrl = `${jiraBaseUrl}/browse/${ticketId}`;
+    //  return `<a href="${ticketUrl}" target="_blank" rel="noopener noreferrer" style="color: #0052cc; text-decoration: underline; font-weight: 500;">${ticketId}</a>`;
+    //});
+    return text;
+  }
+  convertTicketIdsToMarkdownLinks(text) {
+    if (!text || typeof text !== "string") return text;
+
+    const jiraTicketPattern = /\b([A-Z]+-\d+)\b/g;
     const jiraBaseUrl =
       process.env.JIRA_API_URL || "https://your-jira-instance.atlassian.net";
 
-    // Replace ticket IDs with clickable hyperlinks that open in new tab
+    // Convert to markdown links instead of HTML
     return text.replace(jiraTicketPattern, (match, ticketId) => {
       const ticketUrl = `${jiraBaseUrl}/browse/${ticketId}`;
-      return `<a href="${ticketUrl}" target="_blank" rel="noopener noreferrer" style="color: #0052cc; text-decoration: underline; font-weight: 500;">${ticketId}</a>`;
+      return `[${ticketId}](${ticketUrl})`;
     });
   }
   /**
@@ -2942,7 +2963,7 @@ Format with clear headers and bullet points.`;
     }
 
     // CRITICAL FIX: Convert ticket IDs to hyperlinks
-    response = this.convertTicketIdsToHyperlinks(response);
+    //response = this.convertTicketIdsToHyperlinks(response);
 
     return {
       response: response,

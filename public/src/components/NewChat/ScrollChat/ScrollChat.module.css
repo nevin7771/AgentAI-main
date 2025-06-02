@@ -896,3 +896,223 @@
       word-spacing: normal;
     }
   }
+/* FIXED: Enhanced Jira Content Styling */
+
+/* Alert headings */
+.jira-alert-heading {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #ea4335;
+  margin: 16px 0 12px 0;
+  padding: 8px 12px;
+  background: rgba(234, 67, 53, 0.08);
+  border-left: 4px solid #ea4335;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.jira-success-heading {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #34a853;
+  margin: 16px 0 12px 0;
+  padding: 8px 12px;
+  background: rgba(52, 168, 83, 0.08);
+  border-left: 4px solid #34a853;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.jira-clean-heading {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #1976d2;
+  margin: 14px 0 10px 0;
+  padding: 6px 0;
+  border-bottom: 1px solid #e8eaed;
+}
+
+/* FIXED: Bug item container with proper spacing */
+.jira-bug-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 12px;
+  background: rgba(26, 115, 232, 0.04);
+  border-radius: 8px;
+  border-left: 3px solid #1976d2;
+  line-height: 1.5;
+  flex-wrap: wrap;
+}
+
+.jira-bug-number {
+  font-weight: 700;
+  color: #1976d2;
+  min-width: 24px;
+  flex-shrink: 0;
+}
+
+/* FIXED: Ticket link styling */
+.jira-ticket-link {
+  font-weight: 700;
+  color: #1976d2;
+  text-decoration: none;
+  background: rgba(26, 115, 232, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(26, 115, 232, 0.2);
+  font-family: 'Roboto Mono', monospace;
+  font-size: 0.9em;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.jira-ticket-link:hover {
+  background: rgba(26, 115, 232, 0.15);
+  border-color: #1976d2;
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+
+.jira-bug-description {
+  color: #3c4043;
+  flex: 1;
+  min-width: 200px;
+  word-wrap: break-word;
+}
+
+/* FIXED: Info rows with better spacing */
+.jira-info-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 6px 8px;
+  background: rgba(95, 99, 104, 0.04);
+  border-radius: 6px;
+  flex-wrap: wrap;
+}
+
+.jira-key {
+  font-weight: 600;
+  color: #5f6368;
+  min-width: 60px;
+  flex-shrink: 0;
+}
+
+.jira-value {
+  color: #3c4043;
+  font-weight: 500;
+  flex: 1;
+}
+
+/* Standalone ticket IDs */
+.jira-ticket-id {
+  font-weight: 600;
+  color: #1976d2;
+  background: rgba(26, 115, 232, 0.08);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: 'Roboto Mono', monospace;
+  font-size: 0.9em;
+}
+
+/* Enhanced emoji styling */
+.jira-emoji {
+  font-size: 1.1em;
+  margin: 0 3px;
+  display: inline-block;
+  filter: none;
+}
+
+/* Dark theme support */
+[data-theme="dark"] .jira-alert-heading {
+  color: #f28b82;
+  background: rgba(242, 139, 130, 0.1);
+  border-left-color: #f28b82;
+}
+
+[data-theme="dark"] .jira-success-heading {
+  color: #81c995;
+  background: rgba(129, 201, 149, 0.1);
+  border-left-color: #81c995;
+}
+
+[data-theme="dark"] .jira-clean-heading {
+  color: #8ab4f8;
+  border-bottom-color: #3c4043;
+}
+
+[data-theme="dark"] .jira-bug-item {
+  background: rgba(138, 180, 248, 0.08);
+  border-left-color: #8ab4f8;
+}
+
+[data-theme="dark"] .jira-bug-number {
+  color: #8ab4f8;
+}
+
+[data-theme="dark"] .jira-ticket-link {
+  color: #8ab4f8;
+  background: rgba(138, 180, 248, 0.15);
+  border-color: rgba(138, 180, 248, 0.3);
+}
+
+[data-theme="dark"] .jira-ticket-link:hover {
+  background: rgba(138, 180, 248, 0.2);
+  border-color: #8ab4f8;
+}
+
+[data-theme="dark"] .jira-bug-description {
+  color: #e8eaed;
+}
+
+[data-theme="dark"] .jira-info-row {
+  background: rgba(232, 234, 237, 0.06);
+}
+
+[data-theme="dark"] .jira-key {
+  color: #9aa0a6;
+}
+
+[data-theme="dark"] .jira-value {
+  color: #e8eaed;
+}
+
+[data-theme="dark"] .jira-ticket-id {
+  color: #8ab4f8;
+  background: rgba(138, 180, 248, 0.15);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .jira-bug-item {
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px;
+  }
+  
+  .jira-bug-number {
+    min-width: auto;
+  }
+  
+  .jira-ticket-link {
+    align-self: flex-start;
+  }
+  
+  .jira-info-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+  
+  .jira-key {
+    min-width: auto;
+  }
+}

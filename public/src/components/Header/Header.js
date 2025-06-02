@@ -21,10 +21,6 @@ const Header = () => {
     dispatch(uiAction.toggleSideBar());
   };
 
-  const toggleAadvanceGeminiHandler = () => {
-    dispatch(uiAction.toggleAdvanceShow());
-  };
-
   // Updated to handle both clicking the logo AND toggling advanced settings
   const handleLogoClick = () => {
     // First toggle the advanced settings if needed

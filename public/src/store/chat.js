@@ -59,6 +59,7 @@ const chatSlice = createSlice({
         isLoader: useInput.isLoader || "no",
         isSearch: useInput.isSearch || false,
         searchType: useInput.searchType || null,
+        agentType: useInput.agentType || null,
         usedCache: useInput.usedCache || false,
         queryKeywords: useInput.queryKeywords || [],
         sources: useInput.sources || [],
@@ -208,6 +209,7 @@ const chatSlice = createSlice({
         isLoader: chat.isLoader || "no",
         isSearch: typeof chat.isSearch === "boolean" ? chat.isSearch : false,
         searchType: chat.searchType || null,
+        agentType: chat.agentType || null, // CRITICAL FIX: Preserve agent type from backend
         queryKeywords: Array.isArray(chat.queryKeywords)
           ? chat.queryKeywords
           : [],
@@ -230,7 +232,7 @@ const chatSlice = createSlice({
       state.streamingInProgress = false;
       state.lastStreamingUpdate = 0;
       state.streamingDebounceMap = {};
-      state.pendingSaves = []; // FIXED: Reset as empty array
+      state.pendingSaves = [];
     },
 
     replaceChat(state, action) {

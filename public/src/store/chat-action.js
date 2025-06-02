@@ -1,6 +1,6 @@
-// public/src/store/chat-action.js - COMPLETE FIXED VERSION
 import { chatAction } from "./chat";
 import { userAction } from "./user";
+import { agentAction } from "./agent"; // CRITICAL FIX: Add missing import
 import { marked } from "marked";
 
 const SERVER_ENDPOINT =
@@ -691,6 +691,7 @@ export const sendDeepSearchRequest = (searchRequest) => {
 };
 
 // CRITICAL FIX: Enhanced getChat with proper conversation loading
+// ENHANCED getChat function in chat-action.js
 export const getChat = (chatId) => {
   return async (dispatch) => {
     console.log("[getChat] Attempting to fetch chat with ID:", chatId);
@@ -710,7 +711,7 @@ export const getChat = (chatId) => {
       return Promise.reject(new Error("Chat ID is missing"));
     }
 
-    // CRITICAL FIX: Clear existing chats first to prevent mixing
+    // Clear existing chats first
     dispatch(chatAction.getChatHandler({ chats: [] }));
 
     // Show loading state
@@ -746,9 +747,6 @@ export const getChat = (chatId) => {
         let errorMessage = `Server error: ${response.status} ${response.statusText}`;
         if (response.status === 404) {
           errorMessage = `Chat history not found: The requested chat with ID ${chatId} could not be found.`;
-          console.warn(
-            "[getChat] Chat ID not found (404), clearing chatHistoryId from store."
-          );
           dispatch(chatAction.chatHistoryIdHandler({ chatHistoryId: null }));
           dispatch(chatAction.newChatHandler());
         } else {
@@ -774,17 +772,8 @@ export const getChat = (chatId) => {
       dispatch(chatAction.popChat());
 
       const chatMessages = data.chats || [];
-      console.log(
-        "[getChat] Processing chatMessages:",
-        chatMessages.length,
-        "messages"
-      );
 
       if (chatMessages.length === 0) {
-        console.log(
-          "[getChat] No messages found in history for chatId:",
-          chatId
-        );
         dispatch(
           chatAction.chatStart({
             useInput: {
@@ -798,10 +787,10 @@ export const getChat = (chatId) => {
         return Promise.resolve({ success: true, messageCount: 0 });
       }
 
-      // Build previous chat context for continued conversations
+      // Build previous chat context
       const previousChatContext = [];
 
-      // CRITICAL FIX: Process all messages in the conversation
+      // ENHANCED: Message processing with agent type detection
       const formattedChats = chatMessages.map((chatItem, messageIndex) => {
         const userMessageContent =
           chatItem.message && chatItem.message.user
@@ -821,6 +810,53 @@ export const getChat = (chatId) => {
           (chatItem.message && chatItem.message.queryKeywords) ||
           extractKeywords(userMessageContent);
 
+        // ENHANCED: Detect and preserve agent type
+        let agentType =
+          chatItem.agentType || chatItem.message?.agentType || null;
+
+        // Fallback agent type detection for older chats
+        if (
+          !agentType &&
+          chatItem.isSearch &&
+          chatItem.searchType === "agent"
+        ) {
+          const chatTitle = data.title || "";
+          const messageContent = (
+            userMessageContent +
+            " " +
+            geminiMessageContent
+          ).toLowerCase();
+
+          if (
+            chatTitle.toLowerCase().includes("jira") ||
+            chatTitle.startsWith("Jira:") ||
+            messageContent.includes("jira") ||
+            messageContent.includes("ticket") ||
+            /\b[A-Z]+-\d+\b/.test(userMessageContent)
+          ) {
+            agentType = "jira_ag";
+            console.log(`[getChat] Detected Jira agent from content analysis`);
+          } else if (
+            chatTitle.toLowerCase().includes("confluence") ||
+            messageContent.includes("confluence") ||
+            messageContent.includes("knowledge base")
+          ) {
+            agentType = "conf_ag";
+            console.log(
+              `[getChat] Detected Confluence agent from content analysis`
+            );
+          } else if (
+            chatTitle.toLowerCase().includes("monitor") ||
+            messageContent.includes("monitor") ||
+            messageContent.includes("logs")
+          ) {
+            agentType = "monitor_ag";
+            console.log(
+              `[getChat] Detected Monitor agent from content analysis`
+            );
+          }
+        }
+
         let finalProcessedContent = geminiMessageContent;
         let finalIsHTML = isContentAlreadyHTML;
 
@@ -834,7 +870,7 @@ export const getChat = (chatId) => {
           finalIsHTML = isHTML;
         }
 
-        // Add to previous chat context for future conversations
+        // Add to previous chat context
         if (userMessageContent) {
           previousChatContext.push({
             role: "user",
@@ -858,6 +894,7 @@ export const getChat = (chatId) => {
           isLoader: "no",
           isSearch: chatItem.isSearch || false,
           searchType: chatItem.searchType,
+          agentType: agentType, // FIXED: Preserve agent type
           queryKeywords: currentQueryKeywords,
           sources: (chatItem.message && chatItem.message.sources) || [],
           relatedQuestions:
@@ -868,29 +905,52 @@ export const getChat = (chatId) => {
         };
       });
 
-      console.log(
-        "[getChat] Dispatching getChatHandler with formattedChats:",
-        formattedChats.length,
-        "messages"
-      );
+      console.log("[getChat] Dispatching getChatHandler with formattedChats:", {
+        messageCount: formattedChats.length,
+        hasAgentTypes: formattedChats.some((chat) => chat.agentType),
+        agentTypes: [
+          ...new Set(
+            formattedChats.map((chat) => chat.agentType).filter(Boolean)
+          ),
+        ],
+      });
 
-      // CRITICAL FIX: Load all messages at once
+      // Load all messages at once
       dispatch(chatAction.getChatHandler({ chats: formattedChats }));
 
       // Set the previous chat context for continued conversations
-      console.log(
-        "[getChat] Setting previous chat context:",
-        previousChatContext.length,
-        "entries"
-      );
       dispatch(
         chatAction.previousChatHandler({ previousChat: previousChatContext })
       );
+
+      // FIXED: Auto-select agent with proper import
+      const hasAgentMessages = formattedChats.some(
+        (chat) => chat.isSearch && chat.searchType === "agent" && chat.agentType
+      );
+
+      if (hasAgentMessages) {
+        const recentAgentMessage = [...formattedChats]
+          .reverse()
+          .find(
+            (chat) =>
+              chat.isSearch && chat.searchType === "agent" && chat.agentType
+          );
+
+        if (recentAgentMessage) {
+          console.log(
+            `[getChat] Auto-selecting agent: ${recentAgentMessage.agentType}`
+          );
+          dispatch(agentAction.clearSelectedAgents());
+          dispatch(agentAction.addSelectedAgent(recentAgentMessage.agentType));
+        }
+      }
 
       return Promise.resolve({
         success: true,
         messageCount: formattedChats.length,
         chatHistoryId: data.chatHistory,
+        agentType:
+          formattedChats.find((chat) => chat.agentType)?.agentType || null,
       });
     } catch (err) {
       console.error("Error in getChat:", err);
@@ -916,6 +976,7 @@ export const getChat = (chatId) => {
   };
 };
 
+// Keep all your other existing functions: deleteChatHistory, etc.
 export const deleteChatHistory = (chatId) => {
   return async (dispatch) => {
     dispatch({ type: "DELETE_CHAT_HISTORY_REQUEST", payload: chatId });

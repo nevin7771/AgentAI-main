@@ -425,8 +425,162 @@ const AIDisclaimer = memo(() => {
 });
 
 AIDisclaimer.displayName = "AIDisclaimer";
+// UPDATED: processJiraContent function in ScrollChat.js
 
-// Main ScrollChat component
+const processJiraContent = (text, queryKeywords = []) => {
+  if (!text) return "";
+
+  let processedText = String(text);
+
+  try {
+    console.log("[processJiraContent] Processing Jira content");
+
+    // STEP 1: Remove unwanted header patterns and clean HTML attributes
+    processedText = processedText
+      .replace(/# 🐛 Bug Report - ZOOM Project\s*\n*/g, "")
+      .replace(/\*\*Query:\*\*\s*\n*[^\n]*\n*/g, "")
+      .replace(/\*\*Project:\*\*\s*\n*ZOOM\s*\n*/g, "")
+      .replace(/\*\*Bug Type:\*\*\s*\n*[^\n]*\n*/g, "")
+      .replace(/\*\*Search Terms:\*\*\s*\n*[^\n]*\n*/g, "")
+      .replace(/\*\*Found:\*\*\s*\n*[^\n]*\n*/g, "")
+      // CRITICAL FIX: Remove any stray HTML attributes
+      .replace(/"\s*target="_blank"[^>]*>/g, "")
+      .replace(/rel="noopener noreferrer"[^>]*>/g, "")
+      .replace(/style="[^"]*"[^>]*>/g, "");
+
+    // STEP 2: Fix malformed HTML/markdown patterns FIRST
+    processedText = processedText.replace(
+      /\*\*([^*"]+)"[^>]*>([^*]+)\*\*:\s*(.*)/g,
+      (match, ticketStart, ticketEnd, description) => {
+        // Use the cleaner ticket ID
+        const ticketId = ticketEnd.trim();
+        const cleanDescription = description.trim();
+        return `**${ticketId}**: ${cleanDescription}`;
+      }
+    );
+
+    // STEP 3: Process headers
+    processedText = processedText
+      .replace(
+        /^#{1,3}\s*🚨\s*(.*$)/gim,
+        '<h2 class="jira-alert-heading">🚨 $1</h2>'
+      )
+      .replace(
+        /^#{1,3}\s*✨\s*(.*$)/gim,
+        '<h2 class="jira-success-heading">✨ $1</h2>'
+      )
+      .replace(/^#{1,3}\s*(.*$)/gim, '<h3 class="jira-clean-heading">$1</h3>');
+
+    // STEP 4: Handle numbered bug items
+    processedText = processedText.replace(
+      /^#{1,3}\s*(\d+)\.\s*\*\*([^*]+)\*\*:\s*(.*$)/gim,
+      (match, number, ticketId, description) => {
+        const cleanDescription = description
+          .replace(/target="_blank"[^>]*>/g, "")
+          .replace(/rel="noopener noreferrer"[^>]*>/g, "")
+          .replace(/style="[^"]*"/g, "")
+          .replace(/<[^>]*>/g, "")
+          .trim();
+
+        return `<div class="jira-bug-item">
+          <span class="jira-bug-number">${number}.</span> 
+          <span class="jira-ticket-id">${ticketId}</span>: 
+          <span class="jira-bug-description">${cleanDescription}</span>
+        </div>`;
+      }
+    );
+
+    // STEP 5: Handle key-value pairs
+    processedText = processedText.replace(
+      /^-\s*\n*\s*([A-Za-z\s]+):\s*([^\n]*)/gm,
+      '<div class="jira-info-row"><span class="jira-key">$1:</span> <span class="jira-value">$2</span></div>'
+    );
+
+    // STEP 6: Handle remaining bold text
+    processedText = processedText.replace(
+      /\*\*([^*]+)\*\*/g,
+      '<strong class="jira-bold">$1</strong>'
+    );
+
+    // STEP 7: ENHANCED ticket ID handling with actual links
+    const jiraBaseUrl =
+      process.env.REACT_APP_JIRA_URL || "https://zoom.atlassian.net";
+    processedText = processedText.replace(
+      /\b([A-Z]+-\d+)\b/g,
+      (match, ticketId) => {
+        return `<a href="${jiraBaseUrl}/browse/${ticketId}" target="_blank" rel="noopener noreferrer" class="jira-ticket-link">${ticketId}</a>`;
+      }
+    );
+
+    // STEP 8: Clean up whitespace and convert to HTML
+    processedText = processedText
+      .replace(/\n\s*\n\s*\n/g, "\n\n")
+      .replace(/^\s*\n+/g, "")
+      .replace(/\n+\s*$/g, "")
+      .replace(/\s+/g, " ")
+      .replace(/\n\s*\n/g, '</p><p class="jira-paragraph">')
+      .replace(/\n/g, "<br>");
+
+    // STEP 9: Handle emojis
+    processedText = processedText.replace(
+      /(🐛|🚨|📊|✅|❌|⚠️|📝|🔍|📈|📉|✨)/g,
+      '<span class="jira-emoji">$1</span>'
+    );
+
+    // STEP 10: Wrap if needed
+    if (processedText && !processedText.match(/^<(h[1-6]|p|div)/)) {
+      processedText = `<p class="jira-paragraph">${processedText}</p>`;
+    }
+
+    // STEP 11: Clean up malformed HTML
+    processedText = processedText
+      .replace(/<p class="jira-paragraph">\s*<\/p>/g, "")
+      .replace(/<p class="jira-paragraph">\s*<h/g, "<h")
+      .replace(/<\/h([1-6])>\s*<\/p>/g, "</h$1>")
+      .replace(/<p class="jira-paragraph">\s*<div/g, "<div")
+      .replace(/<\/div>\s*<\/p>/g, "</div>")
+      .trim();
+
+    // STEP 12: Apply keyword highlighting
+    if (
+      queryKeywords &&
+      queryKeywords.length > 0 &&
+      typeof highlightChatKeywords === "function"
+    ) {
+      processedText = highlightChatKeywords(processedText, queryKeywords);
+    }
+
+    // STEP 13: Sanitize
+    if (typeof DOMPurify !== "undefined") {
+      return DOMPurify.sanitize(processedText, {
+        USE_PROFILES: { html: true },
+        ADD_TAGS: [
+          "strong",
+          "em",
+          "code",
+          "pre",
+          "h1",
+          "h2",
+          "h3",
+          "p",
+          "ul",
+          "ol",
+          "li",
+          "span",
+          "br",
+          "div",
+          "a",
+        ],
+        ADD_ATTR: ["class", "href", "target", "rel"],
+      });
+    }
+
+    return processedText;
+  } catch (error) {
+    console.error("Error processing Jira content:", error);
+    return text;
+  }
+}; // Main ScrollChat component
 const ScrollChat = () => {
   const dispatch = useDispatch();
   const { historyId } = useParams();
@@ -463,10 +617,35 @@ const ScrollChat = () => {
     (text, queryKeywords = [], isPreformattedHTML = false) => {
       if (!text) return "";
 
-      let processedText = String(text);
-
       try {
-        // If it's already HTML, just sanitize and highlight
+        // ENHANCED: Better Jira content detection
+        const isJiraContent =
+          text.includes("🐛") ||
+          text.includes("🚨") ||
+          text.includes("Bug Report") ||
+          text.includes("ZOOM Project") ||
+          text.includes("**Query:**") ||
+          text.includes("**Project:**") ||
+          text.includes("**Bug Type:**") ||
+          text.includes("**Found:**") ||
+          text.includes("Active Bug") ||
+          text.includes("ZOOM-") ||
+          /\*\*[A-Za-z\s]+:\*\*/.test(text) ||
+          /# 🐛/.test(text) ||
+          /# 🚨/.test(text) ||
+          /## \d+\. \*\*ZOOM-/.test(text);
+
+        // Use Jira processor for detected Jira content
+        if (isJiraContent) {
+          console.log(
+            "[processMessageContent] Using Jira processor for detected content"
+          );
+          return processJiraContent(text, queryKeywords);
+        }
+
+        // Your existing processing for non-Jira content...
+        let processedText = String(text);
+
         if (isPreformattedHTML) {
           if (queryKeywords && queryKeywords.length > 0) {
             processedText = highlightChatKeywords(processedText, queryKeywords);
@@ -476,30 +655,23 @@ const ScrollChat = () => {
           });
         }
 
-        // Only process as markdown if it's NOT already HTML
+        // Regular markdown processing (keep your existing logic)
         processedText = processedText
-          // Convert headings with proper bold styling
           .replace(/^### (.*$)/gim, "<h3 class='content-heading-3'>$1</h3>")
           .replace(/^## (.*$)/gim, "<h2 class='content-heading-2'>$1</h2>")
           .replace(/^# (.*$)/gim, "<h1 class='content-heading-1'>$1</h1>")
-          // Bold text
           .replace(/\*\*(.*?)\*\*/g, "<strong class='content-bold'>$1</strong>")
-          // Italic text
           .replace(/\*(.*?)\*/g, "<em class='content-italic'>$1</em>")
-          // Code blocks
           .replace(
             /```([\s\S]*?)```/g,
             "<pre class='content-code-block'><code>$1</code></pre>"
           )
-          // Inline code
           .replace(/`([^`]+)`/g, "<code class='content-inline-code'>$1</code>")
-          // List items
           .replace(/^\s*[-*] (.+)$/gm, "<li class='content-list-item'>$1</li>")
           .replace(
             /^\s*\d+\. (.+)$/gm,
             "<li class='content-numbered-item'>$1</li>"
           )
-          // Wrap consecutive list items
           .replace(
             /(<li class='content-list-item'>.*?<\/li>[\s\n]*)+/gs,
             "<ul class='content-list'>$&</ul>"
@@ -508,19 +680,15 @@ const ScrollChat = () => {
             /(<li class='content-numbered-item'>.*?<\/li>[\s\n]*)+/gs,
             "<ol class='content-numbered-list'>$&</ol>"
           )
-          // Clean up multiple ul tags
           .replace(/<\/ul>[\s\n]*<ul>/g, "")
           .replace(/<\/ol>[\s\n]*<ol>/g, "")
-          // Convert line breaks
           .replace(/\n\s*\n/g, "</p><p class='content-paragraph'>")
           .replace(/\n(?![^<]*>)/g, "<br>");
 
-        // Wrap in paragraph if not already wrapped
         if (!processedText.match(/^<(h[1-6]|p|div|ul|ol|blockquote|pre)/)) {
           processedText = `<p class='content-paragraph'>${processedText}</p>`;
         }
 
-        // Apply keyword highlighting
         if (queryKeywords && queryKeywords.length > 0) {
           processedText = highlightChatKeywords(processedText, queryKeywords);
         }
@@ -530,14 +698,72 @@ const ScrollChat = () => {
         });
       } catch (error) {
         console.error("Error processing message content:", error);
-        reportError("content_processing_failed", error, {
-          originalText: text?.substring(0, 100),
-          queryKeywords,
-        });
         return text;
       }
     },
     []
+  );
+
+  // STEP 3: Fix OptimizedStreamingContent to use the updated processor
+  // Find your OptimizedStreamingContent component and make sure it uses processMessageContent:
+
+  const OptimizedStreamingContent = memo(
+    ({ chatItem, processMessageContent, currentLoadingText }) => {
+      const contentRef = useRef(null);
+      const lastContentRef = useRef("");
+      const lastProcessedRef = useRef("");
+
+      useEffect(() => {
+        if (!contentRef.current) return;
+
+        const content = chatItem?.gemini || "";
+        const isStreaming = chatItem?.isLoader === "streaming";
+        const isLoading = chatItem?.isLoader === "yes";
+        const isComplete = chatItem?.isLoader === "no" && content;
+
+        if (content === lastContentRef.current && !isComplete) {
+          return;
+        }
+
+        lastContentRef.current = content;
+
+        if (isLoading) {
+          const loadingText = currentLoadingText || "Loading...";
+          contentRef.current.innerHTML = `<p class="${styles["loading-text"]}">${loadingText}</p>`;
+        } else if (isStreaming || isComplete) {
+          // CRITICAL FIX: Always use processMessageContent for Jira detection
+          console.log(
+            "[OptimizedStreamingContent] Processing content:",
+            content.substring(0, 100)
+          );
+
+          let processedContent = processMessageContent(
+            content,
+            chatItem?.queryKeywords || [],
+            chatItem?.isPreformattedHTML || false // Let the processor decide
+          );
+
+          if (processedContent !== lastProcessedRef.current) {
+            lastProcessedRef.current = processedContent;
+            contentRef.current.innerHTML = processedContent;
+            console.log(
+              "[OptimizedStreamingContent] Updated content:",
+              processedContent.substring(0, 200)
+            );
+          }
+        }
+      }, [
+        chatItem?.gemini,
+        chatItem?.isLoader,
+        chatItem?.queryKeywords,
+        chatItem?.isPreformattedHTML,
+        chatItem?.searchType,
+        currentLoadingText,
+        processMessageContent,
+      ]);
+
+      return <div ref={contentRef} className={styles["message-content"]} />;
+    }
   );
 
   // Chat loading with error reporting
@@ -565,11 +791,13 @@ const ScrollChat = () => {
           console.error(`[ScrollChat] Error loading chat: ${historyId}`, error);
           setLoadError(error.message || "Failed to load conversation");
 
-          await reportError("chat_load_failed", error, {
-            historyId,
-            chatHistoryId,
-            userAgent: navigator.userAgent,
-          });
+          if (typeof reportError === "function") {
+            await reportError("chat_load_failed", error, {
+              historyId,
+              chatHistoryId,
+              userAgent: navigator.userAgent,
+            });
+          }
         })
         .finally(() => {
           setIsLoadingChat(false);

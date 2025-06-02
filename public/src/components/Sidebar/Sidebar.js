@@ -4,6 +4,7 @@ import { useSelector, useDispatch } from "react-redux";
 import { uiAction } from "../../store/ui-gemini";
 import { useEffect, useState, useCallback } from "react";
 import { chatAction } from "../../store/chat";
+import { agentAction } from "../../store/agent";
 import { Link, useNavigate } from "react-router-dom";
 import { userUpdateLocation } from "../../store/user-action";
 import { deleteChatHistory } from "../../store/chat-action";
@@ -12,7 +13,7 @@ const Sidebar = () => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const isSidebarLong = useSelector((state) => state.ui.isSidebarLong);
-  const isNewChat = useSelector((state) => state.chat.newChat);
+  // FIXED: Removed unused isNewChat variable
   const recentChat = useSelector((state) => state.chat.recentChat);
   const [isShowMore, setisShowMore] = useState(false);
   const [isActiveChat, setIsActiveChat] = useState("");
@@ -44,6 +45,7 @@ const Sidebar = () => {
         _id: chat.id,
         title: chat.title,
         searchType: chat.searchType || "agent",
+        agentType: chat.agentType || null,
         isSearch: true,
         fromLocalStorage: true,
         timestamp: chat.timestamp || new Date().toISOString(),
@@ -53,6 +55,7 @@ const Sidebar = () => {
         _id: item.id,
         title: item.title,
         searchType: item.type || "search",
+        agentType: item.agentType || null,
         isSearch: true,
         fromLocalStorage: true,
         timestamp: item.timestamp || new Date().toISOString(),
@@ -104,14 +107,13 @@ const Sidebar = () => {
     }
   }, [dispatch, recentChat]);
 
-  // Listen for storage events to update sidebar and load on mount
+  // Listen for storage events
   useEffect(() => {
     const handleStorageChange = () => {
       loadLocalStorageChats();
     };
 
-    loadLocalStorageChats(); // Initial load
-
+    loadLocalStorageChats();
     window.addEventListener("storage", handleStorageChange);
 
     return () => {
@@ -119,38 +121,28 @@ const Sidebar = () => {
     };
   }, [loadLocalStorageChats]);
 
-  const settingsHandler = (e) => {
-    dispatch(uiAction.toggleSettings());
-    if (e.view.innerWidth <= 960) {
-      dispatch(uiAction.toggleSideBar());
-    }
-  };
+  // FIXED: Removed unused settingsHandler function
 
-  // FIXED: Help button handler to redirect to Zoom chat
   const helpHandler = () => {
     const zoomChatUrl =
       "https://zoom.us/launch/chat/v2/eyJzaWQiOiI0YWQ5ZTllZGY4ODY0NjAzOTI1MjI5ODY1ZGVhNzdmNUBjb25mZXJlbmNlLnhtcHAuem9vbS51cyJ9";
 
     try {
-      // Try to open in new window/tab
       const newWindow = window.open(
         zoomChatUrl,
         "_blank",
         "noopener,noreferrer"
       );
 
-      // Fallback if popup blocked
       if (
         !newWindow ||
         newWindow.closed ||
         typeof newWindow.closed === "undefined"
       ) {
-        // Fallback: direct navigation
         window.location.href = zoomChatUrl;
       }
     } catch (error) {
       console.error("Error opening Zoom chat:", error);
-      // Ultimate fallback
       window.location.href = zoomChatUrl;
     }
   };
@@ -159,7 +151,83 @@ const Sidebar = () => {
     dispatch(chatAction.replaceChat({ chats: [] }));
     dispatch(chatAction.newChatHandler());
     dispatch(chatAction.chatHistoryIdHandler({ chatHistoryId: "" }));
+    dispatch(agentAction.clearSelectedAgents());
     navigate("/");
+  };
+
+  // Function to get chat styling class based on agent type
+  const getChatStyleClass = (chat) => {
+    if (!chat.isSearch) {
+      return ""; // Regular chat, no special styling
+    }
+
+    // Determine agent type from chat data
+    let agentType = chat.agentType;
+
+    // Fallback detection for older chats without agentType
+    if (!agentType && chat.title) {
+      if (
+        chat.title.toLowerCase().includes("jira") ||
+        chat.title.startsWith("Jira:")
+      ) {
+        agentType = "jira_ag";
+      } else if (chat.title.toLowerCase().includes("confluence")) {
+        agentType = "conf_ag";
+      } else if (chat.title.toLowerCase().includes("monitor")) {
+        agentType = "monitor_ag";
+      }
+    }
+
+    // Apply styling based on agent type
+    if (agentType === "jira_ag") {
+      return `${styles["agent-chat"]} ${styles["jira-agent-chat"]}`;
+    } else if (agentType === "conf_ag" || agentType === "monitor_ag") {
+      return `${styles["agent-chat"]} ${styles["confluence-monitor-chat"]}`;
+    } else if (chat.searchType === "agent") {
+      return `${styles["agent-chat"]}`;
+    } else if (chat.searchType === "simple") {
+      return `${styles["search-chat"]} ${styles["simple-search-chat"]}`;
+    } else if (chat.searchType === "deep") {
+      return `${styles["search-chat"]} ${styles["deep-search-chat"]}`;
+    }
+
+    return styles["search-chat"];
+  };
+
+  // Function to auto-select agent when clicking chat
+  const handleChatClick = (chat) => {
+    setIsActiveChat(chat._id);
+
+    // Auto-select agent based on chat type
+    if (chat.isSearch && chat.agentType) {
+      console.log(`[Sidebar] Auto-selecting agent: ${chat.agentType}`);
+      dispatch(agentAction.clearSelectedAgents());
+      dispatch(agentAction.addSelectedAgent(chat.agentType));
+    } else if (chat.isSearch && chat.title) {
+      // Fallback detection for older chats
+      let agentToSelect = null;
+      if (
+        chat.title.toLowerCase().includes("jira") ||
+        chat.title.startsWith("Jira:")
+      ) {
+        agentToSelect = "jira_ag";
+      } else if (chat.title.toLowerCase().includes("confluence")) {
+        agentToSelect = "conf_ag";
+      } else if (chat.title.toLowerCase().includes("monitor")) {
+        agentToSelect = "monitor_ag";
+      }
+
+      if (agentToSelect) {
+        console.log(
+          `[Sidebar] Auto-selecting agent (fallback): ${agentToSelect}`
+        );
+        dispatch(agentAction.clearSelectedAgents());
+        dispatch(agentAction.addSelectedAgent(agentToSelect));
+      }
+    } else {
+      // Regular chat - clear agent selection
+      dispatch(agentAction.clearSelectedAgents());
+    }
   };
 
   const icon = themeIcon();
@@ -281,14 +349,14 @@ const Sidebar = () => {
             {allChats.slice(0, 5).map((chat) => (
               <Link to={`/app/${chat._id}`} key={chat._id}>
                 <div
-                  className={`${styles["recent-chat"]} ${
+                  className={`${styles["recent-chat"]} ${getChatStyleClass(
+                    chat
+                  )} ${
                     isActiveChat === chat._id
                       ? styles["active-recent-chat"]
                       : ""
                   }`}
-                  onClick={() => {
-                    setIsActiveChat(chat._id);
-                  }}>
+                  onClick={() => handleChatClick(chat)}>
                   <img src={icon.messageIcon} alt="message"></img>
                   <p>{chat.title?.slice(0, 20) || "Chat"}</p>
                   <div
@@ -311,14 +379,14 @@ const Sidebar = () => {
               allChats.slice(5, allChats.length).map((chat) => (
                 <Link to={`/app/${chat._id}`} key={chat._id}>
                   <div
-                    className={`${styles["recent-chat"]} ${
+                    className={`${styles["recent-chat"]} ${getChatStyleClass(
+                      chat
+                    )} ${
                       isActiveChat === chat._id
                         ? styles["active-recent-chat"]
                         : ""
                     }`}
-                    onClick={() => {
-                      setIsActiveChat(chat._id);
-                    }}>
+                    onClick={() => handleChatClick(chat)}>
                     <img src={icon.messageIcon} alt="message"></img>
                     <p>{chat.title?.slice(0, 20) || "Chat"}</p>
                     <div
@@ -335,7 +403,6 @@ const Sidebar = () => {
       </div>
 
       <div className={styles["settings-section"]}>
-        {/* FIXED: Help button with Zoom chat redirect */}
         <div className={styles["help"]} onClick={helpHandler}>
           <img src={icon.helpIcon} alt="help icon"></img>
           {isSidebarLong && <p>Help</p>}
