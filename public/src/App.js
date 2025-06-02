@@ -123,7 +123,7 @@ const UnauthorizedAccess = ({ onLoginClick }) => (
           fontSize: "24px",
           fontWeight: "500",
         }}>
-        Authentication Required
+        VISTA - AI Agent
       </h2>
 
       <p
@@ -133,7 +133,8 @@ const UnauthorizedAccess = ({ onLoginClick }) => (
           fontSize: "16px",
           lineHeight: "1.5",
         }}>
-        You need to sign in with your Okta account to access this application.
+        You need to sign in with your Okta account Please contact
+        naveen.kumarv@zoom.us
       </p>
 
       <button
@@ -169,9 +170,7 @@ const UnauthorizedAccess = ({ onLoginClick }) => (
           color: "#9aa0a6",
           margin: "16px 0 0 0",
           fontSize: "14px",
-        }}>
-        Secure single sign-on required
-      </p>
+        }}></p>
     </div>
   </div>
 );
