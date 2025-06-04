@@ -1,5 +1,7 @@
-// server/router/public.js - FIXED WITH MISSING ROUTES ADDED
+// server/router/public.js - COMPLETE WITH ALL MISSING ROUTES AND ENHANCED LOGGING
 import express from "express";
+import fs from "fs";
+import path from "path";
 
 const router = express.Router();
 
@@ -27,6 +29,36 @@ import {
 
 import { authMiddleware } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rateLimit.js";
+
+// ENHANCED LOGGING SYSTEM
+// Create logs directory if it doesn't exist
+const logsDir = path.join(process.cwd(), "logs");
+if (!fs.existsSync(logsDir)) {
+  fs.mkdirSync(logsDir, { recursive: true });
+}
+
+// Enhanced logging function for feedback and errors
+const logToFile = (type, data) => {
+  const timestamp = new Date().toISOString();
+  const logEntry = {
+    timestamp,
+    type,
+    ...data,
+  };
+
+  const logFile = path.join(
+    logsDir,
+    `${type}-${new Date().toISOString().split("T")[0]}.log`
+  );
+  const logLine = JSON.stringify(logEntry) + "\n";
+
+  try {
+    fs.appendFileSync(logFile, logLine);
+    console.log(`📝 [Logger] ${type.toUpperCase()} logged to file: ${logFile}`);
+  } catch (error) {
+    console.error(`❌ [Logger] Failed to write ${type} log:`, error);
+  }
+};
 
 // Enhanced auth middleware for debugging
 const debugAuth = (req, res, next) => {
@@ -264,6 +296,409 @@ router.get(
   }
 );
 
+// 🆕 CRITICAL FIX: Add missing save-agent-chat route
+router.post(
+  "/api/save-agent-chat",
+  authMiddleware,
+  debugAuth,
+  requireAuth,
+  async (req, res) => {
+    try {
+      const {
+        chatHistoryId,
+        agentType,
+        question,
+        response,
+        isNewConversation,
+      } = req.body;
+
+      console.log(
+        `[SaveAgentChat] Processing: ${agentType}, new: ${isNewConversation}, chatId: ${chatHistoryId}`
+      );
+
+      // Enhanced logging for agent chat saves
+      logToFile("agent-chat-save", {
+        userId: req.user._id,
+        agentType,
+        isNewConversation,
+        chatHistoryId,
+        questionLength: question?.length || 0,
+        responseLength: response?.length || 0,
+        userAgent: req.headers["user-agent"],
+        ip: req.ip,
+      });
+
+      if (isNewConversation) {
+        // Create new chat history
+        console.log(
+          `[SaveAgentChat] Creating new chat history for ${agentType}`
+        );
+
+        const createUrl = `${
+          process.env.BASE_URL || "http://localhost:3030"
+        }/api/create-chat-history-enhanced`;
+        const createResponse = await fetch(createUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+            Authorization: req.headers.authorization,
+            Cookie: req.headers.cookie,
+          },
+          body: JSON.stringify({
+            title: `${agentType}: ${question.substring(0, 40)}`,
+            message: {
+              user: question,
+              gemini: response,
+              sources: [],
+              relatedQuestions: [],
+              queryKeywords: question
+                .toLowerCase()
+                .split(" ")
+                .filter((kw) => kw.trim().length > 1),
+              isPreformattedHTML: false,
+            },
+            isSearch: true,
+            searchType: "agent",
+            agentType: agentType,
+            clientId: chatHistoryId,
+          }),
+        });
+
+        if (createResponse.ok) {
+          const createData = await createResponse.json();
+          console.log(
+            `[SaveAgentChat] ✅ Successfully created new chat: ${createData.chatHistoryId}`
+          );
+
+          // Log successful creation
+          logToFile("agent-chat-success", {
+            userId: req.user._id,
+            operation: "create",
+            chatHistoryId: createData.chatHistoryId,
+            agentType,
+          });
+
+          return res.json({
+            success: true,
+            chatHistoryId: createData.chatHistoryId,
+            message: "Chat history created successfully",
+          });
+        } else {
+          const errorText = await createResponse.text();
+          console.error(
+            `[SaveAgentChat] ❌ Failed to create chat: ${createResponse.status} - ${errorText}`
+          );
+          throw new Error(`Create chat failed: ${createResponse.status}`);
+        }
+      } else {
+        // Append to existing chat
+        console.log(
+          `[SaveAgentChat] Appending to existing chat: ${chatHistoryId}`
+        );
+
+        const appendUrl = `${
+          process.env.BASE_URL || "http://localhost:3030"
+        }/api/append-chat-message`;
+        const appendResponse = await fetch(appendUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+            Authorization: req.headers.authorization,
+            Cookie: req.headers.cookie,
+          },
+          body: JSON.stringify({
+            chatHistoryId: chatHistoryId,
+            message: {
+              user: question,
+              gemini: response,
+              sources: [],
+              relatedQuestions: [],
+              queryKeywords: question
+                .toLowerCase()
+                .split(" ")
+                .filter((kw) => kw.trim().length > 1),
+              isPreformattedHTML: false,
+            },
+            isSearch: true,
+            searchType: "agent",
+            agentType: agentType,
+          }),
+        });
+
+        if (appendResponse.ok) {
+          const appendData = await appendResponse.json();
+          console.log(
+            `[SaveAgentChat] ✅ Successfully appended to chat: ${chatHistoryId}`
+          );
+
+          // Log successful append
+          logToFile("agent-chat-success", {
+            userId: req.user._id,
+            operation: "append",
+            chatHistoryId: chatHistoryId,
+            agentType,
+            messageCount: appendData.messageCount,
+          });
+
+          return res.json({
+            success: true,
+            chatHistoryId: chatHistoryId,
+            message: "Message appended successfully",
+            messageCount: appendData.messageCount,
+          });
+        } else {
+          const errorText = await appendResponse.text();
+          console.error(
+            `[SaveAgentChat] ❌ Failed to append: ${appendResponse.status} - ${errorText}`
+          );
+          throw new Error(`Append message failed: ${appendResponse.status}`);
+        }
+      }
+    } catch (error) {
+      console.error("[SaveAgentChat] ❌ Error:", error);
+
+      // Log error
+      logToFile("agent-chat-error", {
+        userId: req.user?._id,
+        error: error.message,
+        stack: error.stack,
+        requestBody: req.body,
+      });
+
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  }
+);
+
+// 🆕 CRITICAL FIX: Add missing error-report route with enhanced logging
+router.post(
+  "/api/error-report",
+  authMiddleware,
+  debugAuth,
+  async (req, res) => {
+    try {
+      const errorReport = req.body;
+      console.log("📊 [ErrorReport] Received error report:", errorReport.type);
+
+      // Enhanced error logging with user context
+      const enhancedErrorReport = {
+        ...errorReport,
+        userId: req.user?._id,
+        userAgent: req.headers["user-agent"],
+        ip: req.ip,
+        serverTimestamp: new Date().toISOString(),
+      };
+
+      // Log to file for permanent storage
+      logToFile("error-report", enhancedErrorReport);
+
+      // Also log to console with formatting for immediate visibility
+      console.error(`🚨 [ErrorReport] ${errorReport.type}:`, {
+        timestamp: errorReport.timestamp,
+        url: errorReport.url,
+        userId: req.user?._id,
+        error: errorReport.error,
+        context: errorReport.context,
+      });
+
+      res.json({
+        success: true,
+        message: "Error report received and logged",
+        reportId: `err_${Date.now()}_${Math.random()
+          .toString(36)
+          .substring(2, 7)}`,
+      });
+    } catch (error) {
+      console.error("❌ [ErrorReport] Failed to process error report:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to process error report",
+      });
+    }
+  }
+);
+
+// 🆕 CRITICAL FIX: Add missing feedback route with comprehensive logging
+router.post("/api/feedback", authMiddleware, debugAuth, async (req, res) => {
+  try {
+    const feedback = req.body;
+    console.log("💬 [Feedback] Received feedback:", feedback.feedbackType);
+
+    // Get detailed user information from database
+    let userDetails = null;
+    if (req.user?._id) {
+      try {
+        const { user } = await import("../model/user.js");
+        const userData = await user
+          .findById(req.user._id)
+          .select(
+            "email name username createdAt subscription role chatHistory"
+          );
+
+        if (userData) {
+          userDetails = {
+            userId: userData._id.toString(),
+            email: userData.email,
+            name: userData.name,
+            username: userData.username,
+            accountAge: Math.floor(
+              (new Date() - new Date(userData.createdAt)) /
+                (1000 * 60 * 60 * 24)
+            ), // days
+            subscription: userData.subscription || "free",
+            role: userData.role || "user",
+            totalChats: userData.chatHistory?.length || 0,
+          };
+        }
+      } catch (userError) {
+        console.warn(
+          "⚠️ [Feedback] Failed to fetch user details:",
+          userError.message
+        );
+      }
+    }
+
+    // Enhanced feedback logging with full context including question and user details
+    const enhancedFeedback = {
+      ...feedback,
+      // User Information
+      userId: req.user?._id,
+      userDetails: userDetails,
+
+      // Question/Query Information
+      userQuestion:
+        feedback.userQuery || feedback.question || feedback.originalQuery,
+      questionLength:
+        (feedback.userQuery || feedback.question || feedback.originalQuery)
+          ?.length || 0,
+
+      // Response Information
+      responseLength: feedback.messageContent?.length || 0,
+      responsePreview: feedback.messageContent?.substring(0, 200) + "...",
+
+      // Technical Context
+      userAgent: req.headers["user-agent"],
+      ip: req.ip,
+      referer: req.headers.referer,
+      serverTimestamp: new Date().toISOString(),
+      sessionId: req.headers["x-session-id"] || "unknown",
+
+      // Search/Agent Context
+      searchType: feedback.searchType,
+      agentType: feedback.agentType,
+      sourcesCount: feedback.sources?.length || 0,
+      relatedQuestionsCount: feedback.relatedQuestions?.length || 0,
+
+      // Performance metrics if available
+      responseTime: feedback.responseTime,
+      tokensUsed: feedback.tokensUsed,
+    };
+
+    // Log to file for analysis and improvement
+    logToFile("user-feedback", enhancedFeedback);
+
+    // Detailed console logging for immediate review
+    console.log(
+      `📝 [Feedback] ${feedback.type || "general"} - ${feedback.feedbackType}:`,
+      {
+        messageId: feedback.messageId,
+        chatHistoryId: feedback.chatHistoryId,
+        userId: req.user?._id,
+        userEmail: userDetails?.email,
+        timestamp: feedback.timestamp,
+        question:
+          feedback.userQuery?.substring(0, 100) + "..." ||
+          "No question provided",
+        contentPreview: feedback.messageContent?.substring(0, 100) + "...",
+        sources: feedback.sources?.length || 0,
+        searchType: feedback.searchType,
+        agentType: feedback.agentType,
+      }
+    );
+
+    // Special handling for negative feedback with enhanced alerting
+    if (feedback.feedbackType === "negative") {
+      console.warn(`⚠️ [Feedback] NEGATIVE FEEDBACK ALERT:`, {
+        userId: req.user?._id,
+        userEmail: userDetails?.email,
+        messageId: feedback.messageId,
+        userQuery: feedback.userQuery || feedback.question,
+        responsePreview: feedback.messageContent?.substring(0, 150) + "...",
+        searchType: feedback.searchType,
+        agentType: feedback.agentType,
+        timestamp: new Date().toISOString(),
+        accountAge: userDetails?.accountAge,
+        totalChats: userDetails?.totalChats,
+      });
+
+      // Log negative feedback separately for priority review with full context
+      logToFile("negative-feedback", {
+        ...enhancedFeedback,
+        priority: "high",
+        alertType: "negative_feedback",
+        needsReview: true,
+      });
+    }
+
+    // Special handling for positive feedback to identify what works well
+    if (feedback.feedbackType === "positive") {
+      console.log(`✅ [Feedback] POSITIVE FEEDBACK:`, {
+        userId: req.user?._id,
+        searchType: feedback.searchType,
+        agentType: feedback.agentType,
+        sourcesUsed: feedback.sources?.length || 0,
+        responseLength: feedback.messageContent?.length || 0,
+      });
+
+      // Log positive feedback for success pattern analysis
+      logToFile("positive-feedback", {
+        ...enhancedFeedback,
+        successPattern: true,
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Feedback received and logged",
+      feedbackId: `fb_${Date.now()}_${Math.random()
+        .toString(36)
+        .substring(2, 7)}`,
+      context: {
+        userQuestion:
+          feedback.userQuery?.substring(0, 50) + "..." || "No question",
+        feedbackType: feedback.feedbackType,
+        hasUserDetails: !!userDetails,
+      },
+    });
+  } catch (error) {
+    console.error("❌ [Feedback] Failed to process feedback:", error);
+
+    // Enhanced error logging for feedback processing failures
+    logToFile("feedback-error", {
+      error: error.message,
+      stack: error.stack,
+      requestBody: req.body,
+      userId: req.user?._id,
+      timestamp: new Date().toISOString(),
+      headers: {
+        userAgent: req.headers["user-agent"],
+        referer: req.headers.referer,
+      },
+    });
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to process feedback",
+      debug: process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+});
+
 // CRITICAL FIX: Add debugging route to check data consistency
 router.get(
   "/api/debug/user-chats",
@@ -464,6 +899,73 @@ router.post(
   }
 );
 
+// 📊 Add route to view logs (for development/debugging)
+router.get(
+  "/api/debug/logs/:type",
+  authMiddleware,
+  debugAuth,
+  requireAuth,
+  async (req, res) => {
+    try {
+      const { type } = req.params;
+      const { limit = 50 } = req.query;
+
+      const logFile = path.join(
+        logsDir,
+        `${type}-${new Date().toISOString().split("T")[0]}.log`
+      );
+
+      if (!fs.existsSync(logFile)) {
+        return res.json({
+          success: false,
+          error: `No logs found for type: ${type}`,
+          availableTypes: [
+            "user-feedback",
+            "positive-feedback",
+            "negative-feedback",
+            "agent-chat-save",
+            "agent-chat-success",
+            "agent-chat-error",
+            "error-report",
+            "feedback-error",
+          ],
+        });
+      }
+
+      const logContent = fs.readFileSync(logFile, "utf8");
+      const logLines = logContent
+        .trim()
+        .split("\n")
+        .filter((line) => line);
+      const recentLogs = logLines.slice(-limit).map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return { raw: line };
+        }
+      });
+
+      res.json({
+        success: true,
+        logs: recentLogs,
+        totalCount: logLines.length,
+        logFile: logFile,
+        requestedLimit: limit,
+      });
+    } catch (error) {
+      console.error("[Debug] Error reading logs:", error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  }
+);
+
 console.log("[Routes] All routes configured successfully");
+console.log("📁 [Logger] Logs will be stored in:", logsDir);
+console.log(
+  "📊 [Logger] Available log types: user-feedback, positive-feedback, agent-chat-save, error-report, negative-feedback, feedback-error, agent-chat-error, agent-chat-success"
+);
 
 export default router;
