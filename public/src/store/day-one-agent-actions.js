@@ -309,6 +309,7 @@ const streamFromDayOne = async (
   let streamCompleted = false;
   let chunkCount = 0;
   let wordCount = 0;
+  let lastUpdateTime = Date.now();
 
   try {
     const response = await fetch(DAY_ONE_API_URL, {
@@ -343,7 +344,6 @@ const streamFromDayOne = async (
       const chunk = decoder.decode(value, { stream: true });
       buffer += chunk;
 
-      // Process complete lines
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
 
@@ -362,7 +362,6 @@ const streamFromDayOne = async (
           try {
             data = JSON.parse(jsonStr);
           } catch (parseError) {
-            // Extract message from partial JSON
             if (jsonStr.includes('"message"')) {
               const messageMatch = jsonStr.match(/"message"\s*:\s*"([^"]*)"/);
               if (messageMatch && messageMatch[1]) {
@@ -374,25 +373,28 @@ const streamFromDayOne = async (
             continue;
           }
 
-          // Process valid JSON
           if (data && data.message) {
             accumulatedText += data.message;
             chunkCount++;
             wordCount += data.message.split(/\s+/).length;
           }
 
-          // OPTIMIZED STREAMING: Update every 4 words or 5 chunks
-          if (wordCount >= 4 || chunkCount % 5 === 0) {
+          // CRITICAL FIX: Conservative streaming updates to prevent race conditions
+          const now = Date.now();
+          if (
+            (wordCount >= 10 && now - lastUpdateTime > 500) ||
+            chunkCount % 15 === 0
+          ) {
             optimizedStreamingManager.scheduleUpdate(
               streamingId,
               accumulatedText,
               dispatch,
               false
             );
-            wordCount = 0; // Reset word count after update
+            wordCount = 0;
+            lastUpdateTime = now;
           }
 
-          // Check for completion
           if (data && (data.status === "complete" || data.complete === true)) {
             console.log(
               `[EnhancedStreamDayOne] ${agentType} completion signal received`
@@ -414,7 +416,6 @@ const streamFromDayOne = async (
     console.log(
       `[EnhancedStreamDayOne] ${agentType} completed - final length: ${accumulatedText.length}`
     );
-
     optimizedStreamingManager.scheduleUpdate(
       streamingId,
       accumulatedText,
@@ -422,21 +423,23 @@ const streamFromDayOne = async (
       true
     );
 
-    // CRITICAL FIX: Generate proper chat history ID for new conversations
+    // CRITICAL FIX: Enhanced save logic with state synchronization
     if (isNewConversation && !finalChatHistoryId) {
       finalChatHistoryId = `agent_${agentType}_${Date.now()}_${Math.random()
         .toString(36)
         .substring(2, 7)}`;
-
       console.log(
         `[EnhancedStreamDayOne] Generated new chat ID: ${finalChatHistoryId}`
       );
     }
 
-    // CRITICAL FIX: Save chat to backend using proper endpoints
-    if (finalChatHistoryId && accumulatedText) {
+    // CRITICAL FIX: Save with proper error handling and state management
+    if (finalChatHistoryId && accumulatedText && accumulatedText.length > 10) {
       try {
         console.log(`[EnhancedStreamDayOne] Attempting to save chat...`);
+
+        // CRITICAL FIX: Wait for streaming to fully complete before saving
+        await new Promise((resolve) => setTimeout(resolve, 300));
 
         const savedChatHistoryId = await saveAgentChatToBackend(
           finalChatHistoryId,
@@ -451,13 +454,15 @@ const streamFromDayOne = async (
           console.log(
             `[EnhancedStreamDayOne] Chat saved with ID: ${finalChatHistoryId}`
           );
+
+          // CRITICAL FIX: Additional state synchronization delay
+          await new Promise((resolve) => setTimeout(resolve, 200));
         }
       } catch (saveError) {
         console.error(
           `[EnhancedStreamDayOne] Save error (continuing anyway):`,
           saveError
         );
-        // Don't fail the entire operation if save fails
       }
     }
 
@@ -468,7 +473,6 @@ const streamFromDayOne = async (
     };
   } catch (error) {
     console.error(`[EnhancedStreamDayOne] ${agentType} error:`, error);
-
     dispatch(
       chatAction.updateStreamingChat({
         streamingId: streamingId,
@@ -477,7 +481,6 @@ const streamFromDayOne = async (
         error: error.message,
       })
     );
-
     throw error;
   } finally {
     optimizedStreamingManager.cleanup(streamingId);
@@ -504,14 +507,11 @@ export const sendDirectDayOneRequest = (requestData) => {
 
     try {
       const token = await getDayOneToken();
-
-      // Generate streaming ID
       const streamingId = `streaming_${agentType}_${Date.now()}_${Math.random()
         .toString(36)
         .substring(2, 7)}`;
 
       if (isNewConversation) {
-        // Single message for new conversations
         dispatch(
           chatAction.chatStart({
             useInput: {
@@ -567,7 +567,7 @@ export const sendDirectDayOneRequest = (requestData) => {
       dispatch(uiAction.setLoading(false));
       dispatch(agentAction.setLoading(false));
 
-      // Start enhanced streaming with save functionality
+      // CRITICAL FIX: Enhanced streaming with state-aware timing
       const streamResult = await streamFromDayOne(
         agentType,
         question,
@@ -580,7 +580,10 @@ export const sendDirectDayOneRequest = (requestData) => {
 
       console.log(`[DirectDayOneRequest] ${agentType} completed successfully`);
 
-      // CRITICAL FIX: Update Redux with final chat history ID
+      // CRITICAL FIX: Wait for save completion before any navigation
+      let finalChatHistoryId = streamResult.chatHistoryId;
+      let saveCompleted = false;
+
       if (
         streamResult.chatHistoryId &&
         streamResult.chatHistoryId !== currentChatHistoryId
@@ -593,9 +596,13 @@ export const sendDirectDayOneRequest = (requestData) => {
             chatHistoryId: streamResult.chatHistoryId,
           })
         );
+
+        // CRITICAL FIX: Wait for state to stabilize
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        saveCompleted = true;
       }
 
-      // CRITICAL FIX: Update previous chat context for conversation continuity
+      // Update conversation context
       const state = getState();
       const updatedPreviousChat = [
         ...(state.chat.previousChat || []),
@@ -604,19 +611,35 @@ export const sendDirectDayOneRequest = (requestData) => {
       ];
 
       dispatch(
-        chatAction.previousChatHandler({
-          previousChat: updatedPreviousChat,
-        })
+        chatAction.previousChatHandler({ previousChat: updatedPreviousChat })
       );
 
-      // CRITICAL FIX: Navigate for new conversations only
-      if (isNewConversation && navigate && streamResult.chatHistoryId) {
+      // CRITICAL FIX: Only navigate for new conversations AND after save is complete
+      if (
+        isNewConversation &&
+        navigate &&
+        finalChatHistoryId &&
+        saveCompleted
+      ) {
         console.log(
-          `[DirectDayOneRequest] Navigating to: /app/${streamResult.chatHistoryId}`
+          `[DirectDayOneRequest] Safe navigation to: /app/${finalChatHistoryId}`
         );
-        setTimeout(() => {
-          navigate(`/app/${streamResult.chatHistoryId}`, { replace: true });
-        }, 800); // Small delay to ensure state is updated
+
+        // CRITICAL FIX: Use requestAnimationFrame for smoother navigation timing
+        requestAnimationFrame(() => {
+          setTimeout(() => {
+            try {
+              // Double-check state is still valid before navigation
+              const currentState = getState();
+              if (currentState.chat.chatHistoryId === finalChatHistoryId) {
+                navigate(`/app/${finalChatHistoryId}`, { replace: true });
+              }
+            } catch (navError) {
+              console.error("Navigation error:", navError);
+              // Don't fail the entire operation for navigation errors
+            }
+          }, 800); // Increased delay for stability
+        });
       }
 
       return {
@@ -625,7 +648,7 @@ export const sendDirectDayOneRequest = (requestData) => {
         data: {
           answer: streamResult.text,
           sources: [],
-          chatHistoryId: streamResult.chatHistoryId,
+          chatHistoryId: finalChatHistoryId,
         },
       };
     } catch (error) {
@@ -652,11 +675,7 @@ export const sendDirectDayOneRequest = (requestData) => {
       dispatch(uiAction.setLoading(false));
       dispatch(agentAction.setLoading(false));
 
-      return {
-        success: false,
-        streamingComplete: true,
-        error: error.message,
-      };
+      return { success: false, streamingComplete: true, error: error.message };
     }
   };
 };

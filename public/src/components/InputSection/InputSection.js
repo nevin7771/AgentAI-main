@@ -175,7 +175,7 @@ const InputSection = () => {
     return agentId === "jira_ag";
   }, []);
 
-  // ENHANCED: onSubmitHandler with auto-refresh recents and better agent handling
+  // Fixed onSubmitHandler for InputSection.js - No ESLint errors
   const onSubmitHandler = async (e) => {
     e.preventDefault();
     if (!userInput.trim() || isLoaderActive === "yes") return;
@@ -187,213 +187,505 @@ const InputSection = () => {
 
     try {
       const hasExistingConversation = chatHistoryId && currentChats?.length > 0;
+      const operationId = `submit_${Date.now()}_${Math.random()
+        .toString(36)
+        .substring(2, 5)}`;
 
+      console.log(
+        `[InputSection] Operation ${operationId} - Existing conversation: ${hasExistingConversation}, ChatID: ${chatHistoryId}`
+      );
+
+      // CRITICAL FIX: Early navigation for new conversations to prevent race conditions
       if (!hasExistingConversation) {
+        console.log(
+          `[InputSection] Early navigation to /app for new conversation`
+        );
         navigate("/app");
+        // CRITICAL FIX: Small delay to ensure navigation completes
+        await new Promise((resolve) => setTimeout(resolve, 150));
       }
 
       dispatch(uiAction.setLoading(true));
 
+      // ===== AGENT HANDLING =====
       if (selectedAgents.length > 0) {
         const selectedAgentId = selectedAgents[0]; // Only one agent allowed
+        console.log(`[InputSection] Processing with agent: ${selectedAgentId}`);
 
+        // ===== JIRA AGENT =====
         if (isJiraAgent(selectedAgentId)) {
-          const jiraResponse = await dispatch(
-            sendAgentQuestion({
-              question: currentInput,
-              agents: selectedAgents,
-              chatHistoryId: chatHistoryId,
-              navigate,
-            })
-          );
+          console.log(`[InputSection] Processing Jira agent request`);
 
-          if (jiraResponse && jiraResponse.orchestrationComplete === true) {
-            const finalChatId =
-              jiraResponse.data?.chatHistoryId || chatHistoryId;
+          try {
+            const jiraResponse = await dispatch(
+              sendAgentQuestion({
+                question: currentInput,
+                agents: selectedAgents,
+                chatHistoryId: chatHistoryId,
+                navigate: hasExistingConversation ? null : navigate, // Only pass navigate for new conversations
+              })
+            );
 
-            // Auto-refresh recent chats
-            setTimeout(() => {
-              dispatch(getRecentChat());
-            }, 1500);
+            if (jiraResponse && jiraResponse.orchestrationComplete === true) {
+              const finalChatId =
+                jiraResponse.data?.chatHistoryId || chatHistoryId;
 
-            if (finalChatId && !hasExistingConversation) {
-              setTimeout(() => {
-                navigate(`/app/${finalChatId}`, { replace: true });
-              }, 1000);
+              console.log(
+                `[InputSection] Jira agent completed - ChatID: ${finalChatId}`
+              );
+
+              // CRITICAL FIX: Controlled refresh timing to prevent conflicts
+              if (finalChatId) {
+                setTimeout(() => {
+                  try {
+                    dispatch(getRecentChat());
+                    console.log(`[InputSection] Jira recent chat refreshed`);
+                  } catch (refreshError) {
+                    console.error(
+                      "Error refreshing recent chat for Jira:",
+                      refreshError
+                    );
+                  }
+                }, 2500); // Conservative delay
+
+                // CRITICAL FIX: Safe navigation only for new conversations
+                if (!hasExistingConversation) {
+                  setTimeout(() => {
+                    try {
+                      navigate(`/app/${finalChatId}`, { replace: true });
+                      console.log(
+                        `[InputSection] Jira navigation completed to: /app/${finalChatId}`
+                      );
+                    } catch (navError) {
+                      console.error("Jira navigation error:", navError);
+                    }
+                  }, 1200);
+                }
+              }
+
+              dispatch(uiAction.setLoading(false));
+              console.log(
+                `[InputSection] Jira operation completed successfully`
+              );
+              return;
+            } else {
+              throw new Error("Jira agent returned incomplete response");
             }
-            dispatch(uiAction.setLoading(false));
-            return;
+          } catch (jiraError) {
+            console.error(`[InputSection] Jira agent error:`, jiraError);
+            throw jiraError; // Re-throw to be caught by main error handler
           }
-        } else if (isDayOneStreamingAgent(selectedAgentId)) {
-          console.log(`[InputSection] Using streaming for ${selectedAgentId}`);
+        }
+
+        // ===== DAY ONE STREAMING AGENTS (Confluence & Monitor) =====
+        else if (isDayOneStreamingAgent(selectedAgentId)) {
+          console.log(
+            `[InputSection] Processing Day One streaming agent: ${selectedAgentId}`
+          );
 
           let streamingPromise;
-          if (selectedAgentId === "conf_ag") {
-            streamingPromise = dispatch(
-              sendDirectConfluenceQuestion({
-                question: currentInput,
-                chatHistoryId: chatHistoryId,
-                navigate,
-              })
-            );
-          } else if (selectedAgentId === "monitor_ag") {
-            streamingPromise = dispatch(
-              sendDirectMonitorQuestion({
-                question: currentInput,
-                chatHistoryId: chatHistoryId,
-                navigate,
-              })
-            );
-          }
 
-          streamingPromise
-            .then((response) => {
-              console.log(`[InputSection] Streaming completed:`, response);
-
-              // Auto-refresh recent chats after streaming completes
-              setTimeout(() => {
-                dispatch(getRecentChat());
-              }, 2000);
-            })
-            .catch((error) => {
-              console.error(`[InputSection] Streaming error:`, error);
-            });
-
-          dispatch(uiAction.setLoading(false));
-        } else {
-          // Handle other agents (standard flow)
-          const agentResponse = await dispatch(
-            sendAgentQuestion({
-              question: currentInput,
-              agents: selectedAgents,
-              chatHistoryId: chatHistoryId,
-              navigate,
-            })
-          );
-
-          if (agentResponse && agentResponse.orchestrationComplete === true) {
-            const finalChatId =
-              agentResponse.data?.chatHistoryId || chatHistoryId;
-
-            // Auto-refresh recent chats
-            setTimeout(() => {
-              dispatch(getRecentChat());
-            }, 1500);
-
-            if (finalChatId && !hasExistingConversation) {
-              setTimeout(() => {
-                navigate(`/app/${finalChatId}`, { replace: true });
-              }, 1000);
-            }
-            return;
-          }
-
-          // Handle polling for other agents...
-          if (!agentResponse || !agentResponse.taskId) {
-            throw new Error(
-              "Failed to get a valid response from agent service"
-            );
-          }
-
-          pollAgentTask(agentResponse.taskId, dispatch, {
-            interval: 2000,
-            maxAttempts: 60,
-            onComplete: (data) => {
-              handleAgentResponse({
-                ...data,
-                agentId: selectedAgentId,
-                question: currentInput,
-              });
-            },
-            onError: (error) => {
-              console.error("Agent task error:", error);
-              dispatch(chatAction.popChat());
-              dispatch(
-                chatAction.chatStart({
-                  useInput: {
-                    user: currentInput,
-                    gemini: `<div>Agent Error: ${error.message}</div>`,
-                    isLoader: "no",
-                    isSearch: true,
-                    searchType: "agent",
-                  },
+          try {
+            if (selectedAgentId === "conf_ag") {
+              streamingPromise = dispatch(
+                sendDirectConfluenceQuestion({
+                  question: currentInput,
+                  chatHistoryId: chatHistoryId,
+                  navigate: hasExistingConversation ? null : navigate, // CRITICAL FIX: Only pass navigate for new conversations
                 })
               );
+            } else if (selectedAgentId === "monitor_ag") {
+              streamingPromise = dispatch(
+                sendDirectMonitorQuestion({
+                  question: currentInput,
+                  chatHistoryId: chatHistoryId,
+                  navigate: hasExistingConversation ? null : navigate,
+                })
+              );
+            }
+
+            if (streamingPromise) {
+              console.log(
+                `[InputSection] ${selectedAgentId} streaming started`
+              );
+
+              // CRITICAL FIX: Enhanced promise handling with proper error recovery
+              streamingPromise
+                .then((response) => {
+                  console.log(
+                    `[InputSection] ${selectedAgentId} streaming completed:`,
+                    {
+                      success: response?.success,
+                      chatHistoryId: response?.data?.chatHistoryId,
+                      hasData: !!response?.data,
+                    }
+                  );
+
+                  // CRITICAL FIX: Only refresh if streaming was successful and we have stable state
+                  if (
+                    response &&
+                    response.success &&
+                    response.data?.chatHistoryId
+                  ) {
+                    const finalChatId = response.data.chatHistoryId;
+
+                    // CRITICAL FIX: Much more conservative refresh timing to prevent state conflicts
+                    setTimeout(() => {
+                      try {
+                        dispatch(getRecentChat());
+                        console.log(
+                          `[InputSection] ${selectedAgentId} recent chat refreshed safely for chat: ${finalChatId}`
+                        );
+                      } catch (refreshError) {
+                        console.error(
+                          `Error refreshing recent chat for ${selectedAgentId} (${finalChatId}):`,
+                          refreshError
+                        );
+                      }
+                    }, 6000); // Much longer delay to ensure complete stability
+                  } else {
+                    console.warn(
+                      `[InputSection] ${selectedAgentId} streaming completed but response was incomplete:`,
+                      response
+                    );
+                  }
+                })
+                .catch((error) => {
+                  console.error(
+                    `[InputSection] ${selectedAgentId} streaming error:`,
+                    error
+                  );
+                  dispatch(uiAction.setLoading(false));
+
+                  // CRITICAL FIX: Show user-friendly error message
+                  dispatch(
+                    chatAction.chatStart({
+                      useInput: {
+                        user: currentInput,
+                        gemini: `<div class="error-message">
+                        <p><strong>${getAgentDisplayName(
+                          selectedAgentId
+                        )} Error</strong></p>
+                        <p>${
+                          error.message || "Streaming failed. Please try again."
+                        }</p>
+                      </div>`,
+                        isLoader: "no",
+                        isSearch: true,
+                        searchType: "agent",
+                        error: true,
+                        isPreformattedHTML: true,
+                      },
+                    })
+                  );
+                });
+
+              // CRITICAL FIX: Don't wait for streaming to complete - return immediately
               dispatch(uiAction.setLoading(false));
-            },
-          });
+              console.log(
+                `[InputSection] ${selectedAgentId} streaming operation initiated`
+              );
+              return;
+            } else {
+              throw new Error(
+                `Failed to initiate streaming for ${selectedAgentId}`
+              );
+            }
+          } catch (streamingError) {
+            console.error(
+              `[InputSection] ${selectedAgentId} streaming setup error:`,
+              streamingError
+            );
+            throw streamingError;
+          }
         }
-      } else if (searchMode === "deep" || searchMode === "simple") {
-        // Handle search modes
-        let searchResponse;
-        const endpoint =
-          searchMode === "deep" ? "/api/deepsearch" : "/api/simplesearch";
 
-        searchResponse = await dispatch(
-          sendDeepSearchRequest({
-            query: currentInput,
-            sources: ["support.zoom.us", "community.zoom.us", "zoom.us"],
-            endpoint: endpoint,
-            chatHistoryId: chatHistoryId,
-          })
-        );
+        // ===== OTHER AGENTS (Standard orchestrated flow) =====
+        else {
+          console.log(
+            `[InputSection] Processing standard orchestrated agent: ${selectedAgentId}`
+          );
 
-        // Auto-refresh recent chats
-        setTimeout(() => {
-          dispatch(getRecentChat());
-        }, 2000);
+          try {
+            const agentResponse = await dispatch(
+              sendAgentQuestion({
+                question: currentInput,
+                agents: selectedAgents,
+                chatHistoryId: chatHistoryId,
+                navigate: hasExistingConversation ? null : navigate,
+              })
+            );
 
-        if (
-          searchResponse &&
-          searchResponse.chatHistoryId &&
-          !hasExistingConversation
-        ) {
-          setTimeout(() => {
-            navigate(`/app/${searchResponse.chatHistoryId}`, { replace: true });
-          }, 500);
-        }
-      } else {
-        // Handle regular chat
-        const chatResponse = await dispatch(
-          sendChatData({
-            user: currentInput,
-            previousChat: previousChat,
-            chatHistoryId: chatHistoryId,
-          })
-        );
+            if (agentResponse && agentResponse.orchestrationComplete === true) {
+              const finalChatId =
+                agentResponse.data?.chatHistoryId || chatHistoryId;
 
-        // Auto-refresh recent chats
-        setTimeout(() => {
-          dispatch(getRecentChat());
-        }, 1500);
+              console.log(
+                `[InputSection] Standard agent completed - ChatID: ${finalChatId}`
+              );
 
-        if (
-          chatResponse &&
-          chatResponse.chatHistoryId &&
-          !hasExistingConversation
-        ) {
-          setTimeout(() => {
-            navigate(`/app/${chatResponse.chatHistoryId}`, { replace: true });
-          }, 500);
+              // Auto-refresh recent chats
+              if (finalChatId) {
+                setTimeout(() => {
+                  try {
+                    dispatch(getRecentChat());
+                    console.log(
+                      `[InputSection] Standard agent recent chat refreshed`
+                    );
+                  } catch (refreshError) {
+                    console.error(
+                      "Error refreshing recent chat for standard agent:",
+                      refreshError
+                    );
+                  }
+                }, 2000);
+
+                if (!hasExistingConversation) {
+                  setTimeout(() => {
+                    try {
+                      navigate(`/app/${finalChatId}`, { replace: true });
+                      console.log(
+                        `[InputSection] Standard agent navigation completed`
+                      );
+                    } catch (navError) {
+                      console.error(
+                        "Standard agent navigation error:",
+                        navError
+                      );
+                    }
+                  }, 1000);
+                }
+              }
+
+              dispatch(uiAction.setLoading(false));
+              return;
+            }
+
+            // ===== POLLING FOR AGENTS THAT REQUIRE IT =====
+            if (!agentResponse || !agentResponse.taskId) {
+              throw new Error(
+                "Failed to get a valid response from agent service"
+              );
+            }
+
+            console.log(
+              `[InputSection] Starting polling for agent task: ${agentResponse.taskId}`
+            );
+
+            pollAgentTask(agentResponse.taskId, dispatch, {
+              interval: 2000,
+              maxAttempts: 60,
+              onComplete: (data) => {
+                console.log(`[InputSection] Agent polling completed`);
+                handleAgentResponse({
+                  ...data,
+                  agentId: selectedAgentId,
+                  question: currentInput,
+                });
+              },
+              onError: (error) => {
+                console.error("Agent task polling error:", error);
+                dispatch(chatAction.popChat());
+                dispatch(
+                  chatAction.chatStart({
+                    useInput: {
+                      user: currentInput,
+                      gemini: `<div class="error-message">
+                      <p><strong>Agent Error</strong></p>
+                      <p>${error.message}</p>
+                    </div>`,
+                      isLoader: "no",
+                      isSearch: true,
+                      searchType: "agent",
+                      isPreformattedHTML: true,
+                    },
+                  })
+                );
+                dispatch(uiAction.setLoading(false));
+              },
+            });
+
+            // Don't set loading to false here - polling will handle it
+            return;
+          } catch (standardAgentError) {
+            console.error(
+              `[InputSection] Standard agent error:`,
+              standardAgentError
+            );
+            throw standardAgentError;
+          }
         }
       }
 
-      console.log(`[InputSection] Query processing initiated successfully`);
+      // ===== SEARCH MODES =====
+      else if (searchMode === "deep" || searchMode === "simple") {
+        const searchType = searchMode;
+        console.log(`[InputSection] Processing ${searchType} search`);
+
+        try {
+          const endpoint =
+            searchMode === "deep" ? "/api/deepsearch" : "/api/simplesearch";
+
+          const searchResponse = await dispatch(
+            sendDeepSearchRequest({
+              query: currentInput,
+              sources: ["support.zoom.us", "community.zoom.us", "zoom.us"],
+              endpoint: endpoint,
+              chatHistoryId: chatHistoryId,
+            })
+          );
+
+          console.log(`[InputSection] ${searchType} search completed:`, {
+            success: searchResponse?.success,
+            chatHistoryId: searchResponse?.chatHistoryId,
+          });
+
+          // Auto-refresh recent chats
+          if (searchResponse && searchResponse.success) {
+            setTimeout(() => {
+              try {
+                dispatch(getRecentChat());
+                console.log(
+                  `[InputSection] ${searchType} search recent chat refreshed`
+                );
+              } catch (refreshError) {
+                console.error(
+                  `Error refreshing recent chat for ${searchType} search:`,
+                  refreshError
+                );
+              }
+            }, 2500);
+
+            if (searchResponse.chatHistoryId && !hasExistingConversation) {
+              setTimeout(() => {
+                try {
+                  navigate(`/app/${searchResponse.chatHistoryId}`, {
+                    replace: true,
+                  });
+                  console.log(
+                    `[InputSection] ${searchType} search navigation completed`
+                  );
+                } catch (navError) {
+                  console.error(
+                    `${searchType} search navigation error:`,
+                    navError
+                  );
+                }
+              }, 800);
+            }
+          }
+
+          dispatch(uiAction.setLoading(false));
+          console.log(
+            `[InputSection] ${searchType} search operation completed`
+          );
+          return;
+        } catch (searchError) {
+          console.error(
+            `[InputSection] ${searchMode} search error:`,
+            searchError
+          );
+          throw searchError;
+        }
+      }
+
+      // ===== REGULAR CHAT =====
+      else {
+        console.log(`[InputSection] Processing regular chat`);
+
+        try {
+          const chatResponse = await dispatch(
+            sendChatData({
+              user: currentInput,
+              previousChat: previousChat,
+              chatHistoryId: chatHistoryId,
+            })
+          );
+
+          console.log(`[InputSection] Regular chat completed:`, {
+            success: chatResponse?.success,
+            chatHistoryId: chatResponse?.chatHistoryId,
+          });
+
+          // Auto-refresh recent chats
+          if (chatResponse && chatResponse.success) {
+            setTimeout(() => {
+              try {
+                dispatch(getRecentChat());
+                console.log(
+                  `[InputSection] Regular chat recent chat refreshed`
+                );
+              } catch (refreshError) {
+                console.error(
+                  "Error refreshing recent chat for regular chat:",
+                  refreshError
+                );
+              }
+            }, 2000);
+
+            if (chatResponse.chatHistoryId && !hasExistingConversation) {
+              setTimeout(() => {
+                try {
+                  navigate(`/app/${chatResponse.chatHistoryId}`, {
+                    replace: true,
+                  });
+                  console.log(
+                    `[InputSection] Regular chat navigation completed`
+                  );
+                } catch (navError) {
+                  console.error("Regular chat navigation error:", navError);
+                }
+              }, 600);
+            }
+          }
+
+          dispatch(uiAction.setLoading(false));
+          console.log(`[InputSection] Regular chat operation completed`);
+          return;
+        } catch (chatError) {
+          console.error(`[InputSection] Regular chat error:`, chatError);
+          throw chatError;
+        }
+      }
     } catch (error) {
       console.error(`[InputSection] Error submitting query:`, error);
-      dispatch(chatAction.popChat());
-      dispatch(
-        chatAction.chatStart({
-          useInput: {
-            user: currentInput,
-            gemini: `<div>Error: ${error.message}</div>`,
-            isLoader: "no",
-            isSearch: selectedAgents.length > 0 || searchMode !== "simple",
-            searchType: selectedAgents.length > 0 ? "agent" : searchMode,
-          },
-        })
-      );
+
+      // CRITICAL FIX: Comprehensive error handling
+      try {
+        // Remove any loading messages
+        dispatch(chatAction.popChat());
+
+        // Add error message to chat
+        dispatch(
+          chatAction.chatStart({
+            useInput: {
+              user: currentInput,
+              gemini: `<div class="error-message">
+              <p><strong>Request Failed</strong></p>
+              <p>${
+                error.message ||
+                "An unexpected error occurred. Please try again."
+              }</p>
+              <details>
+                <summary>Error Details</summary>
+                <pre>${error.stack || error.toString()}</pre>
+              </details>
+            </div>`,
+              isLoader: "no",
+              isSearch: selectedAgents.length > 0 || searchMode !== "simple",
+              searchType: selectedAgents.length > 0 ? "agent" : searchMode,
+              error: true,
+              isPreformattedHTML: true,
+            },
+          })
+        );
+      } catch (errorHandlingError) {
+        console.error("Error in error handling:", errorHandlingError);
+      }
+
+      // Always ensure loading state is cleared
       dispatch(uiAction.setLoading(false));
+      dispatch(agentAction.setLoading(false));
     }
   };
 
